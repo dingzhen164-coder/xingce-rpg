@@ -1,0 +1,279 @@
+"""
+HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只监听 127.0.0.1，外网访问不到。
+
+每个请求的流程：拿全局锁 → 读配置和存档 → 建 Game → 做事 → housekeeping（检查通关）→ 存档 → 返回 JSON。
+配置文件每次都重新读，所以用户在 Obsidian 里改了规则，刷新网页就生效。
+
+接口一览（GET 无参数，POST 请求体是 JSON）：
+    GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
+    POST /api/plan/regenerate      重新生成今日任务
+    POST /api/session/start        {"task_id"} 或 {"task": {type, board, target, title}} 开始训练
+    POST /api/session/reply        {"session", "text"}      提交文字
+    POST /api/session/action       {"session", "action"}    点按钮
+    GET  /api/skeletons            各板块骨架与每个大项的掌握度
+    GET  /api/wrong                错题池统计
+    POST /api/heartbeat            {"seconds"}  网页每分钟上报一次学习时间
+    POST /api/leave                用请假卡
+    POST /api/boss                 {"name", "score"}  录入模考 / 国考真实分
+    POST /api/practice             {"board", "total", "correct", "minutes"}  录入自练
+    GET  /api/settings             本机设置（不返回完整 key）
+    POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
+    POST /api/settings/test        测试 AI 连接
+    GET  /vault-file?p=<库内相对路径>   库里的图片（题目截图、头像）
+    GET  /                         web/ 下的静态文件
+"""
+import datetime as dt
+import json
+import mimetypes
+import traceback
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler
+from urllib.parse import parse_qs, unquote, urlparse
+
+from . import ai, config, engine, store, trainer, vault
+from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
+
+
+class ApiError(Exception):
+    pass
+
+
+@contextmanager
+def open_game(save=True):
+    with store.LOCK:
+        paths = Paths(find_vault())
+        paths.ensure_train_dir()
+        rules, persona, lines = config.load_all(paths)
+        st = store.Store(paths)
+        today = dt.date.today()
+        state = st.load(today)
+        g = engine.Game(paths, rules, persona, lines, state, today)
+        g.store = st
+        yield g
+        if save and paths.vault:
+            st.save(state, today)
+
+
+def _persona_view(g):
+    avatar = g.persona["头像"]
+    url = ""
+    if g.paths.vault and avatar and (g.paths.train / avatar).is_file():
+        url = "/vault-file?p=" + ("训练/" + avatar)
+    return {"id": g.persona["ID"], "call": g.persona["称呼"], "tutor": g.persona["导师名"], "avatar": url}
+
+
+# ---------------------------------------------------------------- 各接口
+def dashboard(body):
+    with open_game() as g:
+        ev = g.housekeeping()
+        first_today = g.state.get("last_seen") != g.t
+        g.state["last_seen"] = g.t
+        plan = g.plan()
+        d = g.dashboard()
+        d.update(plan=plan, persona=_persona_view(g), events=ev, first_today=first_today,
+                 vault=str(g.paths.vault) if g.paths.vault else None, ai=ai.available(),
+                 other_device=g.store.heartbeat(), conflicts=g.store.conflicts())
+        return d
+
+
+def plan_regenerate(body):
+    with open_game() as g:
+        g.housekeeping()
+        return g.plan(force=True)
+
+
+def _find_task(g, tid):
+    for t in (g.state.get("plan") or {}).get("tasks", []):
+        if t["id"] == tid:
+            return t
+    raise ApiError("任务不存在（可能已经过了一天），请刷新页面")
+
+
+def _with_housekeeping(g, resp):
+    resp["events"] = (resp.get("events") or []) + g.housekeeping()
+    return resp
+
+
+def session_start(body):
+    with open_game() as g:
+        task = _find_task(g, body["task_id"]) if body.get("task_id") else dict(body["task"], id=None)
+        return _with_housekeeping(g, trainer.start(g, task))
+
+
+def session_reply(body):
+    with open_game() as g:
+        return _with_housekeeping(g, trainer.reply(g, body["session"], body.get("text", "")))
+
+
+def session_action(body):
+    with open_game() as g:
+        return _with_housekeeping(g, trainer.action(g, body["session"], body.get("action", "")))
+
+
+def skeletons(body):
+    with open_game(save=False) as g:
+        out = []
+        for b, info in g.boards.items():
+            sk = g.skel(b)
+            items = []
+            for it in (sk["items"] if sk else []):
+                st = g.state["items"].get(it["id"], {})
+                items.append({"id": it["id"], "name": it["name"], "terms": len(it["terms"]),
+                              "thoughts": len(it["thoughts"]), "level": st.get("level", 0),
+                              "levelName": engine.LEVEL_NAMES[st.get("level", 0)],
+                              "l1": st.get("l1", 0), "l3": st.get("l3", 0),
+                              "next": st.get("next"), "rusty": st.get("rusty", False),
+                              "lapCheck": st.get("lap_check", False)})
+            out.append({"board": b, "skill": info["skill"], "hasSkill": g.has_skill(b),
+                        "status": (sk["status"] if sk else "无"), "final": bool(sk and sk["final"]),
+                        "file": f"训练/骨架/{b}.md", "items": items})
+        return {"boards": out, "need_l1": g.rules.num("默写连续通过次数"), "need_l3": g.rules.num("应用连续通过次数")}
+
+
+def wrong(body):
+    with open_game(save=False) as g:
+        out = []
+        for b, info in g.boards.items():
+            qs = vault.wrong_questions(g.paths, info["sources"])
+            st = [g.state["wrong"].get(q["key"], {}).get("status", "new") for q in qs]
+            out.append({"board": b, "total": len(qs), "new": st.count("new"),
+                        "redo": st.count("redo"), "done": st.count("done")})
+        redo = [{"key": k, **w} for k, w in g.state["wrong"].items() if w["status"] == "redo"]
+        return {"boards": out, "redo": sorted(redo, key=lambda x: x.get("due") or "")}
+
+
+def heartbeat(body):
+    sec = max(0, min(90, int(body.get("seconds", 60))))
+    with open_game() as g:
+        ev = g.add_seconds(sec)
+        return {"events": ev, "minutes": int(g.minutes(g.t)), "other_device": g.store.heartbeat()}
+
+
+def leave(body):
+    with open_game() as g:
+        ok, msg = g.use_leave()
+        return {"ok": ok, "events": [{"kind": "npc" if ok else "info", "msg": msg}]}
+
+
+def boss(body):
+    name = str(body.get("name", "")).strip() or "模考"
+    try:
+        score = float(body["score"])
+    except Exception:
+        raise ApiError("分数要填数字")
+    with open_game() as g:
+        return {"events": g.add_boss(name, score)}
+
+
+def practice(body):
+    try:
+        total, correct = int(body["total"]), int(body["correct"])
+        minutes = int(body.get("minutes") or 0)
+    except Exception:
+        raise ApiError("题数、正确数、分钟要填数字")
+    if total <= 0 or not (0 <= correct <= total):
+        raise ApiError("题数要大于 0，正确数不能超过题数")
+    with open_game() as g:
+        return {"events": g.add_practice(str(body.get("board", "")).strip() or "自练", total, correct, minutes)}
+
+
+def settings_get(body):
+    s = load_settings()
+    a = ai.settings()
+    key = a["api_key"]
+    return {"vault": str(find_vault() or ""), "vault_setting": s.get("vault", ""),
+            "base_url": a["base_url"], "model": a["model"],
+            "has_key": bool(key), "key_tail": key[-4:] if key else ""}
+
+
+def settings_set(body):
+    s = load_settings()
+    if "vault" in body:
+        v = str(body["vault"]).strip()
+        if v:
+            from pathlib import Path
+            if not looks_like_vault(Path(v).expanduser()):
+                raise ApiError("这个文件夹里没有 copilot/skills 或 FB模考试卷复盘，不像行测库根目录")
+        s["vault"] = v
+    for k in ("api_key", "base_url", "model"):
+        if k in body and str(body[k]).strip():
+            s[k] = str(body[k]).strip()
+    save_settings(s)
+    return settings_get({})
+
+
+def settings_test(body):
+    r = ai.chat([{"role": "user", "content": "回复“连接成功”四个字"}], max_tokens=20, timeout=30)
+    return {"ok": True, "reply": r}
+
+
+ROUTES = {
+    ("GET", "/api/dashboard"): dashboard,
+    ("POST", "/api/plan/regenerate"): plan_regenerate,
+    ("POST", "/api/session/start"): session_start,
+    ("POST", "/api/session/reply"): session_reply,
+    ("POST", "/api/session/action"): session_action,
+    ("GET", "/api/skeletons"): skeletons,
+    ("GET", "/api/wrong"): wrong,
+    ("POST", "/api/heartbeat"): heartbeat,
+    ("POST", "/api/leave"): leave,
+    ("POST", "/api/boss"): boss,
+    ("POST", "/api/practice"): practice,
+    ("GET", "/api/settings"): settings_get,
+    ("POST", "/api/settings"): settings_set,
+    ("POST", "/api/settings/test"): settings_test,
+}
+
+
+# ---------------------------------------------------------------- HTTP
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):  # 不在终端刷屏
+        pass
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+        data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle(self, method):
+        url = urlparse(self.path)
+        fn = ROUTES.get((method, url.path))
+        if fn:
+            try:
+                body = {}
+                if method == "POST":
+                    n = int(self.headers.get("Content-Length") or 0)
+                    body = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+                self._send(200, fn(body))
+            except (ApiError, trainer.TrainError, ai.AIError) as e:
+                self._send(400, {"error": str(e)})
+            except Exception as e:
+                traceback.print_exc()
+                self._send(500, {"error": f"程序出错：{e}（终端窗口里有详细信息）"})
+            return
+        if method != "GET":
+            return self._send(404, {"error": "not found"})
+        if url.path == "/vault-file":
+            rel = unquote(parse_qs(url.query).get("p", [""])[0])
+            p = vault.safe_vault_file(Paths(find_vault()), rel)
+            if not p:
+                return self._send(404, {"error": "文件不存在"})
+            return self._send(200, p.read_bytes(), mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+        rel = url.path.lstrip("/") or "index.html"
+        f = (WEB_DIR / rel).resolve()
+        if WEB_DIR.resolve() not in f.parents or not f.is_file():
+            return self._send(404, {"error": "not found"})
+        ctype = mimetypes.guess_type(f.name)[0] or "text/plain"
+        if ctype.startswith("text/") or ctype in ("application/javascript",):
+            ctype += "; charset=utf-8"
+        self._send(200, f.read_bytes(), ctype)
+
+    def do_GET(self):
+        self._handle("GET")
+
+    def do_POST(self):
+        self._handle("POST")

@@ -1,0 +1,33 @@
+<!doctype html>
+<!--
+  行测 RPG 前端页面骨架。所有内容由 app.js 渲染到 #view 里；样式在 style.css。
+  页面结构：顶栏（标志 / 导航 / 今日时长） + 主视图 + 右下角提示层（经验、导师台词） + 升级弹窗。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行测 RPG</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">⚔ 行测 RPG</div>
+  <nav id="nav">
+    <a data-view="home" class="active">主页</a>
+    <a data-view="train">训练</a>
+    <a data-view="skeleton">骨架</a>
+    <a data-view="wrong">错题</a>
+    <a data-view="log">记录</a>
+    <a data-view="settings">设置</a>
+  </nav>
+  <div class="today-pill" id="todayPill" title="今天的有效学习时间（页面可见且有操作才计时）">⏱ 0 / 120 分钟</div>
+</header>
+<div id="banner"></div>
+<main id="view"></main>
+<div id="toasts"></div>
+<div id="modal" class="modal hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

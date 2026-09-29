@@ -1,0 +1,87 @@
+"""
+路径：找 Obsidian 行测库（vault）、训练文件夹、本机设置。
+
+约定（和 obsidian-to-xingce 项目一致）：
+    <库>/copilot/skills/<skill名>/SKILL.md          板块解题 skill（只读）
+    <库>/FB模考试卷复盘/板块复盘/第N季/NN-板块.md     模考板块复盘（只读）
+    <库>/训练/                                       本程序的数据（规则、骨架、存档……），坚果云同步
+    ~/.xingce-rpg/settings.json                      本机设置（API key、库路径），不同步、不进仓库
+
+找库的顺序：环境变量 XINGCE_VAULT → 本机设置里的 vault → 从程序所在目录往上找。
+"""
+import json
+import os
+from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parent.parent          # 程序根目录（server.py 所在）
+WEB_DIR = APP_DIR / "web"
+DEFAULTS_DIR = APP_DIR / "defaults"                       # 首次运行时复制到 训练/ 的默认配置
+SETTINGS_DIR = Path.home() / ".xingce-rpg"
+SETTINGS_FILE = SETTINGS_DIR / "settings.json"
+
+SKILLS_REL = Path("copilot") / "skills"
+SEASONS_REL = Path("FB模考试卷复盘") / "板块复盘"
+TRAIN_REL = Path("训练")
+
+
+def load_settings():
+    """本机设置：{"api_key", "base_url", "model", "vault"}，文件不存在就返回空字典"""
+    try:
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_settings(data):
+    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, SETTINGS_FILE)
+
+
+def looks_like_vault(p: Path) -> bool:
+    return (p / SKILLS_REL).is_dir() or (p / SEASONS_REL).is_dir()
+
+
+def find_vault():
+    """返回库根目录（Path）；找不到返回 None，网页会提示用户在“设置”里填写"""
+    env = os.environ.get("XINGCE_VAULT")
+    if env and looks_like_vault(Path(env).expanduser()):
+        return Path(env).expanduser().resolve()
+    s = load_settings().get("vault")
+    if s and looks_like_vault(Path(s).expanduser()):
+        return Path(s).expanduser().resolve()
+    # 推荐把程序放在 <库>/训练/程序/ 里，这样往上两级就是库
+    for p in [APP_DIR, *APP_DIR.parents]:
+        if looks_like_vault(p):
+            return p
+    return None
+
+
+class Paths:
+    """一个库对应的全部路径。vault 为 None 时各属性也为 None。"""
+
+    def __init__(self, vault):
+        self.vault = vault
+        self.skills = vault / SKILLS_REL if vault else None
+        self.seasons = vault / SEASONS_REL if vault else None
+        self.train = vault / TRAIN_REL if vault else None
+        self.skeletons = self.train / "骨架" if vault else None
+        self.save_dir = self.train / "存档" if vault else None
+        self.save_file = self.save_dir / "存档.json" if vault else None
+        self.rules = self.train / "规则.md" if vault else None
+        self.persona = self.train / "角色设定.md" if vault else None
+        self.lines = self.train / "台词库.md" if vault else None
+
+    def ensure_train_dir(self):
+        """首次运行：建 训练/ 文件夹，并把缺失的默认配置复制进去（已有的文件绝不覆盖）"""
+        if not self.vault:
+            return
+        for d in (self.train, self.skeletons, self.save_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        for name in ("规则.md", "角色设定.md", "台词库.md"):
+            dst = self.train / name
+            if not dst.exists():
+                src = DEFAULTS_DIR / name
+                with open(dst, "w", encoding="utf-8", newline="\n") as fp:
+                    fp.write(src.read_text(encoding="utf-8"))
