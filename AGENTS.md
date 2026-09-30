@@ -11,11 +11,13 @@
 | 经验值、等级曲线、分批、复查间隔等数值 | 不用改代码：用户的 `训练/规则.md`；默认值在 `defaults/规则.md` + `rpg/config.py` 的 `DEFAULT_RULES`（两处同步） |
 | 游戏规则逻辑（升级、打卡、理想线、每日任务） | `rpg/engine.py` |
 | 训练流程（默写/费曼/错题…的对话步骤） | `rpg/trainer.py` |
-| 发给 AI 的提示词、AI 返回的 JSON 字段 | `rpg/prompts.py`（字段名被 trainer.py 读取，改了要一起改） |
+| 发给 AI 的提示词、AI 返回的 JSON 字段、世界观设定 | `rpg/prompts.py`（字段名被 trainer.py 读取，改了要一起改） |
+| AI 导师什么时候说话、说话依据的学员现状 | `rpg/tutor.py`、`engine.tutor_context()` |
+| 界面上的玄幻名词 | `engine.LABEL` / `LEVEL_NAMES`、`web/app.js`、`defaults/台词库.md`（对照表见 DESIGN.md 第 4 节） |
 | 接口 | `rpg/api.py`（顶部有接口清单） |
 | 页面、样式 | `web/app.js`、`web/style.css` |
 | 读模考复盘 / skill | `rpg/vault.py`（只读） |
-| 默认人设、台词 | `defaults/角色设定.md`、`defaults/台词库.md`（只在首次运行时复制给用户） |
+| 默认人设、台词 | `defaults/角色设定.md`、`defaults/台词库.md`（首次运行时复制给用户；改结构要升“配置版本”，见 DESIGN.md） |
 
 ## 必须遵守
 

@@ -74,14 +74,33 @@ class Paths:
         self.lines = self.train / "台词库.md" if vault else None
 
     def ensure_train_dir(self):
-        """首次运行：建 训练/ 文件夹，并把缺失的默认配置复制进去（已有的文件绝不覆盖）"""
+        """建 训练/ 文件夹，把缺失的默认配置复制进去。
+        已有的配置文件不覆盖；只有它的“配置版本”低于程序的 CONFIG_VERSION（程序升级改了结构）时，
+        才把旧文件改名为 “xxx.旧版.md” 备份，再换成新的默认文件。返回被升级的文件名列表。"""
+        from .config import CONFIG_VERSION
+        from .mdconf import parse, to_num
         if not self.vault:
-            return
+            return []
         for d in (self.train, self.skeletons, self.save_dir):
             d.mkdir(parents=True, exist_ok=True)
+        upgraded = []
         for name in ("规则.md", "角色设定.md", "台词库.md"):
             dst = self.train / name
-            if not dst.exists():
-                src = DEFAULTS_DIR / name
-                with open(dst, "w", encoding="utf-8", newline="\n") as fp:
-                    fp.write(src.read_text(encoding="utf-8"))
+            src = DEFAULTS_DIR / name
+            if dst.exists():
+                ver = to_num(parse(dst.read_text(encoding="utf-8", errors="ignore")).get("配置版本", 1), 1)
+                if ver >= CONFIG_VERSION:
+                    continue
+                bak = dst.with_name(dst.stem + ".旧版.md")
+                if bak.exists():
+                    bak.unlink()
+                os.replace(dst, bak)
+                upgraded.append(name)
+            with open(dst, "w", encoding="utf-8", newline="\n") as fp:
+                fp.write(src.read_text(encoding="utf-8"))
+        if upgraded:
+            UPGRADED.extend(upgraded)
+        return upgraded
+
+
+UPGRADED = []  # 本次运行中被升级的配置文件（网页上提示一次）

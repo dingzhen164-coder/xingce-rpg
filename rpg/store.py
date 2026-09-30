@@ -39,6 +39,7 @@ def new_state(today):
         "practice": [],          # 自练记录 {d, board, total, correct, minutes}
         "progress_hist": {},     # 每天的周目进度快照 {日期: 0~1}，算“近7天速度”用
         "last_seen": None,       # 上次打开网页的日期（判断“回归”）
+        "tutor_greet": None,     # AI 导师今天的开场问候缓存 {d, text}
     }
 
 

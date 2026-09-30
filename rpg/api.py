@@ -6,6 +6,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
 
 接口一览（GET 无参数，POST 请求体是 JSON）：
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
+    POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
     POST /api/plan/regenerate      重新生成今日任务
     POST /api/session/start        {"task_id"} 或 {"task": {type, board, target, title}} 开始训练
     POST /api/session/reply        {"session", "text"}      提交文字
@@ -30,7 +31,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import ai, config, engine, store, trainer, vault
+from . import ai, config, engine, paths as paths_mod, store, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -54,12 +55,15 @@ def open_game(save=True):
             st.save(state, today)
 
 
+def _img_url(g, name):
+    if g.paths.vault and name and (g.paths.train / name).is_file():
+        return "/vault-file?p=" + ("训练/" + name)
+    return ""
+
+
 def _persona_view(g):
-    avatar = g.persona["头像"]
-    url = ""
-    if g.paths.vault and avatar and (g.paths.train / avatar).is_file():
-        url = "/vault-file?p=" + ("训练/" + avatar)
-    return {"id": g.persona["ID"], "call": g.persona["称呼"], "tutor": g.persona["导师名"], "avatar": url}
+    return {"id": g.persona["ID"], "call": g.persona["称呼"], "tutor": g.persona["导师名"],
+            "avatar": _img_url(g, g.persona["头像"]), "tutor_avatar": _img_url(g, g.persona["导师头像"])}
 
 
 # ---------------------------------------------------------------- 各接口
@@ -70,10 +74,22 @@ def dashboard(body):
         g.state["last_seen"] = g.t
         plan = g.plan()
         d = g.dashboard()
-        d.update(plan=plan, persona=_persona_view(g), events=ev, first_today=first_today,
+        cached = tutor.cached_greeting(g)
+        if cached:
+            d["greeting"] = cached
+        upgraded = list(paths_mod.UPGRADED)
+        paths_mod.UPGRADED.clear()
+        d.update(plan=plan, persona=_persona_view(g), events=tutor.enrich(g, ev), first_today=first_today,
+                 greet_pending=bool(not cached and tutor.enabled(g)), upgraded=upgraded,
                  vault=str(g.paths.vault) if g.paths.vault else None, ai=ai.available(),
                  other_device=g.store.heartbeat(), conflicts=g.store.conflicts())
         return d
+
+
+def tutor_greet(body):
+    """网页加载完主页后再调：AI 生成今天的开场问候（慢，所以不放在 dashboard 里）"""
+    with open_game() as g:
+        return {"text": tutor.greeting(g)}
 
 
 def plan_regenerate(body):
@@ -90,7 +106,7 @@ def _find_task(g, tid):
 
 
 def _with_housekeeping(g, resp):
-    resp["events"] = (resp.get("events") or []) + g.housekeeping()
+    resp["events"] = tutor.enrich(g, (resp.get("events") or []) + g.housekeeping())
     return resp
 
 
@@ -145,14 +161,15 @@ def wrong(body):
 def heartbeat(body):
     sec = max(0, min(90, int(body.get("seconds", 60))))
     with open_game() as g:
-        ev = g.add_seconds(sec)
+        ev = tutor.enrich(g, g.add_seconds(sec))
         return {"events": ev, "minutes": int(g.minutes(g.t)), "other_device": g.store.heartbeat()}
 
 
 def leave(body):
     with open_game() as g:
         ok, msg = g.use_leave()
-        return {"ok": ok, "events": [{"kind": "npc" if ok else "info", "msg": msg}]}
+        ev = [{"kind": "npc", "msg": msg, "scene": "请假"}] if ok else [{"kind": "info", "msg": msg}]
+        return {"ok": ok, "events": tutor.enrich(g, ev)}
 
 
 def boss(body):
@@ -162,7 +179,7 @@ def boss(body):
     except Exception:
         raise ApiError("分数要填数字")
     with open_game() as g:
-        return {"events": g.add_boss(name, score)}
+        return {"events": tutor.enrich(g, g.add_boss(name, score))}
 
 
 def practice(body):
@@ -210,6 +227,7 @@ def settings_test(body):
 ROUTES = {
     ("GET", "/api/dashboard"): dashboard,
     ("POST", "/api/plan/regenerate"): plan_regenerate,
+    ("POST", "/api/tutor/greet"): tutor_greet,
     ("POST", "/api/session/start"): session_start,
     ("POST", "/api/session/reply"): session_reply,
     ("POST", "/api/session/action"): session_action,

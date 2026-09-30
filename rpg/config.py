@@ -21,11 +21,12 @@ DEFAULT_RULES = {
     "每日目标分钟": 120,
     "保底分钟": 15,
     "每月请假卡": 4,
+    "满级等级": 100,
     "起始分数": 50,
     "满级分数": 80,
     "每日理想经验": 300,
     "后期升级倍数": 3.0,
-    "突破等级": "10, 20, 30",
+    "突破等级": "30, 60, 90",
     "突破题数": 8,
     "突破通过率": 0.9,
     "每批预计天数": 14,
@@ -69,7 +70,12 @@ DEFAULT_RULES = {
     "分钟.错题": 4,
     "分钟.复查": 3,
     "分钟.骨架": 15,
+    "导师AI": "开",
 }
+
+# 用户配置文件的版本号。defaults/ 里的文件改了结构（不只是改数值）时 +1，
+# 程序启动时会把旧版本的用户文件备份成 “xxx.旧版.md” 并换成新默认文件（见 paths.ensure_train_dir）。
+CONFIG_VERSION = 2
 
 DEFAULT_BATCHES = [
     ["论证逻辑", "形式逻辑", "一拖五"],
@@ -121,6 +127,10 @@ class Rules:
         vals = [v for v in vals if v is not None]
         return vals or [mdconf.to_num(x, 0) for x in mdconf.split_list(DEFAULT_RULES[key])]
 
+    def on(self, key):
+        """开关类规则：“开 / 是 / true / 1” 为真"""
+        return str(self.get(key)).strip().lower() in ("开", "是", "true", "1", "on", "yes")
+
     def xp(self, name):
         """经验值：r.xp("默写通过")"""
         return self.num("经验." + name)
@@ -164,13 +174,17 @@ class Rules:
 
 class Persona:
     DEFAULT = {
-        "ID": "上岸者·001",
+        "ID": "无名冒险者",
         "称呼": "小岸",
         "头像": "头像.png",
-        "称号": "见习考生, 备考学徒, 刷题行者, 行测骑士, 上岸先锋, 上岸者",
-        "导师名": "教官",
-        "导师人设": "毒舌但靠谱的备考教官。说话简短、带点刺，偷懒会被俏皮地骂，超额完成会真心夸，真的累了会先共情再鼓励。",
-        "吐槽尺度": "轻",
+        "称号": "见习学徒, 青铜剑士, 白银骑士, 黄金圣骑士, 秘银剑圣, 奥术大法师, 龙骑士, 屠龙勇者, 传奇英雄, 半神, 神域·上岸者",
+        "称号间隔": "10",
+        "导师名": "艾琳学姐",
+        "导师头像": "导师.png",
+        "导师人设": ("王立行测魔法学院的首席大魔导师，你的学姐。表面温柔、总是笑眯眯，实际腹黑毒舌："
+                   "你偷懒时她笑着补刀、阴阳怪气地“关心”你；你超额完成时嘴上说“哼，还算像样”，其实比谁都骄傲；"
+                   "你真的累了、遇到困难时，她会收起毒舌，认真温柔地安慰你。"),
+        "吐槽尺度": "中",
     }
 
     def __init__(self, text=""):
@@ -181,10 +195,12 @@ class Persona:
         return self.d[k]
 
     def title(self, level, max_level):
+        """称号：每“称号间隔”级换一个（默认 10：Lv1–9 第一个，Lv10–19 第二个……）；满级一定是最后一个"""
         titles = mdconf.split_list(self.d["称号"]) or ["上岸者"]
+        step = max(1, int(mdconf.to_num(self.d["称号间隔"], 10)))
         if level >= max_level or len(titles) == 1:
             return titles[-1]
-        return titles[min((level - 1) // 5, len(titles) - 2)]
+        return titles[min(level // step, len(titles) - 2)]
 
 
 class Lines:

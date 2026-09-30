@@ -80,6 +80,8 @@ def fake_chat(messages, json_mode=False, **kw):
     """假 AI：根据提示词里的关键字返回固定结果（全部判“通过”）"""
     text = messages[-1]["content"] if messages else ""
     sys_text = messages[0]["content"] if messages else ""
+    if "请以你的身份对学员说一段话" in text:
+        return "哎呀，学姐的现场台词。"
     if "知识骨架" in text:
         return SKELETON.split("# 论证逻辑 · 骨架", 1)[1]
     if "要点是否说到了" in text:
@@ -140,8 +142,8 @@ class FlowTest(unittest.TestCase):
         d = api.dashboard({})
         self.assertEqual(d["level"]["level"], 1)
         titles = [t["title"] for t in d["plan"]["tasks"]]
-        self.assertIn("生成「论证逻辑」骨架", titles)
-        self.assertTrue(any("错题" in t for t in titles))
+        self.assertIn("编纂「论证逻辑」咒文书（生成骨架）", titles)
+        self.assertTrue(any("讨伐魔物" in t for t in titles))
 
         # 生成骨架 → 定稿
         r = api.session_start({"task": {"type": "skeleton", "board": "论证逻辑", "target": "论证逻辑", "title": "骨架"}})
@@ -158,7 +160,7 @@ class FlowTest(unittest.TestCase):
         t = {"board": "论证逻辑", "target": iid, "title": "x"}
         # 默写：术语缺一个 → 不过
         r = self.run_task(dict(t, type="recite"), answer="否定论点，先找论点和论据")
-        self.assertTrue(any("未通过" in m["text"] for m in r["messages"]))
+        self.assertTrue(any("咏唱失败" in m["text"] for m in r["messages"]))
         # 连续两次通过 → L1
         self.run_task(dict(t, type="recite"))
         self.run_task(dict(t, type="recite"))
@@ -191,6 +193,20 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(any(e["type"] == "batch" for e in s["events"]))
         self.assertTrue(any(t["done"] for t in s["plan"]["tasks"] if t["target"] == "论证逻辑::加强题"))
 
+    def test_ai_tutor(self):
+        d = api.dashboard({})
+        self.assertTrue(d["greet_pending"])
+        self.assertEqual(api.tutor_greet({})["text"], "哎呀，学姐的现场台词。")
+        d = api.dashboard({})
+        self.assertFalse(d["greet_pending"])            # 当天已缓存，不再花钱
+        self.assertEqual(d["greeting"], "哎呀，学姐的现场台词。")
+        with api.open_game() as g:                     # 里程碑台词被换成 AI 现场说的
+            _, cum = g.level_table()
+            ev = api.tutor.enrich(g, g._award(cum[1], "bonus", note="测试", bonus=False))
+        self.assertTrue(any(e.get("kind") == "level" for e in ev))
+        self.assertIn("哎呀，学姐的现场台词。", [e.get("msg") for e in ev])
+        self.assertIn("艾琳学姐", (self.vault / "训练/角色设定.md").read_text(encoding="utf-8"))
+
     def test_no_ai_self_rating(self):
         paths.save_settings({"vault": str(self.vault)})  # 没有 key
         self.assertFalse(ai.available())
@@ -215,6 +231,25 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.state()["xp"], 0)
 
 
+class MigrationTest(unittest.TestCase):
+    def test_old_config_is_backed_up_and_replaced(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            v = tmp / "行测"
+            (v / "copilot/skills").mkdir(parents=True)
+            (v / "训练").mkdir()
+            (v / "训练/角色设定.md").write_text("- 导师名: 教官\n", encoding="utf-8")  # 第一版的文件，没有“配置版本”
+            (v / "训练/规则.md").write_text((ROOT / "defaults/规则.md").read_text(encoding="utf-8"), encoding="utf-8")
+            up = paths.Paths(v).ensure_train_dir()
+            self.assertEqual(up, ["角色设定.md"])  # 台词库不存在 → 直接新建，不算升级
+            self.assertIn("艾琳学姐", (v / "训练/角色设定.md").read_text(encoding="utf-8"))
+            self.assertIn("教官", (v / "训练/角色设定.旧版.md").read_text(encoding="utf-8"))
+            self.assertEqual(paths.Paths(v).ensure_train_dir(), [])  # 第二次不再升级
+        finally:
+            paths.UPGRADED.clear()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class EngineTest(unittest.TestCase):
     def make(self, today, state=None):
         from rpg import config, store
@@ -224,19 +259,34 @@ class EngineTest(unittest.TestCase):
     def test_level_curve_reaches_max_on_target(self):
         g = self.make(dt.date(2026, 9, 29))
         costs, cum = g.level_table()
-        self.assertEqual(len(cum), 31)
+        self.assertEqual(len(cum), 100)
         self.assertAlmostEqual(cum[-1], 300 * (dt.date(2027, 12, 1) - dt.date(2026, 9, 29)).days, delta=50)
         self.assertLess(costs[0], costs[-1])
 
     def test_gate_blocks_level(self):
         g = self.make(dt.date(2026, 9, 29))
         _, cum = g.level_table()
-        g.state["xp"] = cum[12]  # 够 Lv13
+        g.state["xp"] = cum[40]  # 够 Lv41
         info = g.level_info()
-        self.assertEqual(info["level"], 10)
-        self.assertEqual(info["gate"], 10)
-        g.state["gates"].append(10)
-        self.assertEqual(g.level_info()["level"], 13)
+        self.assertEqual(info["level"], 29)  # 要到 Lv30 必须先过晋升试炼
+        self.assertEqual(info["gate"], 30)
+        self.assertEqual(info["gate_title"], "黄金圣骑士")
+        g.state["gates"].append(30)
+        self.assertEqual(g.level_info()["level"], 41)
+        self.assertEqual(g.level_info()["title"], "秘银剑圣")
+
+    def test_score_and_titles(self):
+        g = self.make(dt.date(2026, 9, 29))
+        _, cum = g.level_table()
+        self.assertEqual(g.level_info()["score"], 50.0)
+        self.assertEqual(g.level_info()["title"], "见习学徒")
+        g.state["xp"] = cum[-1] // 2
+        g.state["gates"] = [30, 60, 90]
+        self.assertAlmostEqual(g.level_info()["score"], 65.0, delta=0.1)  # 经验过半 ≈ 65 分，与等级数无关
+        g.state["xp"] = cum[-1]
+        self.assertEqual(g.level_info()["level"], 100)
+        self.assertEqual(g.level_info()["title"], "神域·上岸者")
+        self.assertEqual(g.level_info()["score"], 80.0)
 
     def test_streak_halves_on_miss(self):
         t = dt.date(2026, 10, 10)

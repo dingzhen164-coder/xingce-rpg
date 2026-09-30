@@ -37,10 +37,15 @@ function toast(html, cls = "", ms = 4200) {
   $("#toasts").appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
+// 导师头像：训练/ 里有“导师头像”图片就用图片，否则用 🔮
+function tutorFace() {
+  const u = DASH?.persona?.tutor_avatar;
+  return u ? `<div class="face"><img src="${esc(u)}" alt=""></div>` : `<div class="face">🔮</div>`;
+}
 function npcToast(msg) {
   if (!msg) return;
   const name = DASH?.persona?.tutor || "导师";
-  toast(`<div class="npc"><div class="face">🎖</div><div><div class="who">${esc(name)}</div>${md(msg)}</div></div>`, "", 7000);
+  toast(`<div class="npc">${tutorFace()}<div><div class="who">${esc(name)}</div>${md(msg)}</div></div>`, "", 9000);
 }
 function showError(e) { toast("⚠ " + esc(e.message || e), "err", 6000); }
 
@@ -54,9 +59,10 @@ function handleEvents(events, { inChat = false } = {}) {
 }
 function levelUp(e) {
   const m = $("#modal");
-  m.innerHTML = `<div class="levelup"><div class="muted">LEVEL UP</div><div class="lv">Lv.${e.v}</div>
-    <div style="font-size:20px;margin-top:6px">预估 <b style="color:var(--gold)">${e.score}</b> 分</div>
-    <div class="muted">称号：${esc(e.title)}</div><br><button class="primary">继续变强</button></div>`;
+  m.innerHTML = `<div class="levelup"><div class="muted rune">✦ LEVEL UP ✦</div><div class="lv">Lv.${e.v}</div>
+    ${e.promoted ? `<div class="promo">晋升！新称号「${esc(e.title)}」</div>` : `<div class="muted">「${esc(e.title)}」</div>`}
+    <div style="font-size:18px;margin-top:6px">战力预估 <b style="color:var(--gold)">${e.score}</b> 分</div>
+    <br><button class="primary">继续征程</button></div>`;
   m.classList.remove("hidden");
   $("button", m).onclick = () => m.classList.add("hidden");
 }
@@ -81,12 +87,13 @@ async function refresh() {
 function updatePill() {
   if (!DASH) return;
   const m = DASH.minutes;
-  $("#todayPill").textContent = `⏱ ${m.today} / ${m.goal} 分钟` + (m.today >= m.goal ? " ✅" : "");
+  $("#todayPill").textContent = `🕯 今日修炼 ${m.today} / ${m.goal} 分钟` + (m.today >= m.goal ? " ✦" : "");
 }
 function banner() {
   const w = [];
   if (!DASH.vault) w.push("还没找到行测库，请到“设置”里填写库的路径。");
-  if (!DASH.ai) w.push("还没填写 AI 的 API key：默写和错题可以用自评模式，费曼讲解 / 应用题 / 生成骨架需要 AI。去“设置”填写。");
+  if (!DASH.ai) w.push("还没填写 AI 的 API key：咏唱和讨伐魔物可以用自评模式，学姐聊天 / 传授奥义 / 实战演练 / 编纂咒文书需要 AI。去“设置”填写。");
+  if (DASH.upgraded?.length) w.push("程序升级了配置文件：" + DASH.upgraded.map((n) => `训练/${esc(n)}`).join("、") + "。你原来的版本备份成了同名的“.旧版.md”，有改过的内容可以抄回来。");
   if (DASH.other_device) w.push(`另一台电脑（${esc(DASH.other_device)}）10 分钟内在用训练程序。两台同时用，坚果云同步可能冲突，请先关掉那台。`);
   if (DASH.conflicts?.length) w.push("存档文件夹里有坚果云冲突副本：" + DASH.conflicts.map(esc).join("、") + "。请告诉 AI 帮你合并，或删掉旧的那份。");
   $("#banner").innerHTML = w.map((x) => `<div class="warn">${x}</div>`).join("");
@@ -105,8 +112,8 @@ async function render() {
 }
 
 // ------------------------------------------------------------ 页面
-const STATE_TAG = { current: '<span class="tag cur">◆本批</span>', mastered: '<span class="tag ok">★已掌握</span>',
-  cleared: '<span class="tag ok">已通关</span>', locked: '<span class="tag lock">🔒待接入</span>', later: "" };
+const STATE_TAG = { current: '<span class="tag cur">◆当前层</span>', mastered: '<span class="tag ok">★已精通</span>',
+  cleared: '<span class="tag ok">已攻略</span>', locked: '<span class="tag lock">🔒未解锁</span>', later: "" };
 
 const views = {
   home() {
@@ -116,21 +123,21 @@ const views = {
     const diff = I.diff_days;
     const ideal = diff > 0.5 ? `<div class="v bad">落后 ${diff} 天</div><div class="d">${I.catch ? `每天多学 ${I.catch.per_day} 分钟，约 ${I.catch.days} 天追平（共 ${I.catch.hours} 小时）` : ""}</div>`
       : diff < -0.5 ? `<div class="v good">领先 ${-diff} 天</div><div class="d">保持住</div>` : `<div class="v">正好在线上</div><div class="d">按计划走</div>`;
-    const gate = L.gate ? `<div class="small" style="color:var(--gold)">⚡ 经验已满，完成「突破试炼」才能升到 Lv.${L.gate + 1}</div>` : "";
-    const batch = d.batch.index ? `第 ${d.batch.index}/${d.batch.count} 批：${d.batch.boards.map(esc).join("、")}` : "本周目已通关";
+    const gate = L.gate ? `<div class="small" style="color:var(--gold)">⚡ 经验已满——通过「晋升试炼」才能晋升 Lv.${L.gate}「${esc(L.gate_title)}」</div>` : "";
+    const batch = d.batch.index ? `第 ${d.batch.index}/${d.batch.count} 层地下城：${d.batch.boards.map(esc).join("、")}` : "本轮征程已通关";
     const tasks = d.plan.tasks;
     const doneN = tasks.filter((t) => t.done).length;
     const totalMin = tasks.filter((t) => !t.optional).reduce((a, t) => a + t.minutes, 0);
     let lastBatch = 0;
     const tree = d.tree.map((s) => {
       let h = "";
-      if (s.batch !== lastBatch) { lastBatch = s.batch; h += `<div class="batch-h">第 ${s.batch} 批</div>`; }
+      if (s.batch !== lastBatch) { lastBatch = s.batch; h += `<div class="batch-h">🏰 第 ${s.batch} 层地下城</div>`; }
       const acc = s.acc ? `实战 ${pct(s.acc.rate)}% ${s.acc.trend}` : "实战 —";
-      const sk = s.state === "locked" ? "" : s.skeleton === "none" ? '<span class="tag draft">无骨架</span>' : s.skeleton === "draft" ? '<span class="tag draft">骨架草稿</span>' : "";
+      const sk = s.state === "locked" ? "" : s.skeleton === "none" ? '<span class="tag draft">无咒文书</span>' : s.skeleton === "draft" ? '<span class="tag draft">咒文书草稿</span>' : "";
       const color = s.state === "mastered" ? "green" : s.state === "current" ? "yellow" : "";
       return h + `<div class="skill ${s.state === "locked" ? "locked" : ""}"><div class="top"><span>${esc(s.board)} ${STATE_TAG[s.state] || ""}${sk}</span>
         <span class="muted small">${acc}</span></div><div class="bar thin ${color}"><div style="width:${pct(s.progress)}%"></div></div>
-        <div class="faint small">${s.items ? `${s.mastered}/${s.items} 大项掌握 · ${pct(s.progress)}%` : ""}</div></div>`;
+        <div class="faint small">${s.items ? `${s.mastered}/${s.items} 章精通 · ${pct(s.progress)}%` : ""}</div></div>`;
     }).join("");
     const side = d.side.map((s) => {
       const r = s.acc ? s.acc.rate : 0;
@@ -138,79 +145,79 @@ const views = {
         <div>实战 <b>${s.acc ? pct(r) + "%" : "—"}</b> ${s.acc ? s.acc.trend : ""}</div>
         <div class="bar thin blue"><div style="width:${Math.min(100, pct(r / s.target))}%"></div></div></div>`;
     }).join("");
-    const boss = d.boss.length ? d.boss.slice().reverse().map((b) => `${esc(b.name)} <b>${b.score}</b> <span class="faint small">${b.d}</span>`).join(" · ") : '<span class="muted">还没有记录。模考 / 国考出分后到“记录”页录入。</span>';
+    const boss = d.boss.length ? d.boss.slice().reverse().map((b) => `${esc(b.name)} <b>${b.score}</b> <span class="faint small">${b.d}</span>`).join(" · ") : '<span class="muted">还没有战绩。模考 / 国考出分后到“编年史”页录入。</span>';
     return `
-    <div class="card npc"><div class="face">🎖</div><div><div class="who">${esc(p.tutor)}</div><div>${md(d.greeting)}</div></div></div>
+    <div class="card npc greet">${tutorFace()}<div><div class="who">${esc(p.tutor)}</div><div id="greet">${md(d.greeting)}${d.greet_pending ? '<div class="thinking small">学姐正在打量你</div>' : ""}</div></div></div>
     <div class="card hero">
       <div class="avatar">${avatar}<div class="lv-badge">Lv.${L.level}</div></div>
       <div class="hero-main">
         <div class="hero-name">${esc(p.id)}<small>「${esc(p.call)}」</small></div>
-        <div class="hero-title">称号：${esc(L.title)} · 第 ${d.lap} 周目 · ${esc(batch)}</div>
+        <div class="hero-title">「${esc(L.title)}」 · 第 ${d.lap} 轮征程 · ${esc(batch)}</div>
         <div class="row small muted" style="margin-top:8px"><span>EXP ${L.into} / ${L.need}</span><span class="spacer"></span><span>累计 ${d.xp}</span></div>
         <div class="bar"><div style="width:${pct(L.frac)}%"></div></div>${gate}
       </div>
-      <div class="hero-score"><div class="small muted">等级预估</div><div class="big">${L.score}<span>分</span></div>
+      <div class="hero-score"><div class="small muted">战力预估</div><div class="big">${L.score}<span>分</span></div>
         <div class="small muted">满级 Lv.${L.max_level} = ${L.max_score} 分</div></div>
     </div>
     <div class="grid g4" style="margin-top:14px">
-      <div class="stat"><div class="k">🔥 连续打卡</div><div class="v">${d.streak.days} 天</div><div class="d">经验加成 +${pct(d.streak.bonus)}%</div></div>
-      <div class="stat"><div class="k">📅 理想线</div>${ideal}</div>
-      <div class="stat"><div class="k">🗺 本周目进度</div><div class="v">${pct(F.progress)}%</div><div class="d">${F.days_left ? `按近 7 天速度还需 ${F.days_left} 天` : "练几天后给出预测"}</div></div>
-      <div class="stat"><div class="k">🏁 预计满级</div><div class="v">${I.eta || "—"}</div><div class="d">目标 ${I.target}${I.daily_rate ? ` · 日均 ${I.daily_rate} EXP` : ""}</div></div>
+      <div class="stat"><div class="k">🔥 圣火连燃</div><div class="v">${d.streak.days} 天</div><div class="d">经验加成 +${pct(d.streak.bonus)}%</div></div>
+      <div class="stat"><div class="k">🧵 命运之线</div>${ideal}</div>
+      <div class="stat"><div class="k">🗺 本轮征程</div><div class="v">${pct(F.progress)}%</div><div class="d">${F.days_left ? `按近 7 天速度还需 ${F.days_left} 天` : "练几天后给出预测"}</div></div>
+      <div class="stat"><div class="k">👑 预计登神（满级）</div><div class="v">${I.eta || "—"}</div><div class="d">目标 ${I.target}${I.daily_rate ? ` · 日均 ${I.daily_rate} EXP` : ""}</div></div>
     </div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>📜 今日任务 <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
-        <div id="tasks">${tasks.map(taskRow).join("") || '<div class="muted">今天没有任务。去“骨架”页生成骨架，或者到“记录”页录入自练。</div>'}</div>
-        <div class="row" style="margin-top:8px"><button class="ghost small" id="regen">重新生成今日任务</button>
-        <button class="ghost small" id="chatBtn">和${esc(p.tutor)}聊聊</button></div></div>
-      <div class="card"><h3>⚔ 技能树 <small>骨架掌握度 · 实战正确率（最近 3 季）</small></h3><div class="tree">${tree}</div></div>
+      <div class="card"><h3>📜 今日委托 <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
+        <div id="tasks">${tasks.map(taskRow).join("") || '<div class="muted">今天没有委托。去“咒文书”页编纂咒文书，或者到“编年史”页记录野外历练。</div>'}</div>
+        <div class="row" style="margin-top:8px"><button class="ghost small" id="regen">重新生成今日委托</button>
+        <button class="small" id="chatBtn">💬 找${esc(p.tutor)}聊聊</button></div></div>
+      <div class="card"><h3>⚔ 技能树 <small>咒文书精通度 · 实战正确率（最近 3 季）</small></h3><div class="tree">${tree}</div></div>
     </div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>🧭 副线 <small>不做骨架，只看实战正确率</small></h3><div class="grid g2">${side}</div>
-        <div class="small muted" style="margin-top:8px">回炉中的错题：${d.redo} 道</div></div>
-      <div class="card"><h3>👹 Boss 战</h3><div>${boss}</div>
-        <h3 style="margin-top:14px">🕘 最近</h3>${recentList(d.recent.slice(0, 6))}</div>
+      <div class="card"><h3>🧭 支线任务 <small>不编咒文书，只看实战正确率</small></h3><div class="grid g2">${side}</div>
+        <div class="small muted" style="margin-top:8px">卷土重来的魔物：${d.redo} 只</div></div>
+      <div class="card"><h3>🐉 Boss 战</h3><div>${boss}</div>
+        <h3 style="margin-top:14px">📖 冒险日志</h3>${recentList(d.recent.slice(0, 6))}</div>
     </div>`;
   },
 
   train() {
     if (!T.session && !T.msgs.length) {
       const tasks = DASH?.plan?.tasks || [];
-      return `<div class="card"><h3>训练</h3><p class="muted">从今日任务里选一个开始：</p>${tasks.map(taskRow).join("") || '<div class="muted">没有任务</div>'}</div>`;
+      return `<div class="card"><h3>⚔ 冒险</h3><p class="muted">从今日委托里选一个出发：</p>${tasks.map(taskRow).join("") || '<div class="muted">今天没有委托</div>'}</div>`;
     }
     const tasks = DASH?.plan?.tasks || [];
     const inp = T.input;
     let composer = "";
-    if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在看你的答案</div>`;
+    if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在施法判定</div>`;
     else if (inp.mode === "text") composer = `<textarea id="answer" placeholder="${esc(inp.placeholder || "")}"></textarea>
         <div class="row" style="margin-top:8px"><span class="small muted">Ctrl / ⌘ + Enter 提交</span><span class="spacer"></span>
         <button class="ghost" data-act="skip">跳过</button><button class="primary" id="send">提交</button></div>`;
     else if (inp.mode === "buttons") composer = `<div class="row">${inp.buttons.map((b) => `<button class="${b.id === "skip" ? "ghost" : "primary"}" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
-    else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一个任务</button><button class="ghost" id="backHome">回主页</button></div>`;
+    else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一个委托</button><button class="ghost" id="backHome">回营地</button></div>`;
     return `<div class="train">
-      <div class="card"><h3>今日任务</h3>${tasks.map(taskRow).join("")}</div>
+      <div class="card"><h3>📜 今日委托</h3>${tasks.map(taskRow).join("")}</div>
       <div class="card chat"><h3>${esc(T.title)}</h3><div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
   },
 
   async skeleton() {
     const sk = await api("/api/skeletons");
-    // 掌握度后面附上当前级别的进度，如“未学 · 默写 1/2”
-    const sub = (it) => it.level === 0 && it.l1 ? ` · 默写 ${it.l1}/${sk.need_l1}` : it.level === 2 && it.l3 ? ` · 应用 ${it.l3}/${sk.need_l3}` : "";
+    // 精通度后面附上当前级别的进度，如“未习得 · 咏唱 1/2”
+    const sub = (it) => it.level === 0 && it.l1 ? ` · 咏唱 ${it.l1}/${sk.need_l1}` : it.level === 2 && it.l3 ? ` · 演练 ${it.l3}/${sk.need_l3}` : "";
     return sk.boards.map((b) => {
       const st = b.final ? '<span class="tag ok">已定稿</span>' : b.status === "草稿" ? '<span class="tag draft">草稿</span>' : '<span class="tag lock">无</span>';
       const skill = b.hasSkill ? `<span class="small muted">skill：${esc(b.skill)}</span>` : `<span class="small" style="color:var(--red)">skill 未接入：${esc(b.skill || "（未配置）")}</span>`;
       const rows = b.items.map((it) => {
         const cls = it.rusty ? "rust" : "l" + it.level;
-        return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} 术语 · ${it.thoughts} 思路</td>
-          <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? "生锈" : esc(it.levelName)}${sub(it)}${it.lapCheck ? " · 待速通" : ""}</span></td>
-          <td class="small muted">${it.next ? "复查 " + it.next : ""}</td>
-          <td>${b.final ? `<a data-free="${esc(it.id)}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">默写一次</a>` : ""}</td></tr>`;
+        return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} 真名 · ${it.thoughts} 思路</td>
+          <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? "遗忘诅咒" : esc(it.levelName)}${sub(it)}${it.lapCheck ? " · 待重温" : ""}</span></td>
+          <td class="small muted">${it.next ? "驱散遗忘 " + it.next : ""}</td>
+          <td>${b.final ? `<a data-free="${esc(it.id)}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">咏唱一次</a>` : ""}</td></tr>`;
       }).join("");
-      return `<div class="card"><div class="row"><h3 style="margin:0">${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
-        ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审核 / 定稿" : "生成骨架"}</button>`}</div>
+      return `<div class="card"><div class="row"><h3 style="margin:0">📕 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
+        ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编纂咒文书"}</button>`}</div>
         <div class="small faint">文件：${esc(b.file)}</div>
-        ${rows ? `<table style="margin-top:8px"><tr><th>大项</th><th>内容</th><th>掌握度</th><th></th><th></th></tr>${rows}</table>` : ""}</div>`;
+        ${rows ? `<table style="margin-top:8px"><tr><th>章节（大项）</th><th>内容</th><th>精通度</th><th></th><th></th></tr>${rows}</table>` : ""}</div>`;
     }).join("");
   },
 
@@ -218,26 +225,26 @@ const views = {
     const w = await api("/api/wrong");
     const rows = w.boards.filter((b) => b.total).map((b) => `<tr><td>${esc(b.board)}</td><td>${b.total}</td><td>${b.new}</td><td style="color:var(--red)">${b.redo}</td><td style="color:var(--green)">${b.done}</td></tr>`).join("");
     const redo = w.redo.map((r) => { const [n, s, q] = r.key.split("|"); return `<tr><td>第${n}季 ${esc(s)} 第${q}题</td><td>${r.due || ""}</td><td>${r.streak || 0}</td><td>${r.tries}</td></tr>`; }).join("");
-    return `<div class="card"><h3>错题池 <small>来自模考板块复盘里的 ❌ / ⚪ 题</small></h3>
-      <table><tr><th>板块</th><th>错题</th><th>未练</th><th>回炉中</th><th>已过关</th></tr>${rows || '<tr><td colspan="5" class="muted">还没有错题数据</td></tr>'}</table></div>
-      <div class="card"><h3>回炉清单 <small>判错的题，到期后出现在每日任务里</small></h3>
-      <table><tr><th>题目</th><th>下次</th><th>连续判对</th><th>练过</th></tr>${redo || '<tr><td colspan="4" class="muted">清空了，漂亮</td></tr>'}</table></div>`;
+    return `<div class="card"><h3>👾 魔物图鉴 <small>来自模考板块复盘里做错 ❌ / 没做 ⚪ 的题</small></h3>
+      <table><tr><th>地下城（板块）</th><th>魔物</th><th>未交战</th><th>卷土重来</th><th>已讨伐</th></tr>${rows || '<tr><td colspan="5" class="muted">还没有魔物数据</td></tr>'}</table></div>
+      <div class="card"><h3>💀 卷土重来的魔物 <small>没讨伐成功的题，到期后出现在今日委托里</small></h3>
+      <table><tr><th>魔物</th><th>再战日</th><th>连续讨伐</th><th>交战次数</th></tr>${redo || '<tr><td colspan="4" class="muted">全部讨伐，漂亮</td></tr>'}</table></div>`;
   },
 
   log() {
     const d = DASH;
     return `<div class="grid g2">
-      <div class="card"><h3>👹 录入 Boss 战（模考 / 国考真实分）</h3>
+      <div class="card"><h3>🐉 记录 Boss 战（模考 / 国考真实分）</h3>
         <div class="row"><input id="bossName" placeholder="名称，如 第37季模考 / 2026国考" style="flex:2"><input id="bossScore" placeholder="分数" style="flex:1"></div>
-        <div class="row" style="margin-top:8px"><button class="primary" id="bossBtn">录入</button><span class="small muted">每次录分 +经验，比上次高还有额外奖励</span></div></div>
-      <div class="card"><h3>📝 录入自练（资料分析、常识等）</h3>
+        <div class="row" style="margin-top:8px"><button class="primary" id="bossBtn">记录战绩</button><span class="small muted">每次记录 +经验，比上次高还有额外奖励</span></div></div>
+      <div class="card"><h3>🌲 记录野外历练（资料分析、常识等自练）</h3>
         <div class="row"><input id="prBoard" placeholder="板块" style="flex:2"><input id="prTotal" placeholder="题数" style="flex:1"><input id="prOk" placeholder="对了几题" style="flex:1"><input id="prMin" placeholder="分钟" style="flex:1"></div>
-        <div class="row" style="margin-top:8px"><button class="primary" id="prBtn">录入</button><span class="small muted">分钟会计入今天的学习时间</span></div></div>
+        <div class="row" style="margin-top:8px"><button class="primary" id="prBtn">记录</button><span class="small muted">分钟会计入今天的修炼时间</span></div></div>
     </div>
-    <div class="card"><h3>🎫 请假卡 <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
-      <p class="muted">生病、家里有事、加班……用一张请假卡：今天不断打卡，也不计入理想线。</p>
-      <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天已请假" : "今天请假"}</button></div>
-    <div class="card"><h3>🕘 经验记录</h3>${recentList(d.recent)}</div>`;
+    <div class="card"><h3>📜 休憩卷轴 <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
+      <p class="muted">生病、家里有事、加班……用一张休憩卷轴：今天圣火不灭（打卡不断），也不计入命运之线。</p>
+      <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天正在休憩" : "使用休憩卷轴"}</button></div>
+    <div class="card"><h3>📖 冒险日志</h3>${recentList(d.recent)}</div>`;
   },
 
   async settings() {
@@ -255,9 +262,10 @@ const views = {
       <div class="card"><h3>改规则 / 人设 / 台词</h3>
       <p>在 Obsidian 里直接编辑库里的这些文件，保存后刷新网页就生效：</p>
       <ul><li><b>训练/规则.md</b>：满级目标日、每日时长、分批、经验值、复查间隔……</li>
-      <li><b>训练/角色设定.md</b>：ID、称呼、头像、称号、导师人设</li>
-      <li><b>训练/台词库.md</b>：导师在各种场景说的话，可以自己加</li>
-      <li><b>训练/骨架/板块.md</b>：每个板块的默写标准</li></ul></div>`;
+      <li><b>训练/角色设定.md</b>：ID、称呼、头像、称号、导师名字 / 头像 / 人设</li>
+      <li><b>训练/台词库.md</b>：导师的备用台词（没连 AI 或规则里“导师AI: 关”时用），可以自己加</li>
+      <li><b>训练/骨架/板块.md</b>：每个板块的咒文书（默写标准）</li></ul>
+      <p class="small muted">头像：把图片放进 <b>训练/</b> 文件夹，文件名写进角色设定.md 的“头像”“导师头像”。</p></div>`;
   },
 };
 
@@ -274,7 +282,7 @@ function recentList(ev) {
 function msgHtml(m) {
   const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : `<div>${md(b.v)}</div>`).join("");
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
-  if (m.who === "npc") return `<div class="npc"><div class="face">🎖</div><div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
+  if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
   return `<div class="msg sys">${md(m.text)}${blocks}</div>`;
 }
@@ -286,7 +294,15 @@ function bindTaskClicks(root) {
 function bindHome() {
   bindTaskClicks($("#view"));
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
-  $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: "和导师聊聊" } });
+  $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${DASH?.persona?.tutor || "导师"}的研究室` } });
+  // AI 导师的开场问候比较慢：先显示台词库里的备用台词，生成好了再替换（每天只生成一次）
+  if (DASH?.greet_pending) {
+    DASH.greet_pending = false;
+    api("/api/tutor/greet", {}).then((r) => {
+      if (r.text) { DASH.greeting = r.text; const el = $("#greet"); if (el) el.innerHTML = md(r.text); }
+      else { const t = $("#greet .thinking"); if (t) t.remove(); }
+    }).catch(() => { const t = $("#greet .thinking"); if (t) t.remove(); });
+  }
 }
 
 async function startTask(body) {
@@ -322,7 +338,7 @@ function bindTrain() {
   const nx = $("#nextTask");
   if (nx) nx.onclick = () => {
     const t = (DASH?.plan?.tasks || []).find((x) => !x.done && !x.optional) || (DASH?.plan?.tasks || []).find((x) => !x.done);
-    t ? startTask({ task_id: t.id }) : (toast("今日任务全部完成！"), go("home"));
+    t ? startTask({ task_id: t.id }) : (toast("今日委托全部完成！回营地歇会儿吧 ✦"), go("home"));
   };
   const bh = $("#backHome"); if (bh) bh.onclick = () => { Object.assign(T, { session: null, msgs: [] }); go("home"); };
 }
@@ -342,9 +358,9 @@ async function doAction(act) {
 }
 function bindSkeleton() {
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
-    startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `「${b.dataset.skel}」骨架` } })));
+    startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `📕 「${b.dataset.skel}」咒文书` } })));
   document.querySelectorAll("[data-free]").forEach((a) => (a.onclick = () =>
-    startTask({ task: { type: "recite", board: a.dataset.board, target: a.dataset.free, title: `默写 · ${a.dataset.board}「${a.dataset.name}」` } })));
+    startTask({ task: { type: "recite", board: a.dataset.board, target: a.dataset.free, title: `咏唱咒文 · ${a.dataset.board}「${a.dataset.name}」` } })));
 }
 function bindLog() {
   $("#bossBtn").onclick = async () => {

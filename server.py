@@ -51,8 +51,10 @@ def main():
 
     vault = find_vault()
     if vault:
-        Paths(vault).ensure_train_dir()
+        up = Paths(vault).ensure_train_dir()
         print(f"行测库：{vault}")
+        for name in up:
+            print(f"配置文件已升级到新版本：训练/{name}（旧文件备份为 训练/{name[:-3]}.旧版.md）")
         print(f"训练数据：{vault / '训练'}")
     else:
         print("还没找到行测库：打开网页后在“设置”里填写库的路径（含 copilot/skills 的那个文件夹）")
