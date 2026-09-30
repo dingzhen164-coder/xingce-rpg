@@ -29,7 +29,7 @@ try {
     Expand-Archive -LiteralPath $zip -DestinationPath $unpack
     $source = Get-ChildItem -LiteralPath $unpack -Directory | Select-Object -First 1
     if (-not $source) { throw '下载内容无效。' }
-    foreach ($required in @('server.py','rpg\question_bank.py','web\app.js','defaults\题库')) {
+    foreach ($required in @('server.py','rpg\question_bank.py','web\app.js','defaults\题库','defaults\骨架\论证逻辑.md')) {
         if (-not (Test-Path -LiteralPath (Join-Path $source.FullName $required))) { throw "下载内容缺少 $required，尚未修改本地程序。" }
     }
     $newProgram = Join-Path $stage '新程序'
@@ -69,7 +69,7 @@ try {
         }
         # 先前骨架已在完整备份内；新版保持草稿，审核后定稿。
         New-Item -ItemType Directory -Path (Join-Path $TrainPath '骨架') -Force | Out-Null
-        $boneAlreadyUpdated = (Test-Path -LiteralPath $bonePath) -and ([IO.File]::ReadAllText($bonePath, $utf8).Contains('论证逻辑 · 理解与迁移训练'))
+        $boneAlreadyUpdated = (Test-Path -LiteralPath $bonePath) -and ([IO.File]::ReadAllText($bonePath, $utf8).Contains('内容版本: 20261001-完整章节'))
         if (-not $boneAlreadyUpdated) {
             $boneChanged = $true
             Copy-Item -LiteralPath (Join-Path $program 'defaults\骨架\论证逻辑.md') -Destination $bonePath -Force
@@ -91,7 +91,7 @@ try {
     Write-Host '更新成功。重新启动训练程序，在“试炼塔”中查看各板块。' -ForegroundColor Green
     Write-Host "题库位置：$(Join-Path $TrainPath '题库')"
     Write-Host "备份位置：$backup"
-    Write-Host '存档和已有题库保留；旧论证逻辑骨架已备份，新骨架是待核对的理解训练草稿。请补充方法细节并审阅后定稿。'
+    Write-Host '存档和已有题库保留；旧论证逻辑骨架已备份，新骨架已依据完整章节补齐。审阅后在藏经阁点“定稿”，再重新生成功课。'
 } finally {
     # 如果回滚失败，保留原程序，不能在清理时删除最后一份可恢复代码。
     if ((Test-Path -LiteralPath $oldProgram) -and -not (Test-Path -LiteralPath $program)) {

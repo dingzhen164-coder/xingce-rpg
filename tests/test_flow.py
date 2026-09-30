@@ -357,6 +357,31 @@ class FlowTest(unittest.TestCase):
             api.session_action({"session": r["session"], "action": "final"})
         self.assertIn("状态: 草稿", bone.read_text(encoding="utf-8"))
 
+    def test_complete_argument_curriculum_can_finalize_and_preserves_hierarchy(self):
+        from rpg import skeleton
+        source = ROOT / "defaults/骨架/论证逻辑.md"
+        body = source.read_text(encoding="utf-8")
+        bone = self.vault / "训练/骨架/论证逻辑.md"
+        bone.parent.mkdir(parents=True, exist_ok=True)
+        bone.write_text(body, encoding="utf-8")
+        parsed = skeleton.parse(body, "论证逻辑")
+        units = {it["name"]: it for it in parsed["items"]}
+        self.assertEqual(len(units["选项十三美 · 完整上位清单"]["terms"]), 13)
+        self.assertEqual(len(units["选项十三丑 · 完整上位清单"]["terms"]), 13)
+        mei = [it for name,it in units.items() if name.startswith("十三美·")]
+        chou = [it for name,it in units.items() if name.startswith("十三丑·")]
+        self.assertEqual((len(mei), len(chou)), (13,13))
+        self.assertTrue(all(it["thoughts"] and it["examples"] for it in mei+chou))
+        self.assertEqual(len(units["十三美·建立联系"]["terms"]),6)
+        self.assertIn("直接建立联系", units["十三美·建立联系"]["terms"])
+        self.assertIn("共同原因", units["十三美·固定秒杀结构"]["terms"])
+        self.assertIn("前提型", units["选项十三美 · 完整上位清单"]["terms"])
+        self.assertNotIn("> 待核对", body)
+        r = api.session_start({"task": {"type": "skeleton", "board": "论证逻辑", "title": "审核完整骨架"}})
+        r = api.session_action({"session": r["session"], "action": "final"})
+        self.assertTrue(r["finished"])
+        self.assertTrue(skeleton.load(paths.Paths(self.vault), "论证逻辑")["final"])
+
 
 class MigrationTest(unittest.TestCase):
     def test_old_config_is_backed_up_and_replaced(self):
