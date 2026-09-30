@@ -427,6 +427,41 @@ class MigrationTest(unittest.TestCase):
             paths.UPGRADED.clear()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_shipped_ziliao_skeleton(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            v = tmp / "行测"
+            (v / "copilot/skills").mkdir(parents=True)
+            sk = v / "训练/骨架"
+            sk.mkdir(parents=True)
+            (sk / "资料分析.md").write_text("---\n板块: 资料分析\n状态: 草稿\n来源skill: xingce-ziliao\n---\n## 旧\n- 【思路】x\n",
+                                          encoding="utf-8")
+            p = paths.Paths(v)
+            p.ensure_train_dir()
+            self.assertIn("xingce-ziliao", (sk / "资料分析.md").read_text(encoding="utf-8"))  # 已有的（skill 生成的）不覆盖
+            side = sk / "资料分析.程序自带版.md"
+            self.assertTrue(side.exists())                           # 程序自带版放在旁边供替换
+            (sk / "资料分析.md").unlink()
+            side.unlink()
+            p.ensure_train_dir()
+            f = sk / "资料分析.md"
+            f.write_text(f.read_text(encoding="utf-8").replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+            p.ensure_train_dir()
+            self.assertFalse(side.exists())                          # 用户改过的程序自带版不会再生成旁边那份
+            data = skeleton.load(p, "资料分析")
+            names = [it["name"] for it in data["items"]]
+            self.assertIn("基期量", names)
+            self.assertIn("两期比重差（比重增量）", names)
+            first = data["items"][0]
+            self.assertEqual(first["verses"], ["圈时间、判题型、定主体"])
+            it = next(i for i in data["items"] if i["name"] == "基期量")
+            self.assertTrue(any("基期时间" in t for t in it["thoughts"]))        # 【识别】按大意判分
+            self.assertFalse(any("真题例" in t for t in it["thoughts"]))        # 真题例只作参考，不判分
+            self.assertIn("真题例", it["text"])
+        finally:
+            paths.UPGRADED.clear()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_old_save_gates_are_reset(self):
         from rpg import store
         tmp = Path(tempfile.mkdtemp())

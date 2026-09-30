@@ -11,6 +11,7 @@
 """
 import json
 import os
+import re
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent          # 程序根目录（server.py 所在）
@@ -98,16 +99,25 @@ class Paths:
                 upgraded.append(name)
             with open(dst, "w", encoding="utf-8", newline="\n") as fp:
                 fp.write(src.read_text(encoding="utf-8"))
-        # 程序自带、且没有 skill 可生成的功法（图形推理.md = 图推 24 诀）：库里还没有时复制一份草稿，已有的绝不覆盖。
+        # 程序自带的功法（图形推理.md = 图推 24 诀；资料分析.md = 题型识别 + 公式速算）：库里还没有时复制一份草稿，已有的绝不覆盖。
         # （defaults/骨架/ 里的其他文件如 论证逻辑.md 由 scripts/update-local.ps1 按需替换，这里不自动复制。）
         for name in AUTO_SKELETONS:
             src = DEFAULTS_DIR / "骨架" / name
             dst = self.skeletons / name
             if not src.exists():
                 continue
-            if not dst.exists():
-                with open(dst, "w", encoding="utf-8", newline="\n") as fp:
-                    fp.write(src.read_text(encoding="utf-8"))
+            text = src.read_text(encoding="utf-8")
+            if dst.exists():
+                # 库里已有同名功法：不覆盖。若它是别处来的（比如之前按 skill 生成的草稿，“来源skill”不同），
+                # 旁边放一份“xxx.程序自带版.md”供对照/替换；是程序自带那份（用户改过也一样）就什么都不做。
+                src_of = lambda t: (re.search(r"^来源skill[:：]\s*(.*)$", t, re.M) or [None, ""])[1].strip()
+                if src_of(dst.read_text(encoding="utf-8", errors="ignore")) == src_of(text):
+                    continue
+                dst = self.skeletons / (Path(name).stem + ".程序自带版.md")
+                if dst.exists():
+                    continue
+            with open(dst, "w", encoding="utf-8", newline="\n") as fp:
+                fp.write(text)
         if upgraded:
             UPGRADED.extend(upgraded)
         from .question_bank import ensure_templates
@@ -116,5 +126,5 @@ class Paths:
 
 
 UPGRADED = []  # 本次运行中被升级的配置文件（网页上提示一次）
-AUTO_SKELETONS = ("图形推理.md",)
+AUTO_SKELETONS = ("图形推理.md", "资料分析.md")
 
