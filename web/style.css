@@ -209,3 +209,8 @@ button.big { padding: 10px 22px; font-size: 16px; }
 .toast.info { border-color: var(--accent); }
 select { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .hero .avatar .def { font-family: var(--display); }
+
+/* 顶栏计时：修炼中亮起并闪烁一个小点 */
+.today-pill.on { color: var(--gold); border-color: var(--gold); }
+.today-pill.on::before { content: "● "; animation: blink 1.6s infinite; }
+@keyframes blink { 50% { opacity: .2; } }

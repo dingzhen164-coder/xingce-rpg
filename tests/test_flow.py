@@ -272,6 +272,21 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(r2["input"]["mode"], "text")
         self.assertEqual(self.state()["xp"], 0)
 
+    def test_time_counts_only_while_studying(self):
+        (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
+        (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+        self.assertEqual(api.heartbeat({"seconds": 30})["minutes"], 0)                   # 只是开着网页
+        chat = api.session_start({"task": {"type": "chat", "board": "", "target": "", "title": "聊天"}})
+        r = api.heartbeat({"seconds": 60, "session": chat["session"]})                     # 和导师闲聊
+        self.assertFalse(r["studying"])
+        self.assertEqual(r["minutes"], 0)
+        s = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}})
+        self.assertTrue(api.heartbeat({"seconds": 60, "session": s["session"]})["studying"])
+        self.assertEqual(api.heartbeat({"seconds": 60, "session": s["session"]})["minutes"], 2)   # 做功课才计时
+        api.session_reply({"session": s["session"], "text": "搭桥 补充论据和论点之间的联系"})
+        self.assertEqual(api.heartbeat({"seconds": 60, "session": s["session"]})["minutes"], 3)   # 刚做完看解析也算
+        self.assertFalse(api.heartbeat({"seconds": 60, "session": "不存在"})["studying"])
+
     def test_qi_deviation_after_repeated_failures(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

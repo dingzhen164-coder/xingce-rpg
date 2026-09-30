@@ -16,7 +16,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/session/action       {"session", "action"}    点按钮
     GET  /api/skeletons            各板块骨架与每个大项的掌握度
     GET  /api/wrong                错题池统计
-    POST /api/heartbeat            {"seconds"}  网页每分钟上报一次学习时间
+    POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
     POST /api/practice             {"board", "total", "correct", "minutes"}  录入自练
@@ -163,10 +163,13 @@ def wrong(body):
 
 
 def heartbeat(body):
-    sec = max(0, min(90, int(body.get("seconds", 60))))
+    """网页定时上报。只有带着“正在修炼”的会话（见 trainer.is_studying）才计时；
+    只是开着网页、看面板、和导师闲聊，只刷新状态，不计时。"""
+    sec = max(0, min(90, int(body.get("seconds", 0))))
+    studying = trainer.is_studying(body.get("session"))
     with open_game() as g:
-        ev = tutor.enrich(g, g.add_seconds(sec))
-        return {"events": ev, "minutes": int(g.minutes(g.t)), "other_device": g.store.heartbeat(),
+        ev = tutor.enrich(g, g.add_seconds(sec)) if studying and sec else []
+        return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 
 

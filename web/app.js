@@ -98,6 +98,7 @@ function updatePill() {
   if (!DASH) return;
   const m = DASH.minutes;
   $("#todayPill").textContent = `🕯 ${W("minutes")} ${m.today} / ${m.goal} 分钟` + (m.today >= m.goal ? " ✦" : "");
+  updateStudyDot();
 }
 function banner() {
   const w = [];
@@ -391,7 +392,7 @@ async function startTask(body) {
   renderTrain();
 }
 function applyResp(r) {
-  T.session = r.session; T.title = r.title; T.busy = false;
+  T.session = r.session; T.title = r.title; T.busy = false; T_TYPE = r.type;
   T.msgs.push(...r.messages);
   handleEvents(r.events, { inChat: true });
   T.input = r.input || { mode: "none" };
@@ -477,16 +478,36 @@ function bindSettings() {
 }
 
 // ------------------------------------------------------------ 修炼计时（心跳）
+// 只在“真正修炼”时计时：开着一项功课（背诵 / 论道 / 试剑 / 斩心魔 / 温养 / 渡劫 / 炼丹，或刚做完在看解析），
+// 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
+// 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
+const BEAT = 30;
+const STUDY = ["recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy"];
 let lastActive = Date.now();
-["mousemove", "keydown", "click", "scroll"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));
+let T_TYPE = "";
+["mousemove", "keydown", "click", "scroll", "input"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));
+function studyingNow() {
+  return VIEW === "train" && !!T.session && STUDY.includes(T_TYPE) && document.visibilityState === "visible"
+    && (T.busy || Date.now() - lastActive < 120000);
+}
+function updateStudyDot() {
+  const on = studyingNow();
+  $("#todayPill").classList.toggle("on", on);
+  $("#todayPill").title = on ? "正在计时：修炼中" : "未计时：只有做功课时才算修炼时间";
+}
+let beatCount = 0;
 setInterval(async () => {
-  if (document.visibilityState !== "visible" || Date.now() - lastActive > 120000) return;
+  updateStudyDot();
+  const on = studyingNow();
+  beatCount += 1;
+  if (!on && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
   try {
-    const r = await api("/api/heartbeat", { seconds: 60 });
+    const r = await api("/api/heartbeat", { seconds: on ? BEAT : 0, session: on ? T.session : null });
     if (DASH) { DASH.minutes.today = r.minutes; DASH.other_device = r.other_device; DASH.rest = r.rest; updatePill(); banner(); }
     handleEvents(r.events);
     if (DASH?.retreat && !r.retreat_on && VIEW === "home") render();
   } catch (e) { /* 程序关了就不提示 */ }
-}, 60000);
+}, BEAT * 1000);
+setInterval(updateStudyDot, 5000);
 
 render();

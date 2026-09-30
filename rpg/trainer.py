@@ -20,11 +20,24 @@
 渡劫里的问道雷没有 AI 时换成心法雷。会话只存在内存里，结果在出结果那一刻就写进存档。
 """
 import re
+import time
 import uuid
 
 from . import ai, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
+FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
+STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy")
+REVIEW_GRACE = 180  # 秒
+
+
+def is_studying(sid):
+    """这个会话是否在“修炼”：正在进行的功课，或刚结束 3 分钟内（在看解析）。闲聊、编撰功法不算。"""
+    s = SESSIONS.get(sid or "")
+    if s:
+        return s["type"] in STUDY_TYPES
+    typ, t = FINISHED.get(sid or "", ("", 0))
+    return typ in STUDY_TYPES and time.time() - t < REVIEW_GRACE
 TIRED_WORDS = ("累", "不想学", "学不动", "好烦", "烦死", "崩溃", "坚持不下去", "想放弃", "太难了", "不想练")
 RESULT_SCENES = {"默写通过", "默写未过", "费曼通过", "费曼未过", "错题判对", "错题判错"}
 
@@ -46,6 +59,7 @@ def _msg(who, text, blocks=None, fold=None):
 def _resp(s, messages, events=None, input=None, finished=False):
     if finished:
         SESSIONS.pop(s["id"], None)
+        FINISHED[s["id"]] = (s["type"], time.time())
     return {"session": s["id"], "type": s["type"], "title": s["title"], "messages": messages,
             "events": events or [], "input": input or {"mode": "none"}, "finished": finished}
 
