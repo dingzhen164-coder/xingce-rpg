@@ -93,7 +93,7 @@ def summary(g):
                                         'last': r['history'][-1], 'tries': len(r['history'])} for r in wrong]})
     return {'boards': result, 'count': count(g), 'groups': [dict(x, rank=rank(g, x['correct'], x['total'])) for x in data['groups'][-20:][::-1]],
             'streak_need': max(1, int(g.rules.num('回炉连续判对'))),
-            'bonus': g.rules.xp('实战通关')}
+            'bonus': g.rules.xp('实战通关'), 'tower': tower(g)}
 
 
 def begin(g, board, mode):
@@ -129,6 +129,7 @@ def record(g, run, answer):
         raise BankError('请选择 A、B、C 或 D')
     data = state(g)
     rec = data['records'].setdefault(q['key'], {'question': q, 'history': [], 'wrong': False, 'streak': 0})
+    before_floor = tower(g)['cleared']
     first = not rec['history']
     result = {'date': g.t, 'answer': answer, 'ok': answer == q['answer'], 'mode': run['mode'], 'first': first}
     rec['history'].append(result)
@@ -145,6 +146,12 @@ def record(g, run, answer):
     ev = g._award(g.rules.xp('实战答对') if result['ok'] else g.rules.xp('实战答错'),
                   'bank', q['board'], q['key'], result['ok'],
                   '%s · %s 第%s关' % (g.T('bank'), q['board'], q['id'])) if first else []
+    progress = tower(g)
+    if first and progress['cleared'] > before_floor:
+        msg = '🗼 已完成 %s 道新题，登上试炼塔第 %s 层！' % (progress['completed'], progress['cleared'])
+        if progress['summit']:
+            msg += ' 百层登顶，试炼圆满！'
+        ev.append({'kind': 'info', 'msg': msg})
     return ev
 
 
@@ -181,3 +188,24 @@ def rank(g, correct, total):
     high = max(0, min(1, g.rules.num('试炼上品正确率')))
     mid = max(0, min(high, g.rules.num('试炼中品正确率')))
     return 2 if rate >= high else 1 if rate >= mid else 0
+
+
+def tower(g):
+    """全板块共用一座塔；每题首次提交计一次，答错也计，复练不重复计。
+    默认 5000 题 / 100 层。用累计门槛分配题量，非整除目标也能准确登顶。
+    直接由 records 推导旧进度，删题库原文不会丢失爬塔成绩，无需重写存档。
+    """
+    layers = max(1, min(1000, int(g.rules.num('试炼塔层数'))))
+    total = max(layers, int(g.rules.num('试炼塔总题数')))
+    completed = sum(bool(r.get('history')) for r in state(g)['records'].values())
+    boundaries = [(i * total + layers - 1) // layers for i in range(layers + 1)]
+    cleared = sum(completed >= b for b in boundaries[1:])
+    current = min(cleared + 1, layers)
+    lower = boundaries[cleared] if cleared < layers else total
+    target = boundaries[current]
+    return {'layers': layers, 'total': total, 'completed': completed,
+            'cleared': cleared, 'current': current, 'summit': cleared == layers,
+            'floor_done': min(max(0, completed - lower), target - lower),
+            'floor_total': target - lower, 'next_at': target,
+            'remaining': max(0, target - completed),
+            'per_floor': (total + layers - 1) // layers}

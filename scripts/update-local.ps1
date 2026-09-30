@@ -55,7 +55,7 @@ try {
         } else {
             $rules = [IO.File]::ReadAllText($rulesPath, $utf8)
             $extra = @()
-            foreach ($pair in @(@('实战每组题数','10'), @('分钟.实战每题','2'), @('经验.实战答对','5'), @('经验.实战答错','1'), @('经验.实战通关','30'), @('试炼上品正确率','0.9'), @('试炼中品正确率','0.7'))) {
+            foreach ($pair in @(@('实战每组题数','10'), @('分钟.实战每题','2'), @('经验.实战答对','5'), @('经验.实战答错','1'), @('经验.实战通关','30'), @('试炼上品正确率','0.9'), @('试炼中品正确率','0.7'), @('试炼塔层数','100'), @('试炼塔总题数','5000'))) {
                 $pattern = '(?m)^\s*[-*]\s+' + [regex]::Escape($pair[0]) + '\s*[:：]'
                 if ($rules -notmatch $pattern) { $extra += ('- ' + $pair[0] + ': ' + $pair[1]) }
             }
@@ -73,7 +73,7 @@ try {
         if (Test-Path -LiteralPath $oldRules) { Copy-Item -LiteralPath $oldRules -Destination (Join-Path $TrainPath '规则.md') -Force }
         throw
     }
-    Write-Host '更新成功。重新启动训练程序，在“试炼场／试炼之塔”中查看各板块。' -ForegroundColor Green
+    Write-Host '更新成功。重新启动训练程序，在“试炼塔”中查看各板块。' -ForegroundColor Green
     Write-Host "题库位置：$(Join-Path $TrainPath '题库')"
     Write-Host "备份位置：$backup"
     Write-Host '存档、骨架和已有题库未覆盖；规则只补充缺失的实战参数。'

@@ -259,7 +259,8 @@ const views = {
     const wrong = d.boards.reduce((n,b) => n + b.wrong, 0);
     return `<div class="card bank-banner"><div class="rune">⚔ ${esc(NAV('bank'))} ⚔</div><h2>以真题验${esc(W('skeleton'))}，在实战中精进</h2>
       <div class="npc">${tutorFace()}<div><b>${esc(DASH.persona.tutor)}</b><p>${esc(W('bank_intro'))}</p></div></div>
-      <div class="bank-counters"><span>已闯 ${done} 关</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
+      ${towerHtml(d.tower)}
+      <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
       <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
       <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
@@ -460,6 +461,14 @@ async function doAction(act) {
   renderTrain();
 }
 function bindBank() {
+  const focusTower = () => {
+    const box = $("#towerViewport"), floor = $(".tower-floor.current");
+    if (box && floor) box.scrollTop = floor.offsetTop + floor.parentElement.offsetTop - box.clientHeight / 2 + floor.offsetHeight / 2;
+  };
+  requestAnimationFrame(focusTower);
+  $("#towerLocate").onclick = focusTower;
+  $("#towerTop").onclick = () => { $("#towerViewport").scrollTop = 0; };
+  $("#towerBottom").onclick = () => { const b = $("#towerViewport"); b.scrollTop = b.scrollHeight; };
   $('#bankCount').onchange = async (e) => {
     try { await api('/api/bank/count', { count: Number(e.target.value) }); toast('已保存，下一组生效'); }
     catch (err) { showError(err); }
@@ -553,5 +562,28 @@ function battlePanel() {
   const b = T.battle;
   if (!b) return '';
   return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>第 ${b.position}/${b.total} 关</span></div>
-    ${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span><span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span></div></div>`;
+    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span><span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span></div></div>`;
+}
+
+
+// 100 层自上而下绘制，已登层、正在攀登层和未到达层采用不同颜色。
+function towerHtml(t) {
+  if (!t) return '';
+  const floors = Array.from({length: t.layers}, (_, i) => t.layers - i).map(n => {
+    const current = n === t.current;
+    const cleared = n <= t.cleared;
+    const width = 35 + 65 * (1 - (n - 1) / Math.max(1, t.layers - 1));
+    const label = current ? (t.summit ? '✦ 百层登顶' : '◆ 正在攀登') : cleared ? '已登层' : '待攀登';
+    return `<div class="tower-floor ${cleared ? 'cleared' : ''} ${current ? 'current' : ''}" style="width:${width}%" title="第 ${n} 层 · ${label}" aria-label="第 ${n} 层 · ${label}"><span>${n} 层</span><span class="tower-windows">▪ ▪ ▪</span><span>${current ? label : cleared ? '✓' : '·'}</span></div>`;
+  }).join('');
+  return `<section class="tower-layout" aria-label="试炼塔进度"><div class="tower-art"><div class="tower-controls"><button class="small" id="towerTop">塔顶</button><button class="small" id="towerLocate">定位当前层</button><button class="small" id="towerBottom">塔底</button></div>
+    <div class="tower-viewport" id="towerViewport" tabindex="0" aria-label="可滚动查看全部楼层"><div class="tower-structure"><div class="tower-roof">✦</div>${floors}<div class="tower-base">试 炼 塔</div></div></div></div>
+    <div class="tower-summary"><div class="rune">${t.layers} 层 · ${t.total} 道真题</div><h2>${t.summit ? '✦ 已登顶' : `已登上第 ${t.cleared} 层`}</h2>
+    ${towerProgress(t)}<p>全板块累计完成 <b>${t.completed}</b> 道新题</p><p class="small muted">默认每完成 ${t.per_floor} 道新题升一层。首次提交即计数；正确率另行统计，错题复练不重复增加层数。</p>
+    <p class="small muted">已有作答自动折算进度。题库逐步添加，不改变 ${t.total} 题的登顶目标。</p><div class="tower-legend"><span>金色：当前层</span><span>绿色：已登层</span><span>灰色：待攀登</span></div></div></section>`;
+}
+function towerProgress(t) {
+  if (!t) return '';
+  if (t.summit) return `<div class="tower-progress">🗼 ${t.layers} 层已全部登顶 · ${t.completed} 道新题</div>${bar(1, 'thin yellow')}`;
+  return `<div class="tower-progress">🗼 正在攀登第 ${t.current} 层 · 本层 ${t.floor_done}/${t.floor_total} 道 · 再做 ${t.remaining} 道升层</div>${bar(t.floor_total ? t.floor_done / t.floor_total : 0, 'thin yellow')}`;
 }

@@ -629,5 +629,5 @@ def _bank_resp(g, s, run, messages, events, inp):
     r['battle'] = {'board': run['board'], 'total': len(run['questions']),
                    'position': run['pos'] + 1, 'answered': len(run['results']),
                    'correct': sum(x['ok'] for x in run['results']),
-                   'mode': run['mode'], 'phase': run['phase']}
+                   'mode': run['mode'], 'phase': run['phase'], 'tower': question_bank.tower(g)}
     return r

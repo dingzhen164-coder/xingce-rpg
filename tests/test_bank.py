@@ -106,7 +106,7 @@ class BankTest(unittest.TestCase):
         with self.assertRaises(trainer.TrainError):
             trainer.action(self.g, r['session'], 'bank_next')
         self.g.state['theme'] = '玄幻'
-        self.assertEqual(self.g.T('nav.bank'), '⚔ 试炼之塔')
+        self.assertEqual(self.g.T('nav.bank'), '🗼 试炼塔')
         self.assertEqual(self.g.T('bank_rank.3'), '完美通关')
         self.assertEqual(bank.rank(self.g, 9, 10), 2)
         self.assertEqual(bank.rank(self.g, 7, 10), 1)
@@ -124,6 +124,36 @@ class BankTest(unittest.TestCase):
         ev = next(e for e in self.g.state['events'] if e['type'] == 'bank_clear')
         self.assertEqual(ev['xp'], 15)  # 只奖励本组一半的新记录
         self.assertEqual(len(bank.state(self.g)['records']), 2)
+
+    def test_tower_boundaries_and_old_records(self):
+        def fill(n):
+            bank.state(self.g)['records'] = {str(i): {'history': [{'ok': False}]} for i in range(n)}
+        for n, cleared, current, remain in [(0,0,1,50),(49,0,1,1),(50,1,2,50),
+                                           (51,1,2,49),(4999,99,100,1),(5000,100,100,0),(5001,100,100,0)]:
+            fill(n)
+            t = bank.tower(self.g)
+            self.assertEqual((t['cleared'],t['current'],t['remaining']), (cleared,current,remain))
+            self.assertEqual(t['summit'], n >= 5000)
+        self.g.rules = config.Rules('- 试炼塔层数: 3\n- 试炼塔总题数: 10')
+        fill(9)
+        self.assertEqual(bank.tower(self.g)['cleared'],2)
+        fill(10)
+        self.assertTrue(bank.tower(self.g)['summit'])
+
+    def test_tower_wrong_answer_climbs_once_and_review_does_not(self):
+        # 跨板块首次作答共享进度，旧历史无需新 first 标记。
+        bank.state(self.g)['records'] = {'旧板块::%s' % i: {'history': [{'ok': True}], 'question': {'board': '片段阅读'}, 'wrong': False} for i in range(49)}
+        self.file.write_text(question('50'), encoding='utf-8')
+        r = trainer.start(self.g, self.task)
+        r = trainer.action(self.g,r['session'],'bank_answer:0:B')
+        self.assertEqual(r['battle']['tower']['cleared'],1)
+        self.assertTrue(any('登上试炼塔第 1 层' in e.get('msg','') for e in r['events']))
+        trainer.action(self.g,r['session'],'bank_next')
+        self.task['type'] = 'bank_review'
+        r = trainer.start(self.g,self.task)
+        r = trainer.action(self.g,r['session'],'bank_answer:0:A')
+        self.assertEqual(r['battle']['tower']['completed'],50)
+        self.assertFalse(any('登上试炼塔' in e.get('msg','') for e in r['events']))
 
     def test_appended_questions_continue_without_numeric_sort(self):
         self.file.write_text(question('999'), encoding='utf-8')

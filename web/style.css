@@ -226,3 +226,20 @@ select { font: inherit; color: var(--text); background: var(--panel2); border: 1
 .bank-board .row { flex-wrap: wrap; }
 .battle-panel { border: 1px solid var(--gold); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 .battle-panel .bar { margin: 12px 0; }
+
+/* 百层试炼塔：楼层由塔顶到塔底逐渐变宽，不依赖图片或外部资源。 */
+.tower-layout { display: grid; grid-template-columns: minmax(200px, 360px) minmax(200px, 1fr); gap: 28px; margin: 24px 0; align-items: center; }
+.tower-controls { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; }
+.tower-viewport { position: relative; height: 420px; overflow-y: auto; border-radius: 12px; padding: 16px; background: radial-gradient(ellipse at center, #af88451c, transparent 70%); border: 1px solid #ad955c55; scrollbar-width: thin; }
+.tower-structure { position: relative; padding-top: 12px; }
+.tower-roof { clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 42%; height: 35px; margin: 0 auto; text-align: center; padding-top: 12px; background: var(--gold); color: #29241b; }
+.tower-floor { height: 23px; display: flex; justify-content: space-between; align-items: center; margin: 0 auto; padding: 0 5px; border: 1px solid #6b728066; border-top: 2px solid #7f879355; background: #252c37; color: #99a0ab; font-size: 10px; box-sizing: border-box; }
+.tower-floor.cleared { border-color: #679c7955; background: #234a37; color: #b5e5c4; }
+.tower-floor.current { border-color: var(--gold); color: #ffe6a1; background: #6b5120; box-shadow: 0 0 14px #d6b45055; height: 32px; position: relative; z-index: 1; }
+.tower-windows { color: #c1a878; letter-spacing: 3px; }
+.tower-base { text-align: center; padding: 10px; border: 1px solid var(--gold); border-radius: 0 0 10px 10px; color: var(--gold); background: #322a21; }
+.tower-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #abb1bb; margin-top: 16px; }
+.tower-progress { font-size: 14px; margin: 12px 0; line-height: 1.7; }
+@media (max-width: 700px) { .tower-layout { grid-template-columns: 1fr; } .tower-art { max-width: 360px; width: 100%; margin: auto; } .tower-summary { order: -1; } }
+
+.tower-floor.current .tower-windows { display: none; }
