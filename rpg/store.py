@@ -31,6 +31,7 @@ def new_state(today):
         "wrong": {},             # 错题状态，键 "季|复盘板块|题号"
         "seconds": {},           # 每天学习秒数 {日期: 秒}（网页心跳累加，只算页面可见且有操作的时间）
         "leave": [],             # 用过请假卡的日期
+        "bank": {"records": {}, "runs": {}, "groups": []},  # 真题记录与可恢复实战组
         "plan": None,            # 今日任务 {date, tasks: [...]}
         "lap": 1,                # 当前周目
         "cleared": {},           # {周目: [已通关批次序号(从1开始)]}
@@ -143,3 +144,4 @@ class Store:
             return []
         return [p.name for p in d.iterdir()
                 if p.is_file() and ("冲突" in p.name or "conflict" in p.name.lower())]
+

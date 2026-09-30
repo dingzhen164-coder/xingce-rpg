@@ -100,7 +100,10 @@ class Paths:
                 fp.write(src.read_text(encoding="utf-8"))
         if upgraded:
             UPGRADED.extend(upgraded)
+        from .question_bank import ensure_templates
+        ensure_templates(self)
         return upgraded
 
 
 UPGRADED = []  # 本次运行中被升级的配置文件（网页上提示一次）
+

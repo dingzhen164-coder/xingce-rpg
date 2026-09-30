@@ -19,7 +19,7 @@ const pct = (x) => Math.round((x || 0) * 100);
 
 let DASH = null;
 let VIEW = "home";
-const T = { session: null, title: "", msgs: [], input: { mode: "none" }, busy: false, finished: false };
+const T = { session: null, title: "", msgs: [], input: { mode: "none" }, busy: false, finished: false, battle: null };
 const W = (k) => DASH?.theme?.terms?.[k] ?? k;   // 当前风格的说法
 const NAV = (k) => W("nav." + k).replace(/^\S+\s/, "");  // 去掉图标的页面名
 
@@ -117,6 +117,7 @@ async function render() {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = views.train(); bindTrain(); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
+    else if (VIEW === "bank") { await refresh(); v.innerHTML = await views.bank(); bindBank(); }
     else if (VIEW === "wrong") { await refresh(); v.innerHTML = await views.wrong(); }
     else if (VIEW === "pill") { await refresh(); v.innerHTML = views.pill(); bindPill(); }
     else if (VIEW === "log") { await refresh(); v.innerHTML = views.log(); bindLog(); }
@@ -247,8 +248,30 @@ const views = {
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回${esc(NAV("home"))}</button></div>`;
     return `<div class="train">
       <div class="card"><h3>📜 ${esc(W("tasks"))}</h3>${tasks.map(taskRow).join("")}</div>
-      <div class="card chat"><h3>${esc(T.title)}</h3><div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
+      <div class="card chat"><h3>${esc(T.title)}</h3>${battlePanel()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
+  },
+
+  async bank() {
+    const d = await api('/api/bank');
+    const rate = (ok, n) => n ? `${(ok / n * 100).toFixed(1)}%（${ok}/${n}）` : '—';
+    const done = d.boards.reduce((n,b) => n + b.first_total, 0);
+    const wrong = d.boards.reduce((n,b) => n + b.wrong, 0);
+    return `<div class="card bank-banner"><div class="rune">⚔ ${esc(NAV('bank'))} ⚔</div><h2>以真题验${esc(W('skeleton'))}，在实战中精进</h2>
+      <div class="npc">${tutorFace()}<div><b>${esc(DASH.persona.tutor)}</b><p>${esc(W('bank_intro'))}</p></div></div>
+      <div class="bank-counters"><span>已闯 ${done} 关</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
+      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
+      <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
+      <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
+      <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
+      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
+      ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
+      <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)}</p>
+      ${b.errors.length ? `<div class="warn">${b.errors.map(esc).join('<br>')}</div>` : ''}
+      <div class="row"><button class="primary" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${esc(W(b.active ? 'bank_resume' : 'bank_start'))}</button>
+      <button data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>${esc(W('bank_review'))}</button></div>
+      ${b.wrong_items.length ? `<details><summary>${esc(W('bank_wrong'))}（错题）</summary>${b.wrong_items.map(q => `<p>编号 ${esc(q.id)} · ${esc(q.topic)} · 上次选 ${esc(q.last.answer)} · 共 ${q.tries} 次 · ${esc(q.last.date)}</p>`).join('')}</details>` : ''}</div>`).join('')}</div>
+      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span></div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
   },
 
   async skeleton() {
@@ -385,7 +408,7 @@ function bindHome() {
 }
 
 async function startTask(body) {
-  Object.assign(T, { session: null, title: "准备中…", msgs: [], input: { mode: "none" }, busy: true, finished: false });
+  Object.assign(T, { session: null, title: "准备中…", msgs: [], input: { mode: "none" }, busy: true, finished: false, battle: null });
   go("train");
   try { applyResp(await api("/api/session/start", body)); }
   catch (e) { T.busy = false; T.msgs.push({ who: "sys", text: "⚠ " + e.message }); T.finished = true; }
@@ -397,6 +420,7 @@ function applyResp(r) {
   handleEvents(r.events, { inChat: true });
   T.input = r.input || { mode: "none" };
   T.finished = r.finished;
+  T.battle = r.battle || null;
   if (r.finished) refresh().then(() => VIEW === "train" && renderTrain());
 }
 function renderTrain() {
@@ -434,6 +458,16 @@ async function doAction(act) {
   try { applyResp(await api("/api/session/action", { session: T.session, action: act })); }
   catch (e) { T.busy = false; T.msgs.push({ who: "sys", text: "⚠ " + e.message }); }
   renderTrain();
+}
+function bindBank() {
+  $('#bankCount').onchange = async (e) => {
+    try { await api('/api/bank/count', { count: Number(e.target.value) }); toast('已保存，下一组生效'); }
+    catch (err) { showError(err); }
+  };
+  document.querySelectorAll('[data-bank]').forEach(b => b.onclick = () => startTask({ task: {
+    type: b.dataset.mode === 'review' ? 'bank_review' : 'bank', board: b.dataset.bank,
+    target: b.dataset.bank, title: `⚔ ${b.dataset.bank} · ${W(b.dataset.mode === 'review' ? 'bank_review' : 'bank')}`
+  } }));
 }
 function bindSkeleton() {
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
@@ -482,7 +516,7 @@ function bindSettings() {
 // 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
 // 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
 const BEAT = 30;
-const STUDY = ["recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy"];
+const STUDY = ["recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
 let lastActive = Date.now();
 let T_TYPE = "";
 ["mousemove", "keydown", "click", "scroll", "input"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));
@@ -511,3 +545,13 @@ setInterval(async () => {
 setInterval(updateStudyDot, 5000);
 
 render();
+
+
+
+// 试炼进度与破关数，不显示任何未提交题目的答案。
+function battlePanel() {
+  const b = T.battle;
+  if (!b) return '';
+  return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>第 ${b.position}/${b.total} 关</span></div>
+    ${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span><span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span></div></div>`;
+}

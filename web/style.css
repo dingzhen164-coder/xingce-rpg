@@ -214,3 +214,15 @@ select { font: inherit; color: var(--text); background: var(--panel2); border: 1
 .today-pill.on { color: var(--gold); border-color: var(--gold); }
 .today-pill.on::before { content: "● "; animation: blink 1.6s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
+
+
+/* 真题试炼沿用现有主题色：玉简阵法与试炼之塔共用进度面板。 */
+.bank-banner { border-color: var(--gold); background: linear-gradient(135deg, var(--panel, #161b25), transparent); }
+.bank-banner .rune { color: var(--gold); letter-spacing: 3px; }
+.bank-banner h2 { margin: 12px 0 20px; font-size: 22px; }
+.bank-counters { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.bank-counters span { border: 1px solid var(--gold); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.bank-board { border-top: 2px solid var(--gold); }
+.bank-board .row { flex-wrap: wrap; }
+.battle-panel { border: 1px solid var(--gold); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.battle-panel .bar { margin: 12px 0; }

@@ -34,7 +34,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -128,6 +128,24 @@ def session_reply(body):
 def session_action(body):
     with open_game() as g:
         return _with_housekeeping(g, trainer.action(g, body["session"], body.get("action", "")))
+
+
+def bank_view(body):
+    with open_game(save=False) as g:
+        return question_bank.summary(g)
+
+
+def bank_count(body):
+    n = body.get("count")
+    if n not in (10, 15):
+        raise ApiError("题量只能选择 10 或 15")
+    with open_game() as g:
+        if not g.paths.vault:
+            raise ApiError("请先在设置中指定行测库路径")
+        # 追加同名配置，保留用户的其余规则；最后一项生效。
+        with g.paths.rules.open("a", encoding="utf-8", newline="\n") as f:
+            f.write("\n- 实战每组题数: %s\n" % n)
+    return {"count": n}
 
 
 def skeletons(body):
@@ -281,6 +299,8 @@ ROUTES = {
     ("POST", "/api/session/start"): session_start,
     ("POST", "/api/session/reply"): session_reply,
     ("POST", "/api/session/action"): session_action,
+    ("GET", "/api/bank"): bank_view,
+    ("POST", "/api/bank/count"): bank_count,
     ("GET", "/api/skeletons"): skeletons,
     ("GET", "/api/wrong"): wrong,
     ("POST", "/api/heartbeat"): heartbeat,
@@ -345,3 +365,4 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._handle("POST")
+

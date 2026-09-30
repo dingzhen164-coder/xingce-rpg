@@ -1007,6 +1007,7 @@ class Game:
     def plan(self, force=False):
         p = self.state.get("plan")
         if p and p.get("date") == self.t and not force:
+            self._add_bank_tasks(p["tasks"])
             return p
         tasks, used = [], set()
         cur = self.current_batch()
@@ -1063,8 +1064,38 @@ class Game:
                 n += 1
                 used.add(it["id"])
 
+        self._add_bank_tasks(tasks)
         self.state["plan"] = {"date": self.t, "tasks": tasks}
         return self.state["plan"]
+
+    def _add_bank_tasks(self, tasks):
+        from . import question_bank
+        # 旧日计划立即兼容新入口；保留已经完成的任务，不重复生成实战。
+        data = question_bank.state(self)
+        candidates = list(dict.fromkeys(t['board'] for t in tasks
+                          if t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'apply')))
+        for b in candidates:
+            if any(t['id'] == 'bank:' + b for t in tasks):
+                for t in tasks:
+                    if t['id'] == 'bank:' + b:
+                        t['title'] = '%s · %s' % (self.T('bank'), b)
+                continue
+            qs, errors = question_bank.read(self.paths, b)
+            remaining = [q for q in qs if q['key'] not in data['records']]
+            completed = any(x['date'] == self.t and x['board'] == b and x['mode'] == 'new'
+                            for x in data['groups'])
+            if (errors or not remaining) and b not in data['runs'] and not completed:
+                continue
+            n = min(question_bank.count(self), len(remaining))
+            if b in data['runs']:
+                n = len(data['runs'][b]['questions'])
+            task = self._task('bank', b, '%s · %s（顺序 %s 关）' % (self.T('bank'), b, n), b)
+            task['minutes'] = n * max(0, self.rules.num('分钟.实战每题'))
+            task['done'] = completed
+            task['ok'] = True if completed else None
+            ix = max(i for i, t in enumerate(tasks) if t['board'] == b
+                     and t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'apply'))
+            tasks.insert(ix + 1, task)
 
     def _heal_tasks(self):
         out = []
@@ -1163,3 +1194,4 @@ class Game:
             "greeting": self.say(scene), "scene": scene,
             "recent": self.state["events"][-12:][::-1],
         }
+

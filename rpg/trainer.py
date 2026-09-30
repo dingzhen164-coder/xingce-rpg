@@ -23,11 +23,11 @@ import re
 import time
 import uuid
 
-from . import ai, prompts, skeleton, tutor, vault
+from . import question_bank, ai, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
 FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
-STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy")
+STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
 REVIEW_GRACE = 180  # 秒
 
 
@@ -147,6 +147,8 @@ def start(g, task):
     typ = task["type"]
     if typ not in ("chat", "skeleton") and g.resting():
         raise TrainError(f"{g.T('qi')}预警：还需调息 {g.resting()} 分钟。去喝口水、走两步，回来再修炼。")
+    if typ in ("bank", "bank_review"):
+        return _start_bank(g, task)
     if typ in ("recite", "review", "speedrun"):
         it = _item(g, task["target"])
         s = new_session(typ, task["title"], task, iid=it["id"], board=task["board"])
@@ -212,6 +214,8 @@ def reply(g, sid, text):
 def action(g, sid, act):
     """按钮：自评（self_ok / self_no）、功法（gen / final）、跳过（skip）"""
     s = get(sid)
+    if s["type"] in ("bank", "bank_review"):
+        return _bank_action(g, s, act)
     if act == "skip":
         if s["type"] == "tribulation":
             raise TrainError(f"{g.T('tribulation')}开始后不能跳过")
@@ -546,3 +550,84 @@ def _chat(g, s, text):
                 temperature=0.8, max_tokens=500)
     s["history"].append({"role": "assistant", "content": r})
     return _resp(s, [_msg("npc", r)], input=_text_input(""))
+
+
+
+# ---------------------------------------------------------------- 顺序真题实战（答案与解析只在提交后返回）
+def _start_bank(g, task):
+    try:
+        run = question_bank.begin(g, task['board'], 'review' if task['type'] == 'bank_review' else 'new')
+    except question_bank.BankError as e:
+        raise TrainError(str(e))
+    # 新入口也可以恢复同板块未完成的错题组，计时类型与实际模式一致。
+    typ = 'bank_review' if run['mode'] == 'review' else 'bank'
+    s = new_session(typ, '%s · %s' % (g.T(typ), task['board']), task, board=task['board'], token=run['token'])
+    r = _bank_show(g, s, run)
+    r['messages'].insert(0, _msg('npc', g.T('bank_intro')))
+    return r
+
+
+def _bank_show(g, s, run, events=None):
+    q = run['questions'][run['pos']]
+    if run['phase'] == 'analysis':
+        r = run['results'][-1]
+        msg = '你的答案：%s · %s\n正确答案：%s\n知识点：%s\n\n解析：\n%s' % (
+            r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'], q['analysis'])
+        return _bank_resp(g, s, run, [_msg('sys', msg), _msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
+                          _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
+                                   ('bank_pause', g.T('bank_pause'))))
+    msg = '%s · 第 %s/%s 关 · 编号 %s\n\n%s\n\n%s' % (
+        run['board'], run['pos'] + 1, len(run['questions']), q['id'], q['stem'],
+        '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
+    return _bank_resp(g, s, run, [_msg('sys', msg)], events,
+                      _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
+                               ('bank_pause', g.T('bank_pause'))))
+
+
+def _bank_action(g, s, act):
+    run = question_bank.state(g)['runs'].get(s['board'])
+    if not run or run['token'] != s['token']:
+        raise TrainError('本组已经结束，请重新进入实战')
+    if act == 'bank_pause':
+        return _resp(s, [_msg('sys', '试炼进度已保存，下次进入这个板块续闯。')], finished=True)
+    if act.startswith('bank_answer:'):
+        parts = act.split(':')
+        if len(parts) != 3 or parts[1] != str(run['pos']):
+            raise TrainError('题目已经切换，请重新进入本组')
+        try:
+            ev = question_bank.record(g, run, parts[2])
+        except question_bank.BankError as e:
+            raise TrainError(str(e))
+        return _bank_show(g, s, run, ev)
+    if act == 'bank_next' and run['phase'] == 'analysis':
+        if run['pos'] + 1 < len(run['questions']):
+            run['pos'] += 1
+            run['phase'] = 'answer'
+            return _bank_show(g, s, run)
+        group = question_bank.finish(g, run)
+        # 错题复练不代替当日的新题实战；完成一组即完成任务，不要求全对。
+        if group['mode'] == 'new':
+            g.mark_done({'id': 'bank:' + s['board']}, True)
+        events = []
+        # 通关奖只对应本组首次作答的题目；旧组缺 first 标记不补发，复练不刷修为。
+        if group['mode'] == 'new' and group['first_count']:
+            base = g.rules.xp('实战通关') * group['first_count'] / group['total']
+            events = g._award(base, 'bank_clear', s['board'], ok=True,
+                              note='%s · %s 通关' % (g.T('bank'), s['board']))
+        text = '%s · %s完成：%s/%s 正确，正确率 %.1f%%。\n试炼品评：%s\n%s已保存，可到%s继续磨练。' % (
+            s['board'], g.T('bank_review' if group['mode'] == 'review' else 'bank'),
+            group['correct'], group['total'], 100 * group['correct'] / group['total'],
+            g.T('bank_rank.' + str(group['rank'])), g.T('bank_wrong'), g.T('bank_review'))
+        return _resp(s, [_msg('sys', text), _msg('npc', g.T('bank_close'))], events, finished=True)
+    raise TrainError('这一步请使用当前题目的按钮')
+
+
+def _bank_resp(g, s, run, messages, events, inp):
+    """给网页提供只含进度的战斗面板，绝不包含答案或解析快照。"""
+    r = _resp(s, messages, events, input=inp)
+    r['battle'] = {'board': run['board'], 'total': len(run['questions']),
+                   'position': run['pos'] + 1, 'answered': len(run['results']),
+                   'correct': sum(x['ok'] for x in run['results']),
+                   'mode': run['mode'], 'phase': run['phase']}
+    return r

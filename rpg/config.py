@@ -16,6 +16,14 @@ from . import mdconf
 
 # 默认规则：和 defaults/规则.md 保持一致。新增规则时两边都要加。
 DEFAULT_RULES = {
+    # 真题实战：每组 10 或 15 题，纳入每日目标时间
+    "实战每组题数": 10,
+    "试炼上品正确率": 0.9,
+    "试炼中品正确率": 0.7,
+    "经验.实战通关": 30,
+    "分钟.实战每题": 2,
+    "经验.实战答对": 5,
+    "经验.实战答错": 1,
     # 时间线
     "开始日期": "2026-09-29",
     "目标日": "2027-12-01",
@@ -296,3 +304,4 @@ def load_all(paths, theme="修仙"):
     lines_name = LINES_FILE.get(theme, "台词库.md")
     return (Rules(txt(paths.rules, "规则.md")), Persona(txt(paths.persona, "角色设定.md"), theme),
             Lines(txt(paths.train / lines_name if paths.train else None, lines_name)))
+
