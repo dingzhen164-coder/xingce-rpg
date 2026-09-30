@@ -75,9 +75,9 @@ class Paths:
 
     def ensure_train_dir(self):
         """建 训练/ 文件夹，把缺失的默认配置复制进去。
-        已有的配置文件不覆盖；只有它的“配置版本”低于程序的 CONFIG_VERSION（程序升级改了结构）时，
+        已有的配置文件不覆盖；只有它的“配置版本”低于程序里这个文件的版本（config.FILE_VERSIONS，程序升级改了结构）时，
         才把旧文件改名为 “xxx.旧版.md” 备份，再换成新的默认文件。返回被升级的文件名列表。"""
-        from .config import CONFIG_VERSION
+        from .config import FILE_VERSIONS
         from .mdconf import parse, to_num
         if not self.vault:
             return []
@@ -89,7 +89,7 @@ class Paths:
             src = DEFAULTS_DIR / name
             if dst.exists():
                 ver = to_num(parse(dst.read_text(encoding="utf-8", errors="ignore")).get("配置版本", 1), 1)
-                if ver >= CONFIG_VERSION:
+                if ver >= FILE_VERSIONS.get(name, 1):
                     continue
                 bak = dst.with_name(dst.stem + ".旧版.md")
                 if bak.exists():
@@ -98,6 +98,16 @@ class Paths:
                 upgraded.append(name)
             with open(dst, "w", encoding="utf-8", newline="\n") as fp:
                 fp.write(src.read_text(encoding="utf-8"))
+        # 程序自带、且没有 skill 可生成的功法（图形推理.md = 图推 24 诀）：库里还没有时复制一份草稿，已有的绝不覆盖。
+        # （defaults/骨架/ 里的其他文件如 论证逻辑.md 由 scripts/update-local.ps1 按需替换，这里不自动复制。）
+        for name in AUTO_SKELETONS:
+            src = DEFAULTS_DIR / "骨架" / name
+            dst = self.skeletons / name
+            if not src.exists():
+                continue
+            if not dst.exists():
+                with open(dst, "w", encoding="utf-8", newline="\n") as fp:
+                    fp.write(src.read_text(encoding="utf-8"))
         if upgraded:
             UPGRADED.extend(upgraded)
         from .question_bank import ensure_templates
@@ -106,4 +116,5 @@ class Paths:
 
 
 UPGRADED = []  # 本次运行中被升级的配置文件（网页上提示一次）
+AUTO_SKELETONS = ("图形推理.md",)
 

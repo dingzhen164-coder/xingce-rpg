@@ -61,12 +61,20 @@ def feynman_turn(p, board, item, history, rounds_left):
     return [{"role": "system", "content": persona_system(p) + "\n\n" + guide}] + history
 
 
+# 个别板块的出题方式（没有列出的板块按通用方式出题）
+APPLY_STYLE = {
+    "图形推理": ("这是图形推理的口诀，你画不了图：请用文字描述一组图形（例如“五幅图都由一条连续的线构成，第一幅有 1 个面……”），"
+                 "让学员说出这组图属于哪一诀、该用哪句口诀、具体看什么规律。不出选项，参考答案写出应使用的诀和口诀。"),
+}
+
+
 def apply_question(p, board, item):
+    style = APPLY_STYLE.get(board, "要求：贴近国考行测真题风格，题干简短（100字内，可带选项）；只考这个大项；答案必须确定无争议。")
     return [
         {"role": "system", "content": persona_system(p)},
         {"role": "user", "content": (
             "任务：为下面这个大项出一道“应用小题”，检验学员能不能在题目里认出它并正确使用。"
-            "要求：贴近国考行测真题风格，题干简短（100字内，可带选项）；只考这个大项；答案必须确定无争议。\n\n"
+            f"{style}\n\n"
             f"{_item_block(board, item)}\n\n"
             "只返回 JSON：{\"题目\": \"……\", \"参考答案\": \"……\", \"参考思路\": \"按骨架方法写的解题思路，60字内\"}")},
     ]

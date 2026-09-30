@@ -133,7 +133,9 @@ def get(sid):
 
 def _recite_prompt(g, board, it, head):
     return (f"{head}：{board}「{it['name']}」。凭记忆写出这一{g.T('item')}的全部内容——"
-            f"列全分类清单（共 {len(it['terms'])} 个），再用自己的话讲思路（共 {len(it['thoughts'])} 条）。允许同义表达与不同顺序，含义要对应，不能混淆上位分类和下位方法。")
+            + (f"{g.T('term')}（【口诀】）共 {len(it['verses'])} 句，必须一字不差；" if it.get("verses") else "")
+            + (f"列全分类清单（共 {len(it['terms'])} 个），" if it["terms"] else "")
+            + f"再用自己的话讲思路（共 {len(it['thoughts'])} 条）。允许同义表达与不同顺序，含义要对应，不能混淆上位分类和下位方法。")
 
 
 def _wrong_intro(g, q, head):
@@ -241,16 +243,23 @@ def action(g, sid, act):
         if s["type"] == "wrong":
             return _wrong_finish(g, s, ok and p.get("answer_ok", True), "", [])
         it = _item(g, s["iid"])
-        return _recite_finish(g, s, it["terms"] if ok else [], [] if ok else it["terms"], None, ok, "自评结果（未由AI验证）")
+        vmiss = [m for m in p.get("miss", []) if m.startswith("口诀：")]  # 口诀已由程序逐字比对，自评改不了
+        return _recite_finish(g, s, it["terms"] if ok else [], vmiss + ([] if ok else it["terms"]), None, ok,
+                              "自评结果（未由AI验证）")
     raise TrainError("未知操作")
 
 
 # ---------------------------------------------------------------- 背诵口诀（默写）
 def _judge_recite(g, board, it, text):
-    """返回 (hit, miss, coverage 或 None(需要自评), 点评, 错误说法)"""
+    """返回 (hit, miss, coverage 或 None(需要自评), 点评, 错误说法)。
+    【术语】由 AI 按含义判断；【口诀】（it["verses"]）由程序逐字比对，漏一句就算没过（口诀要背原句）"""
+    vhit, vmiss = skeleton.check_verses(it, text)
+    vhit, vmiss = ["口诀：" + v for v in vhit], ["口诀：" + v for v in vmiss]
     if not ai.available():
-        # 字面查找仅作对照建议，不能据此否定同义表达。
-        return [], [], None, "", []
+        # 字面查找仅作对照建议，不能据此否定同义表达（口诀除外：口诀本来就要求原句）。
+        return vhit, vmiss, None, "", []
+    if not it["terms"] and not it["thoughts"]:
+        return vhit, vmiss, 1.0, "", []
     r = ai.chat_json(prompts.recite_grade(g.persona, board, it, text, []))
     names = r.get("清单")
     marks = r.get("答到")
@@ -259,17 +268,25 @@ def _judge_recite(g, board, it, text):
             or any(type(x) is not bool for x in names + marks)
             or not isinstance(r.get("错误说法"), list)):
         raise TrainError("AI判分格式不完整，尚未记录结果，请重试")
-    hit = [name for name, yes in zip(it["terms"], names) if yes]
-    miss = [name for name, yes in zip(it["terms"], names) if not yes]
+    hit = [name for name, yes in zip(it["terms"], names) if yes] + vhit
+    miss = [name for name, yes in zip(it["terms"], names) if not yes] + vmiss
     cov = sum(marks) / len(marks) if marks else 1.0
     return hit, miss, cov, r.get("点评", ""), r["错误说法"]
 
 
 
 def _recite_summary(g, it, hit, miss, cov, wrong_says):
+    lines = []
+    vmiss = [m[3:] for m in miss if m.startswith("口诀：")]
+    if it.get("verses"):
+        n = len(it["verses"])
+        lines.append(f"{g.T('term')}（逐字比对）{n - len(vmiss)}/{n}" + (f"，漏 / 错：{'、'.join(vmiss)}" if vmiss else "，全对 ✓"))
     if cov is None:
-        return "未连接AI：请对照完整清单与思路自行核对含义，不作字面判分。"
-    lines = [f"分类含义对应 {len(hit)}/{len(it['terms'])}" + (f"，漏 / 错：{'、'.join(miss)}" if miss else "，全对 ✓")]
+        return "\n".join(lines + ["未连接AI：请对照完整清单与思路自行核对含义，不作字面判分。"])
+    tmiss = [m for m in miss if not m.startswith("口诀：")]
+    if it["terms"]:
+        lines.append(f"分类含义对应 {len(it['terms']) - len(tmiss)}/{len(it['terms'])}"
+                     + (f"，漏 / 错：{'、'.join(tmiss)}" if tmiss else "，全对 ✓"))
     if cov is not None and it["thoughts"]:
         lines.append(f"思路要点覆盖 {cov:.0%}")
     if wrong_says:
@@ -294,7 +311,8 @@ def _grade_recite(g, s, text):
 
 def _recite_finish(g, s, hit, miss, cov, self_ok, comment, wrong_says=()):
     it = _item(g, s["iid"])
-    ok = not wrong_says and (bool(self_ok) if cov is None else not miss and cov >= g.rules.num("思路达标比例"))
+    verse_ok = not any(m.startswith("口诀：") for m in miss)
+    ok = not wrong_says and verse_ok and (bool(self_ok) if cov is None else not miss and cov >= g.rules.num("思路达标比例"))
     ev = _drop_dup_npc(g.on_recite(s["iid"], ok, s["type"]), comment)
     g.mark_done(s["task"], ok)
     msgs = [_msg("sys", (f"✨ {g.label(s['type'])}成功\n" if ok else f"💥 {g.label(s['type'])}失败\n")
@@ -532,7 +550,7 @@ def _start_skeleton(g, task):
     if sk and sk["final"]:
         return _resp(s, [_msg("sys", f"「{b}」{S}已定稿（{len(sk['items'])} {I}）。")], finished=True)
     if sk:
-        n_terms = sum(len(i["terms"]) for i in sk["items"])
+        n_terms = sum(len(i["terms"]) + len(i.get("verses", [])) for i in sk["items"])
         return _resp(s, [_msg("npc", f"「{b}」的{S}草稿在 `{rel}`：{len(sk['items'])} {I}、{n_terms} 个{g.T('term')}（术语）。"
                                      "去 Obsidian 里审一遍：删掉不需要的、补上老师强调的、确认上位清单完整、下位方法归属正确、理解与举例要求清楚。改好了点“定稿”。")],
                      input=_buttons(("final", "已审改，定稿"), ("gen", "重新生成草稿"), ("skip", "稍后再说")))
@@ -566,7 +584,7 @@ def _skeleton_action(g, s, act):
         pending = [i["name"] for i in sk["items"] if re.search(r"^>\s*待核对", i["text"], re.M)]
         if pending:
             raise TrainError("方法细节尚未补充，不能定稿：" + "、".join(pending))
-        bad = [i["name"] for i in sk["items"] if not i["terms"] and not i["thoughts"]]
+        bad = [i["name"] for i in sk["items"] if not i["terms"] and not i["thoughts"] and not i.get("verses")]
         skeleton.set_final(g.paths, b, True)
         g._skel.pop(b, None)
         g.mark_done(s["task"], True)

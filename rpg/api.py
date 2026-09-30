@@ -156,7 +156,7 @@ def skeletons(body):
             items = []
             for it in (sk["items"] if sk else []):
                 st = g.state["items"].get(it["id"], {})
-                items.append({"id": it["id"], "name": it["name"], "terms": len(it["terms"]),
+                items.append({"id": it["id"], "name": it["name"], "terms": len(it["terms"]) + len(it.get("verses", [])),
                               "thoughts": len(it["thoughts"]), "level": st.get("level", 0),
                               "levelName": g.level_names()[st.get("level", 0)],
                               "l1": st.get("l1", 0), "l3": st.get("l3", 0),

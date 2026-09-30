@@ -14,13 +14,18 @@
     - 【术语】否定论点：……      ← 【术语】：完整名称清单，允许同义表述（AI 按含义判断）
     - 【术语】拆桥
     - 【思路】先找论点论据……    ← 【思路】或不带标记的条目：说出大意即可（AI 判断覆盖率）
+    - 【口诀】先看对称一笔画     ← 【口诀】：整句一字不差（程序逐字比对，忽略标点；不走 AI 含义判断）；适合图推 24 诀这类口诀
+    - 【特征】【翻译】……        ← 其他【xx】标记都按【思路】处理（说出大意即可）
+    - ……⚠ 待核对：……          ← “⚠”之后是给用户看的提示，不参与判分
 
 大项的 id 是 “板块::标题”（去掉开头的编号），改标题会被当成新大项，旧进度留在存档里不删。
 """
 import re
 
 TERM_TAG = "【术语】"
+VERSE_TAG = "【口诀】"
 THOUGHT_TAG = "【思路】"
+NOTE_MARK = "⚠"
 FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 PUNCT_RE = re.compile(r"[\s　，,。.、；;：:！!？?“”\"'‘’（）()《》<>【】\[\]\-—_·/\\|]+")
 
@@ -58,7 +63,8 @@ def parse(text, board):
         h = re.match(r"^##\s+(.+?)\s*$", ln)
         if h:
             name = re.sub(r"^(?:\d+[.、．)]|[一二三四五六七八九十]+[、.．])\s*", "", h.group(1)).strip()
-            cur = {"name": name, "id": item_id(board, name), "terms": [], "thoughts": [], "examples": [], "lines": []}
+            cur = {"name": name, "id": item_id(board, name), "terms": [], "verses": [], "thoughts": [],
+                   "examples": [], "lines": []}
             items.append(cur)
             continue
         if cur is None or re.match(r"^#\s", ln):
@@ -71,6 +77,11 @@ def parse(text, board):
         body = m.group(1)
         if "【举例】" in body:
             cur["examples"].append(body.replace("【举例】", "").strip())
+        elif VERSE_TAG in body:
+            # 【口诀】整句都要一字不差：单独存在 verses 里，由程序逐字比对（【术语】改为 AI 按含义判断，口诀不适用）
+            v = body.split(VERSE_TAG, 1)[1].split(NOTE_MARK, 1)[0].strip().rstrip("。")
+            if v:
+                cur["verses"].append(v)
         elif TERM_TAG in body:
             t = _term_of(body)
             if t:
@@ -82,7 +93,10 @@ def parse(text, board):
                 if expl:
                     cur["thoughts"].append(expl)
         else:
-            cur["thoughts"].append(body.replace(THOUGHT_TAG, "").strip())
+            # 【思路】【特征】【翻译】或不带标记的条目：说出大意即可；“⚠”后面是给用户的核对提示，不算要背的内容
+            t = body.split(NOTE_MARK, 1)[0].replace(THOUGHT_TAG, "").strip()
+            if t:
+                cur["thoughts"].append(t)
     for it in items:
         it["text"] = "\n".join(it.pop("lines"))
     return {"board": board, "status": meta.get("状态", "草稿"), "skill": meta.get("来源skill", ""),
@@ -133,6 +147,14 @@ def set_final(paths, board, final=True):
     with open(p, "w", encoding="utf-8", newline="\n") as fp:
         fp.write(t)
     return True
+
+
+def check_verses(item, answer):
+    """逐字比对【口诀】：返回 (命中列表, 遗漏列表)。忽略空白和标点，其余必须一字不差"""
+    a = norm(answer)
+    hit = [v for v in item.get("verses", []) if norm(v) and norm(v) in a]
+    miss = [v for v in item.get("verses", []) if v not in hit]
+    return hit, miss
 
 
 def check_terms(item, answer):

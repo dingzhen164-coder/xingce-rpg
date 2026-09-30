@@ -126,14 +126,16 @@ DEFAULT_RULES = {
 
 # 用户配置文件的版本号。defaults/ 里的文件改了结构（不只是改数值）时 +1，
 # 程序启动时会把旧版本的用户文件备份成 “xxx.旧版.md” 并换成新默认文件（见 paths.ensure_train_dir）。
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
+# 每个配置文件各自的版本：只升级真正改了结构的文件，其余文件不动（用户改过的内容保留）
+FILE_VERSIONS = {"规则.md": 4, "角色设定.md": 3, "台词库.md": 3, "台词库·玄幻.md": 3}
 TIER_WORDS = {"黄阶": 0, "玄阶": 1, "地阶": 2, "天阶": 3}
 
 DEFAULT_BATCHES = [
     ["论证逻辑", "形式逻辑", "一拖五"],
     ["片段阅读", "逻辑填空", "政治理论"],
     ["资料分析", "数量关系"],
-    ["定义判断", "类比推理"],
+    ["定义判断", "类比推理", "图形推理"],
 ]
 
 # 板块名 → (skill 文件夹名, [模考复盘里的板块名])
@@ -148,8 +150,9 @@ DEFAULT_BOARDS = {
     "数量关系": ("xingce-shuliang", ["数量关系"]),
     "定义判断": ("xingce-dingyi", ["定义判断"]),
     "类比推理": ("xingce-leibi", ["类比关系"]),
+    "图形推理": ("xingce-tuxing", ["图形推理"]),
 }
-DEFAULT_SIDE = {"常识判断": 0.6, "图形推理": 0.7}
+DEFAULT_SIDE = {"常识判断": 0.6}
 
 
 def _date(s, default):

@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from rpg import ai, api, engine, paths, trainer  # noqa: E402
+from rpg import ai, api, engine, paths, skeleton, trainer  # noqa: E402
 
 SKELETON = """---
 板块: 论证逻辑
@@ -373,6 +373,31 @@ class MigrationTest(unittest.TestCase):
             self.assertIn("艾琳学姐", (v / "训练/角色设定.旧版.md").read_text(encoding="utf-8"))
             self.assertTrue((v / "训练/台词库·玄幻.md").exists())
             self.assertEqual(paths.Paths(v).ensure_train_dir(), [])
+        finally:
+            paths.UPGRADED.clear()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_shipped_tuxing_skeleton(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            v = tmp / "行测"
+            (v / "copilot/skills").mkdir(parents=True)
+            p = paths.Paths(v)
+            p.ensure_train_dir()
+            f = v / "训练/骨架/图形推理.md"
+            self.assertTrue(f.exists())                              # 程序自带的图推 24 诀复制进来了（草稿）
+            f.write_text(f.read_text(encoding="utf-8").replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+            p.ensure_train_dir()
+            self.assertIn("已定稿", f.read_text(encoding="utf-8"))   # 已有的不覆盖
+            from rpg import config, store
+            rules = config.Rules((v / "训练/规则.md").read_text(encoding="utf-8"))
+            g = engine.Game(p, rules, config.Persona(), config.Lines(), store.new_state(dt.date(2026, 10, 1)))
+            self.assertTrue(g.available("图形推理"))                  # 有功法文件就算正式板块，不需要 skill
+            self.assertIn("图形推理", rules.batches[3])
+            self.assertNotIn("图形推理", rules.side)
+            it = g.final_items("图形推理")[0]
+            hit, miss = skeleton.check_verses(it, "先看对称一笔画，数面数线数交点，图形抽象看曲直，直角平行部分数")
+            self.assertEqual(miss, ["有灵魂的一根线"])                  # 口诀整句逐字比对
         finally:
             paths.UPGRADED.clear()
             shutil.rmtree(tmp, ignore_errors=True)
