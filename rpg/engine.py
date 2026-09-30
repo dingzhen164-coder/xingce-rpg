@@ -30,7 +30,7 @@ import time
 
 from . import skeleton, themes, vault
 
-TRAIN_TYPES = ("recite", "review", "speedrun", "feynman", "apply", "wrong")
+TRAIN_TYPES = ("recite", "review", "speedrun", "feynman", "example", "apply", "wrong")
 
 
 def D(s):
@@ -62,7 +62,7 @@ class Game:
         return self.T("levels").split(",")
 
     def label(self, typ):
-        return {"recite": self.T("recite"), "feynman": self.T("feynman"), "apply": self.T("apply"),
+        return {"recite": self.T("recite"), "feynman": self.T("feynman"), "example": self.T("example"), "apply": self.T("apply"),
                 "review": self.T("review"), "speedrun": self.T("speedrun"), "wrong": self.T("kill"),
                 "skeleton": "编撰" + self.T("skeleton"), "tribulation": self.T("tribulation"),
                 "heal": self.T("heal")}.get(typ, typ)
@@ -99,9 +99,12 @@ class Game:
         return [it for b in self.boards for it in self.final_items(b)]
 
     def item(self, iid):
-        return self.state["items"].setdefault(iid, {
+        st = self.state["items"].setdefault(iid, {
             "level": 0, "l1": 0, "l3": 0, "stage": -1, "next": None,
             "lap_check": False, "passed_once": False, "last": None, "rusty": False})
+        # 老存档的圆满不重置；其余项目需要完成独立举例。
+        st.setdefault("example_ok", st["level"] >= 3)
+        return st
 
     def item_progress(self, iid):
         st = self.state["items"].get(iid)
@@ -754,7 +757,7 @@ class Game:
                     st["next"] = (self.today + dt.timedelta(days=int(round(iv[st["stage"]] * stretch)))).isoformat()
                 ev += self._award(self.rules.xp("复查通过"), mode, board, iid, True, f"{self.label(mode)}成功「{name}」")
             else:
-                st.update(level=0, l1=0, l3=0, stage=-1, next=None, lap_check=False, rusty=True)
+                st.update(level=0, l1=0, l3=0, stage=-1, next=None, lap_check=False, rusty=True, example_ok=False)
                 ev += self._award(self.rules.xp("复查未过"), mode, board, iid, False,
                                   f"「{name}」{self.T('rust')}，降回{self.level_names()[0]}")
             return ev
@@ -787,13 +790,22 @@ class Game:
                          f"{self.T('feynman')}{'通过' if ok else '未过'}「{name}」")
         if ok and st["level"] == 1:
             st["level"] = 2
-            ev.append({"kind": "info", "msg": f"「{name}」{self.level_names()[2]}，下一步：{self.T('apply')}"})
+            ev.append({"kind": "info", "msg": f"「{name}」{self.level_names()[2]}，下一步：{self.T('example')}"})
         ev.append(self._npc("费曼通过" if ok else "费曼未过"))
         return ev
 
+    def on_example(self, iid, ok):
+        st = self.item(iid)
+        board, name = iid.split("::", 1)
+        st["last"] = self.t
+        if ok:
+            st["example_ok"] = True
+        return self._award(self.rules.xp("举例通过" if ok else "举例未过"), "example", board, iid, ok,
+                           "%s%s「%s」" % (self.T("example"), "通过" if ok else "未过", name))
+
     def _l3_progress(self, iid, ok):
         st = self.item(iid)
-        if st["level"] != 2:
+        if st["level"] != 2 or not st.get("example_ok"):
             return []
         if not ok:
             st["l3"] = 0
@@ -997,7 +1009,7 @@ class Game:
     def _task(self, typ, board, title, target, optional=False, extra=None):
         t = {"id": f"{typ}:{target}", "type": typ, "board": board, "title": title, "target": target,
              "minutes": self.rules.minutes({"review": "复查", "speedrun": "复查", "recite": "默写",
-                                            "feynman": "费曼", "apply": "应用", "wrong": "错题",
+                                            "feynman": "费曼", "example": "举例", "apply": "应用", "wrong": "错题",
                                             "skeleton": "骨架", "tribulation": "渡劫"}.get(typ, typ)),
              "done": False, "ok": None, "optional": optional}
         if extra:
@@ -1007,6 +1019,10 @@ class Game:
     def plan(self, force=False):
         p = self.state.get("plan")
         if p and p.get("date") == self.t and not force:
+            for index, task in enumerate(p["tasks"]):
+                st = self.state["items"].get(task.get("target"), {})
+                if task["type"] == "apply" and not task.get("done") and st.get("level") == 2 and not st.get("example_ok"):
+                    p["tasks"][index] = self._task("example", task["board"], self.T("example") + " · " + task["board"], task["target"])
             self._add_bank_tasks(p["tasks"])
             return p
         tasks, used = [], set()
@@ -1060,6 +1076,8 @@ class Game:
                 if st["level"] >= 3 or it["id"] in used or n >= per:
                     continue
                 typ = ["recite", "feynman", "apply"][st["level"]]
+                if typ == "apply" and not st.get("example_ok"):
+                    typ = "example"
                 tasks.append(self._task(typ, b, f"{self.label(typ)} · {b}「{it['name']}」", it["id"]))
                 n += 1
                 used.add(it["id"])
@@ -1073,7 +1091,7 @@ class Game:
         # 旧日计划立即兼容新入口；保留已经完成的任务，不重复生成实战。
         data = question_bank.state(self)
         candidates = list(dict.fromkeys(t['board'] for t in tasks
-                          if t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'apply')))
+                          if t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'example', 'apply')))
         for b in candidates:
             if any(t['id'] == 'bank:' + b for t in tasks):
                 for t in tasks:
@@ -1094,7 +1112,7 @@ class Game:
             task['done'] = completed
             task['ok'] = True if completed else None
             ix = max(i for i, t in enumerate(tasks) if t['board'] == b
-                     and t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'apply'))
+                     and t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'example', 'apply'))
             tasks.insert(ix + 1, task)
 
     def _heal_tasks(self):

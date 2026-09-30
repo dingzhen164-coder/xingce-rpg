@@ -160,6 +160,7 @@ def skeletons(body):
                               "thoughts": len(it["thoughts"]), "level": st.get("level", 0),
                               "levelName": g.level_names()[st.get("level", 0)],
                               "l1": st.get("l1", 0), "l3": st.get("l3", 0),
+                              "exampleOk": st.get("example_ok", st.get("level", 0) >= 3),
                               "next": st.get("next"), "rusty": st.get("rusty", False),
                               "lapCheck": st.get("lap_check", False)})
             out.append({"board": b, "skill": info["skill"], "hasSkill": g.has_skill(b),

@@ -17,6 +17,9 @@ $backupRoot = Join-Path $TrainPath '更新备份'
 $backup = Join-Path $backupRoot ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,6))
 $oldProgram = Join-Path $stage '旧程序'
 $swapped = $false
+$bonePath = Join-Path $TrainPath '骨架\论证逻辑.md'
+$boneExisted = Test-Path -LiteralPath $bonePath
+$boneChanged = $false
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 try {
     New-Item -ItemType Directory -Path $stage | Out-Null
@@ -55,7 +58,7 @@ try {
         } else {
             $rules = [IO.File]::ReadAllText($rulesPath, $utf8)
             $extra = @()
-            foreach ($pair in @(@('实战每组题数','10'), @('分钟.实战每题','2'), @('经验.实战答对','5'), @('经验.实战答错','1'), @('经验.实战通关','30'), @('试炼上品正确率','0.9'), @('试炼中品正确率','0.7'), @('试炼塔层数','100'), @('试炼塔总题数','5000'))) {
+            foreach ($pair in @(@('实战每组题数','10'), @('分钟.实战每题','2'), @('经验.实战答对','5'), @('经验.实战答错','1'), @('经验.实战通关','30'), @('试炼上品正确率','0.9'), @('试炼中品正确率','0.7'), @('试炼塔层数','100'), @('试炼塔总题数','5000'), @('经验.举例通过','25'), @('经验.举例未过','5'), @('分钟.举例','6'))) {
                 $pattern = '(?m)^\s*[-*]\s+' + [regex]::Escape($pair[0]) + '\s*[:：]'
                 if ($rules -notmatch $pattern) { $extra += ('- ' + $pair[0] + ': ' + $pair[1]) }
             }
@@ -64,6 +67,13 @@ try {
                 [IO.File]::WriteAllText($rulesPath, $rules.Replace("`r`n", "`n"), $utf8)
             }
         }
+        # 先前骨架已在完整备份内；新版保持草稿，审核后定稿。
+        New-Item -ItemType Directory -Path (Join-Path $TrainPath '骨架') -Force | Out-Null
+        $boneAlreadyUpdated = (Test-Path -LiteralPath $bonePath) -and ([IO.File]::ReadAllText($bonePath, $utf8).Contains('论证逻辑 · 理解与迁移训练'))
+        if (-not $boneAlreadyUpdated) {
+            $boneChanged = $true
+            Copy-Item -LiteralPath (Join-Path $program 'defaults\骨架\论证逻辑.md') -Destination $bonePath -Force
+        }
         [IO.File]::WriteAllText((Join-Path $program '更新版本.txt'), $Revision + "`n", $utf8)
     } catch {
         # 配置修改失败也恢复更新前的程序和规则；存档始终未改写。
@@ -71,12 +81,17 @@ try {
         if (Test-Path -LiteralPath $oldProgram) { Move-Item -LiteralPath $oldProgram -Destination $program }
         $oldRules = Join-Path $backup '规则.md'
         if (Test-Path -LiteralPath $oldRules) { Copy-Item -LiteralPath $oldRules -Destination (Join-Path $TrainPath '规则.md') -Force }
+        if ($boneChanged) {
+            $oldBone = Join-Path $backup '骨架\论证逻辑.md'
+            if ($boneExisted) { Copy-Item -LiteralPath $oldBone -Destination $bonePath -Force }
+            elseif (Test-Path -LiteralPath $bonePath) { Remove-Item -LiteralPath $bonePath -Force }
+        }
         throw
     }
     Write-Host '更新成功。重新启动训练程序，在“试炼塔”中查看各板块。' -ForegroundColor Green
     Write-Host "题库位置：$(Join-Path $TrainPath '题库')"
     Write-Host "备份位置：$backup"
-    Write-Host '存档、骨架和已有题库未覆盖；规则只补充缺失的实战参数。'
+    Write-Host '存档和已有题库保留；旧论证逻辑骨架已备份，新骨架是待核对的理解训练草稿。请补充方法细节并审阅后定稿。'
 } finally {
     # 如果回滚失败，保留原程序，不能在清理时删除最后一份可恢复代码。
     if ((Test-Path -LiteralPath $oldProgram) -and -not (Test-Path -LiteralPath $program)) {

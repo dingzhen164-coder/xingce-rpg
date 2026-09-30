@@ -59,7 +59,12 @@ def chat(messages, json_mode=False, temperature=0.3, max_tokens=1500, timeout=12
     except Exception as e:
         raise AIError(f"连不上 AI 接口：{e}")
     try:
-        return data["choices"][0]["message"]["content"] or ""
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise AIError("AI回复达到长度上限，尚未保存残缺结果，请缩小本次训练单元或提高输出上限")
+        return choice["message"]["content"] or ""
+    except AIError:
+        raise
     except Exception:
         raise AIError(f"AI 返回格式不对：{str(data)[:300]}")
 
@@ -77,3 +82,4 @@ def chat_json(messages, **kw):
             except Exception:
                 pass
     raise AIError(f"AI 没有按要求返回 JSON：{text[:200]}")
+

@@ -16,7 +16,7 @@
      "input":    {"mode": "text"|"buttons"|"none", "placeholder": 提示, "buttons": [{"id", "label"}]},
      "finished": 是否结束}
 
-没填 API key 时：背诵 / 温养 / 心魔 退化为“自评模式”（程序比对口诀 + 学员自己判断思路）；论道 / 试剑 / 生成功法必须有 AI；
+没填 API key 时：背诵 / 温养 / 心魔 退化为“自评模式”（学员对照清单与思路判断含义）；论道 / 试剑 / 生成功法必须有 AI；
 渡劫里的问道雷没有 AI 时换成心法雷。会话只存在内存里，结果在出结果那一刻就写进存档。
 """
 import re
@@ -27,7 +27,7 @@ from . import question_bank, ai, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
 FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
-STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
+STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
 REVIEW_GRACE = 180  # 秒
 
 
@@ -133,7 +133,7 @@ def get(sid):
 
 def _recite_prompt(g, board, it, head):
     return (f"{head}：{board}「{it['name']}」。凭记忆写出这一{g.T('item')}的全部内容——"
-            f"【术语】是{g.T('term')}，必须一字不差（共 {len(it['terms'])} 个）；【思路】说出大意即可（共 {len(it['thoughts'])} 条）。")
+            f"列全分类清单（共 {len(it['terms'])} 个），再用自己的话讲思路（共 {len(it['thoughts'])} 条）。允许同义表达与不同顺序，含义要对应，不能混淆上位分类和下位方法。")
 
 
 def _wrong_intro(g, q, head):
@@ -161,12 +161,19 @@ def start(g, task):
         return _resp(s, [_msg("npc", f"{g.T('feynman')}。把「{it['name']}」讲给{g.persona['导师名']}听：它是什么、题目里怎么认出来、"
                                      "怎么用、容易错在哪。就当对方完全不懂。")],
                      input=_remember(s, _text_input("像给别人讲课一样讲出来")))
+    if typ == "example":
+        _need_ai(g.T("example"))
+        it = _item(g, task["target"])
+        s = new_session(typ, task["title"], task, iid=it["id"], board=task["board"])
+        task_text = "；".join(it.get("examples", [])) or "自行编情境、论据、结论和选项，解释方法如何起作用；含多个类别时分别举例。"
+        return _resp(s, [_msg("npc", "「%s」：%s 不要求照抄原文，要让例子体现具体机制。" % (it["name"], task_text))],
+                     input=_remember(s, _text_input("自己的例子 → 方法 → 为什么成立 → 易混区别")))
     if typ == "apply":
         _need_ai(g.T("apply"))
         it = _item(g, task["target"])
         q = ai.chat_json(prompts.apply_question(g.persona, task["board"], it), temperature=0.7)
         s = new_session(typ, task["title"], task, iid=it["id"], board=task["board"], q=q)
-        return _resp(s, [_msg("npc", f"{g.T('apply')}（考点：{it['name']}）：\n\n{q.get('题目', '')}")],
+        return _resp(s, [_msg("npc", f"{g.T('apply')}：\n\n{q.get('题目', '')}")],
                      input=_remember(s, _text_input("先说你认出的考点和思路，再给答案")))
     if typ == "wrong":
         q = vault.find_question(g.paths, task["target"])
@@ -202,6 +209,10 @@ def reply(g, sid, text):
         return _gauntlet_answer(g, s, text)
     if typ == "feynman":
         return _feynman(g, s, text)
+    if typ == "example":
+        return _example(g, s, text)
+    if typ in ("bank", "bank_review"):
+        return _bank_reply(g, s, text)
     if typ == "apply":
         return _apply(g, s, text)
     if typ == "wrong":
@@ -229,26 +240,36 @@ def action(g, sid, act):
             return _gauntlet_step_done(g, s, ok and not p.get("miss") and p.get("answer_ok", True), [], "")
         if s["type"] == "wrong":
             return _wrong_finish(g, s, ok and p.get("answer_ok", True), "", [])
-        return _recite_finish(g, s, p["hit"], p["miss"], None, ok, "")
+        it = _item(g, s["iid"])
+        return _recite_finish(g, s, it["terms"] if ok else [], [] if ok else it["terms"], None, ok, "自评结果（未由AI验证）")
     raise TrainError("未知操作")
 
 
 # ---------------------------------------------------------------- 背诵口诀（默写）
 def _judge_recite(g, board, it, text):
     """返回 (hit, miss, coverage 或 None(需要自评), 点评, 错误说法)"""
-    hit, miss = skeleton.check_terms(it, text)
-    if not it["thoughts"]:
-        return hit, miss, 1.0, "", []
     if not ai.available():
-        return hit, miss, None, "", []
-    r = ai.chat_json(prompts.recite_grade(g.persona, board, it, text, miss))
-    marks = r.get("答到") or []
-    got = sum(1 for x in marks[: len(it["thoughts"])] if x is True)
-    return hit, miss, got / len(it["thoughts"]), r.get("点评", ""), r.get("错误说法") or []
+        # 字面查找仅作对照建议，不能据此否定同义表达。
+        return [], [], None, "", []
+    r = ai.chat_json(prompts.recite_grade(g.persona, board, it, text, []))
+    names = r.get("清单")
+    marks = r.get("答到")
+    if (not isinstance(names, list) or len(names) != len(it["terms"])
+            or not isinstance(marks, list) or len(marks) != len(it["thoughts"])
+            or any(type(x) is not bool for x in names + marks)
+            or not isinstance(r.get("错误说法"), list)):
+        raise TrainError("AI判分格式不完整，尚未记录结果，请重试")
+    hit = [name for name, yes in zip(it["terms"], names) if yes]
+    miss = [name for name, yes in zip(it["terms"], names) if not yes]
+    cov = sum(marks) / len(marks) if marks else 1.0
+    return hit, miss, cov, r.get("点评", ""), r["错误说法"]
+
 
 
 def _recite_summary(g, it, hit, miss, cov, wrong_says):
-    lines = [f"{g.T('term')} {len(hit)}/{len(it['terms'])}" + (f"，漏 / 错：{'、'.join(miss)}" if miss else "，全对 ✓")]
+    if cov is None:
+        return "未连接AI：请对照完整清单与思路自行核对含义，不作字面判分。"
+    lines = [f"分类含义对应 {len(hit)}/{len(it['terms'])}" + (f"，漏 / 错：{'、'.join(miss)}" if miss else "，全对 ✓")]
     if cov is not None and it["thoughts"]:
         lines.append(f"思路要点覆盖 {cov:.0%}")
     if wrong_says:
@@ -257,7 +278,7 @@ def _recite_summary(g, it, hit, miss, cov, wrong_says):
 
 
 def _self_rate_buttons():
-    return _buttons(("self_ok", "思路大体都说到了"), ("self_no", "有明显遗漏"))
+    return _buttons(("self_ok", "清单完整、含义正确（自评）"), ("self_no", "有明显遗漏"))
 
 
 def _grade_recite(g, s, text):
@@ -267,13 +288,13 @@ def _grade_recite(g, s, text):
         s["pending"] = {"hit": hit, "miss": miss}
         return _resp(s, [_msg("sys", _recite_summary(g, it, hit, miss, None, [])),
                          _msg("sys", it["text"], fold=f"{g.T('skeleton')}原文"),
-                         _msg("npc", "没连 AI，思路部分你自己对照一下：大意都说到了吗？")], input=_self_rate_buttons())
+                         _msg("npc", "没连 AI，请对照清单和思路自评：是否列全、含义对应且无错误？不会按字面匹配判失败。")], input=_self_rate_buttons())
     return _recite_finish(g, s, hit, miss, cov, None, comment, wrong_says)
 
 
 def _recite_finish(g, s, hit, miss, cov, self_ok, comment, wrong_says=()):
     it = _item(g, s["iid"])
-    ok = not miss and (self_ok if cov is None else cov >= g.rules.num("思路达标比例"))
+    ok = not wrong_says and (bool(self_ok) if cov is None else not miss and cov >= g.rules.num("思路达标比例"))
     ev = _drop_dup_npc(g.on_recite(s["iid"], ok, s["type"]), comment)
     g.mark_done(s["task"], ok)
     msgs = [_msg("sys", (f"✨ {g.label(s['type'])}成功\n" if ok else f"💥 {g.label(s['type'])}失败\n")
@@ -296,12 +317,27 @@ def _feynman(g, s, text):
         s["asked"] += 1
         return _resp(s, [_msg("npc", reply_text)], input=_remember(s, _text_input("回答追问")))
     dims = r.get("维度") or {}
-    ok = bool(r.get("通过")) if "通过" in r else all(dims.values())
+    ok = r.get("通过") is True and all(dims.get(k) is True for k in ("是什么", "识别信号", "怎么用", "易错"))
     ev = _drop_dup_npc(g.on_feynman(s["iid"], ok), reply_text)
     g.mark_done(s["task"], ok)
     dim_line = "　".join(f"{'✅' if v else '❌'}{k}" for k, v in dims.items())
     return _resp(s, [_msg("npc", reply_text), _msg("sys", (f"✨ {g.T('feynman')}通过　" if ok else "💥 还没讲透　") + dim_line),
                      _msg("sys", it["text"], fold=f"{g.T('skeleton')}原文")], ev, finished=True)
+
+
+def _example(g, s, text):
+    it = _item(g, s["iid"])
+    digest = vault.skill_digest(g.paths, g.boards[s["board"]].get("skill"))
+    r = ai.chat_json(prompts.example_grade(g.persona, s["board"], it, text, digest))
+    if type(r.get("通过")) is not bool:
+        raise TrainError("举例判分格式不完整，尚未记录，请重试")
+    ok = r["通过"]
+    st = g.item(s["iid"])
+    st["last_example"] = {"date": g.t, "text": text, "ok": ok, "feedback": r.get("点评", "")}
+    ev = g.on_example(s["iid"], ok)
+    g.mark_done(s["task"], ok)
+    return _resp(s, [_msg("sys", "举例通过：下一步实战迁移。" if ok else "举例尚未通过，请按反馈修改。"),
+                     _msg("npc", r.get("点评", "")), _msg("sys", r.get("修改建议", ""))], ev, finished=True)
 
 
 # ---------------------------------------------------------------- 试剑（应用）
@@ -429,13 +465,13 @@ def _gauntlet_answer(g, s, text):
     step = s["steps"][s["i"]]
     if step["kind"] == "recite":
         it = _item(g, step["target"])
-        hit, miss, cov, comment, _ = _judge_recite(g, step["board"], it, text)
+        hit, miss, cov, comment, wrong_says = _judge_recite(g, step["board"], it, text)
         summary = _recite_summary(g, it, hit, miss, cov, [])
         if cov is None:
             s["pending"] = {"miss": miss}
             return _resp(s, [_msg("sys", summary), _msg("sys", it["text"], fold=f"{g.T('skeleton')}原文")],
                          input=_self_rate_buttons())
-        ok = not miss and cov >= g.rules.num("思路达标比例")
+        ok = not miss and not wrong_says and cov >= g.rules.num("思路达标比例")
         return _gauntlet_step_done(g, s, ok, [_msg("sys", summary)] + ([_msg("npc", comment)] if comment else []), comment)
     if step["kind"] == "wrong":
         ok, iid, extra, r, answer_ok = _grade_wrong(g, step["target"], step["board"], text)
@@ -498,7 +534,7 @@ def _start_skeleton(g, task):
     if sk:
         n_terms = sum(len(i["terms"]) for i in sk["items"])
         return _resp(s, [_msg("npc", f"「{b}」的{S}草稿在 `{rel}`：{len(sk['items'])} {I}、{n_terms} 个{g.T('term')}（术语）。"
-                                     "去 Obsidian 里审一遍：删掉不需要的、补上老师强调的、确认【术语】标得对不对。改好了点“定稿”。")],
+                                     "去 Obsidian 里审一遍：删掉不需要的、补上老师强调的、确认上位清单完整、下位方法归属正确、理解与举例要求清楚。改好了点“定稿”。")],
                      input=_buttons(("final", "已审改，定稿"), ("gen", "重新生成草稿"), ("skip", "稍后再说")))
     if not vault.skill_dir(g.paths, g.boards.get(b, {}).get("skill")):
         return _resp(s, [_msg("sys", f"找不到「{b}」的 skill 文件夹（{g.boards.get(b, {}).get('skill')}），"
@@ -513,7 +549,7 @@ def _skeleton_action(g, s, act):
     if act == "gen":
         _need_ai(f"生成{S}")
         digest = vault.skill_digest(g.paths, g.boards[b]["skill"])
-        md = ai.chat(prompts.skeleton_gen(b, digest), max_tokens=4000, timeout=240)
+        md = ai.chat(prompts.skeleton_gen(b, digest), max_tokens=8000, timeout=240)
         if not skeleton.save_draft(g.paths, b, g.boards[b]["skill"], md):
             raise TrainError(f"{S}已定稿，不会覆盖。要重做请先在文件里把状态改回“草稿”")
         g._skel.pop(b, None)
@@ -527,6 +563,9 @@ def _skeleton_action(g, s, act):
         sk = g.skel(b)
         if not sk or not sk["items"]:
             raise TrainError(f"{S}里没有解析到任何一{I}（每一{I}需要一个 `## 标题`）")
+        pending = [i["name"] for i in sk["items"] if re.search(r"^>\s*待核对", i["text"], re.M)]
+        if pending:
+            raise TrainError("方法细节尚未补充，不能定稿：" + "、".join(pending))
         bad = [i["name"] for i in sk["items"] if not i["terms"] and not i["thoughts"]]
         skeleton.set_final(g.paths, b, True)
         g._skel.pop(b, None)
@@ -562,6 +601,7 @@ def _start_bank(g, task):
     # 新入口也可以恢复同板块未完成的错题组，计时类型与实际模式一致。
     typ = 'bank_review' if run['mode'] == 'review' else 'bank'
     s = new_session(typ, '%s · %s' % (g.T(typ), task['board']), task, board=task['board'], token=run['token'])
+    run.setdefault('reasoning', task['board'] == '论证逻辑')
     r = _bank_show(g, s, run)
     r['messages'].insert(0, _msg('npc', g.T('bank_intro')))
     return r
@@ -573,12 +613,20 @@ def _bank_show(g, s, run, events=None):
         r = run['results'][-1]
         msg = '你的答案：%s · %s\n正确答案：%s\n知识点：%s\n\n解析：\n%s' % (
             r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'], q['analysis'])
+        if r.get('reasoning'):
+            msg += '\n\n你的拆题：\n' + r['reasoning']
+            msg += '\n方法审核：' + ('通过' if r.get('method_ok') is True else '未通过' if r.get('method_ok') is False else '未验证（未连接AI）')
+            msg += '\n' + r.get('feedback', '')
         return _bank_resp(g, s, run, [_msg('sys', msg), _msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
                           _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
                                    ('bank_pause', g.T('bank_pause'))))
     msg = '%s · 第 %s/%s 关 · 编号 %s\n\n%s\n\n%s' % (
         run['board'], run['pos'] + 1, len(run['questions']), q['id'], q['stem'],
         '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    if run.get('reasoning'):
+        msg += '\n\n独立拆题：问法方向 → 结论（主体/结果）→ 论据 → 底层结构 → A/B/C/D的作用与排除理由。最后单独写一行【答案】B（填你的选择）。提交后才显示标准答案。'
+        return _bank_resp(g, s, run, [_msg('sys', msg)], events,
+                          _remember(s, _text_input('写出拆题过程，最后一行【答案】A/B/C/D')))
     # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
     return _bank_resp(g, s, run, [_msg('sys', msg)], events,
                       _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
@@ -589,9 +637,11 @@ def _bank_action(g, s, act):
     run = question_bank.state(g)['runs'].get(s['board'])
     if not run or run['token'] != s['token']:
         raise TrainError('本组已经结束，请重新进入实战')
-    if act == 'bank_pause':
+    if act in ('bank_pause', 'skip'):
         return _resp(s, [_msg('sys', '试炼进度已保存，下次进入这个板块续闯。')], finished=True)
     if act.startswith('bank_answer:'):
+        if run.get('reasoning'):
+            raise TrainError('请写拆题过程及最后的【答案】再提交')
         parts = act.split(':')
         if len(parts) != 3 or parts[1] != str(run['pos']):
             raise TrainError('题目已经切换，请重新进入本组')
@@ -631,3 +681,34 @@ def _bank_resp(g, s, run, messages, events, inp):
                    'correct': sum(x['ok'] for x in run['results']),
                    'mode': run['mode'], 'phase': run['phase'], 'tower': question_bank.tower(g)}
     return r
+
+
+def _bank_reply(g, s, text):
+    run = question_bank.state(g)["runs"].get(s["board"])
+    if not run or run["token"] != s["token"] or run["phase"] != "answer":
+        raise TrainError("题目已提交或组已切换，请恢复当前进度")
+    if not run.get("reasoning"):
+        raise TrainError("请使用选项按钮")
+    # 专用答案行，不能把选项分析里的最后一个字母误当最终答案。
+    matches = re.findall(r"(?m)^\s*(?:【答案】|答案[:：])\s*([A-Da-d])\s*$", text)
+    if len(matches) != 1:
+        raise TrainError("请单独写且只写一行【答案】B，不能从拆题中的选项字母猜答案")
+    reasoning = re.sub(r"(?m)^\s*(?:【答案】|答案[:：])\s*[A-Da-d]\s*$", "", text).strip()
+    if not reasoning:
+        raise TrainError("还没有拆题过程，请写出论据、结论、结构及选项分析")
+    q = run["questions"][run["pos"]]
+    method_ok, feedback = None, "未连接AI，请提交后对照解析自行核对方法；正确率只表示答案正确率。"
+    if ai.available():
+        digest = vault.skill_digest(g.paths, g.boards.get(s["board"], {}).get("skill"))
+        r = ai.chat_json(prompts.bank_method_grade(g.persona, s["board"], q, text, digest))
+        dims = r.get("维度")
+        if type(r.get("通过")) is not bool or not isinstance(dims, dict) or any(
+                type(dims.get(k)) is not bool for k in ("方向", "结论论据", "结构", "选项分析")):
+            raise TrainError("AI方法审核格式不完整，尚未提交，请重试")
+        method_ok = r["通过"] and all(dims[k] for k in ("方向", "结论论据", "结构", "选项分析")) and bool(digest)
+        feedback = r.get("点评", "") + "\n正确思路：" + r.get("正确思路", "")
+    try:
+        ev = question_bank.record(g, run, matches[0].upper(), reasoning, method_ok, feedback)
+    except question_bank.BankError as e:
+        raise TrainError(str(e))
+    return _bank_show(g, s, run, ev)

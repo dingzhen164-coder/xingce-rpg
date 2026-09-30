@@ -243,7 +243,7 @@ const views = {
     if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在判定</div>`;
     else if (inp.mode === "text") composer = `<textarea id="answer" placeholder="${esc(inp.placeholder || "")}"></textarea>
         <div class="row" style="margin-top:8px"><span class="small muted">Ctrl / ⌘ + Enter 提交</span><span class="spacer"></span>
-        <button class="ghost" data-act="skip">跳过</button><button class="primary" id="send">提交</button></div>`;
+        <button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button><button class="primary" id="send">提交</button></div>`;
     else if (inp.mode === "buttons") composer = `<div class="row">${inp.buttons.map((b) => `<button class="${b.id === "skip" ? "ghost" : "primary"}" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回${esc(NAV("home"))}</button></div>`;
     return `<div class="train">
@@ -267,7 +267,7 @@ const views = {
       <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
       <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
       ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
-      <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)}</p>
+      <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)} · 首次方法通过率 ${rate(b.method_correct, b.method_total)}（仅统计AI已审核）</p>
       ${b.errors.length ? `<div class="warn">${b.errors.map(esc).join('<br>')}</div>` : ''}
       <div class="row"><button class="primary" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${esc(W(b.active ? 'bank_resume' : 'bank_start'))}</button>
       <button data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>${esc(W('bank_review'))}</button></div>
@@ -283,10 +283,10 @@ const views = {
       const skill = b.hasSkill ? `<span class="small muted">skill：${esc(b.skill)}</span>` : `<span class="small" style="color:var(--red)">skill 未接入：${esc(b.skill || "（未配置）")}</span>`;
       const rows = b.items.map((it) => {
         const cls = it.rusty ? "rust" : "l" + it.level;
-        return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路</td>
+        return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? "已过" : "待过"}</td>
           <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? esc(W("rust")) : esc(it.levelName)}${sub(it)}${it.lapCheck ? ` · 待${esc(W("speedrun"))}` : ""}</span></td>
           <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td>
-          <td>${b.final ? `<a data-free="${esc(it.id)}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W("recite"))}一次</a>` : ""}</td></tr>`;
+          <td>${b.final ? `${["recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
       }).join("");
       return `<div class="card"><div class="row"><h3 style="margin:0">📜 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
         ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编撰" + esc(W("skeleton"))}</button>`}</div>
@@ -482,7 +482,7 @@ function bindSkeleton() {
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
     startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `📜 「${b.dataset.skel}」${W("skeleton")}` } })));
   document.querySelectorAll("[data-free]").forEach((a) => (a.onclick = () =>
-    startTask({ task: { type: "recite", board: a.dataset.board, target: a.dataset.free, title: `${W("recite")} · ${a.dataset.board}「${a.dataset.name}」` } })));
+    startTask({ task: { type: a.dataset.train || "recite", board: a.dataset.board, target: a.dataset.free, title: `${W(a.dataset.train || "recite")} · ${a.dataset.board}「${a.dataset.name}」` } })));
 }
 function bindPill() {
   const pb = $("#pillBtn");
@@ -525,7 +525,7 @@ function bindSettings() {
 // 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
 // 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
 const BEAT = 30;
-const STUDY = ["recite", "review", "speedrun", "feynman", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
+const STUDY = ["recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
 let lastActive = Date.now();
 let T_TYPE = "";
 ["mousemove", "keydown", "click", "scroll", "input"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));

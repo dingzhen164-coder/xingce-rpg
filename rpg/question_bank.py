@@ -88,6 +88,8 @@ def summary(g):
         result.append({'board': board, 'total': len(qs), 'remaining': sum(q['key'] not in data['records'] for q in qs),
                        'first_total': len(first), 'first_correct': sum(a['ok'] for a in first),
                        'review_total': len(repeats), 'review_correct': sum(a['ok'] for a in repeats),
+                       'method_total': sum(a.get('method_ok') is not None for a in first),
+                       'method_correct': sum(a.get('method_ok') is True for a in first),
                        'wrong': len(wrong), 'errors': errors, 'active': bool(run),
                        'wrong_items': [{'id': r['question']['id'], 'topic': r['question']['topic'],
                                         'last': r['history'][-1], 'tries': len(r['history'])} for r in wrong]})
@@ -121,7 +123,7 @@ def begin(g, board, mode):
     return run
 
 
-def record(g, run, answer):
+def record(g, run, answer, reasoning="", method_ok=None, feedback=""):
     if run['phase'] != 'answer':
         raise BankError('这道题已经提交，请点击下一题')
     q = run['questions'][run['pos']]
@@ -132,9 +134,10 @@ def record(g, run, answer):
     before_floor = tower(g)['cleared']
     first = not rec['history']
     result = {'date': g.t, 'answer': answer, 'ok': answer == q['answer'], 'mode': run['mode'], 'first': first}
+    result.update(reasoning=reasoning, method_ok=method_ok, feedback=feedback)
     rec['history'].append(result)
     rec['question'] = q
-    if result['ok']:
+    if result['ok'] and method_ok is not False:
         rec['streak'] += 1
         if rec['streak'] >= max(1, int(g.rules.num('回炉连续判对'))):
             rec['wrong'] = False
@@ -158,6 +161,8 @@ def record(g, run, answer):
 def finish(g, run):
     group = {'date': g.t, 'board': run['board'], 'mode': run['mode'],
              'total': len(run['results']), 'correct': sum(r['ok'] for r in run['results']),
+             'method_total': sum(r.get('method_ok') is not None for r in run['results']),
+             'method_correct': sum(r.get('method_ok') is True for r in run['results']),
              'ids': [q['id'] for q in run['questions']],
              'first_count': sum(bool(r.get('first')) for r in run['results']),
              'rank': rank(g, sum(r['ok'] for r in run['results']), len(run['results']))}

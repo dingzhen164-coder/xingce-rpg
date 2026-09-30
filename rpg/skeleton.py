@@ -11,7 +11,7 @@
     # 论证逻辑 · 骨架
 
     ## 削弱题                  ← 一个 “## ” 标题 = 一个“大项”（训练和进度的最小单位）
-    - 【术语】否定论点：……      ← 【术语】：冒号前的词必须一字不差地默写出来（程序逐字比对）
+    - 【术语】否定论点：……      ← 【术语】：完整名称清单，允许同义表述（AI 按含义判断）
     - 【术语】拆桥
     - 【思路】先找论点论据……    ← 【思路】或不带标记的条目：说出大意即可（AI 判断覆盖率）
 
@@ -58,7 +58,7 @@ def parse(text, board):
         h = re.match(r"^##\s+(.+?)\s*$", ln)
         if h:
             name = re.sub(r"^(?:\d+[.、．)]|[一二三四五六七八九十]+[、.．])\s*", "", h.group(1)).strip()
-            cur = {"name": name, "id": item_id(board, name), "terms": [], "thoughts": [], "lines": []}
+            cur = {"name": name, "id": item_id(board, name), "terms": [], "thoughts": [], "examples": [], "lines": []}
             items.append(cur)
             continue
         if cur is None or re.match(r"^#\s", ln):
@@ -69,7 +69,9 @@ def parse(text, board):
         if not m:
             continue
         body = m.group(1)
-        if TERM_TAG in body:
+        if "【举例】" in body:
+            cur["examples"].append(body.replace("【举例】", "").strip())
+        elif TERM_TAG in body:
             t = _term_of(body)
             if t:
                 cur["terms"].append(t)
@@ -110,7 +112,7 @@ def save_draft(paths, board, skill, body):
     body = FM_RE.sub("", body, 1).strip()  # AI 若自己写了 frontmatter，去掉，用下面统一的
     text = (f"---\n板块: {board}\n状态: 草稿\n来源skill: {skill}\n---\n"
             f"# {board} · 骨架\n\n"
-            f"> 审改说明：一个 `## 标题` = 一个大项；`【术语】` 冒号前的词要一字不差地默写，`【思路】` 说出大意即可。\n"
+            f"> 审改说明：一个 `## 标题` = 一个大项；`【术语】` 是完整分类清单，允许同义表达；`【思路】` 用自己的话讲清；`【举例】` 自行编例子验证理解。\n"
             f"> 改完把上面的“状态: 草稿”改成“状态: 已定稿”（或在网页上点“定稿”），才会进入训练。\n\n"
             + re.sub(r"^#\s.*\n+", "", body) + "\n")
     with open(p, "w", encoding="utf-8", newline="\n") as fp:
@@ -139,3 +141,4 @@ def check_terms(item, answer):
     hit = [t for t in item["terms"] if norm(t) and norm(t) in a]
     miss = [t for t in item["terms"] if t not in hit]
     return hit, miss
+

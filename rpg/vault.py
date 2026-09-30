@@ -41,25 +41,21 @@ def skill_dir(paths, name):
     return d if (d / "SKILL.md").is_file() else None
 
 
-def skill_digest(paths, name, limit=14000):
-    """给 AI 生成骨架用：SKILL.md + cheatsheet.md（+ 章节标题），截断到 limit 字"""
+def skill_digest(paths, name, limit=None):
+    """读取全篇学习资料；可选上限超出时拒绝，不悄悄截断分类或章节。"""
     d = skill_dir(paths, name)
     if not d:
         return ""
-    parts = []
-    for fn in ("SKILL.md", "cheatsheet.md"):
-        f = d / fn
-        if f.is_file():
-            parts.append(f"=== {fn} ===\n" + f.read_text(encoding="utf-8", errors="ignore"))
-    chs = sorted((d / "chapters").glob("*.md")) if (d / "chapters").is_dir() else []
-    if chs:
-        heads = []
-        for c in chs:
-            t = c.read_text(encoding="utf-8", errors="ignore")
-            heads.append(c.stem + "：" + "；".join(re.findall(r"^#{2,3}\s+(.+)$", t, re.M)[:12]))
-        parts.append("=== 章节标题 ===\n" + "\n".join(heads))
+    files = [d / fn for fn in ("SKILL.md", "cheatsheet.md", "patterns.md", "glossary.md")]
+    files += sorted((d / "chapters").glob("*.md"))
+    parts = ["=== %s ===\n%s" % (f.relative_to(d), f.read_text(encoding="utf-8", errors="ignore"))
+             for f in files if f.is_file()]
+    if not any(f.is_file() for f in files[4:]):
+        parts.append("资料提示：没有章节正文。只可依据现有内容，方法细节缺失时应标注待核对。")
     text = "\n\n".join(parts)
-    return text[:limit]
+    if limit is not None and len(text) > limit:
+        raise ValueError("skill 正文超过读取上限，请分板块整理资料；未生成残缺草稿")
+    return text
 
 
 # ---------------------------------------------------------------- 模考复盘
@@ -257,3 +253,4 @@ def safe_vault_file(paths, rel):
     except ValueError:
         return None
     return p if p.is_file() and p.suffix.lower() in IMAGE_EXT else None
+

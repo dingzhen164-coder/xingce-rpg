@@ -87,10 +87,14 @@ def fake_chat(messages, json_mode=False, **kw):
         return SKELETON.split("# 论证逻辑 · 骨架", 1)[1]
     if "要点是否说到了" in text:
         n = text.count("\n") and len([l for l in text.split("需要判断的思路要点（按顺序）：")[1].split("\n\n")[0].splitlines() if l.strip()])
-        return json.dumps({"答到": [True] * n, "错误说法": [], "点评": "不错"})
+        names = [l.split(". ", 1)[1] for l in text.split("需要判断的名称清单（按顺序）：")[1].split("\n\n")[0].splitlines() if ". " in l]
+        answer = text.split("学员的默写：\n")[1].split("\n\n")[0]
+        return json.dumps({"清单": [name in answer for name in names], "答到": [True] * n, "错误说法": [], "点评": "不错"})
     if "费曼学习法" in sys_text:
         return json.dumps({"reply": "讲得清楚", "done": True,
                            "维度": {"是什么": True, "识别信号": True, "怎么用": True, "易错": True}, "通过": True})
+    if "自行举例" in text:
+        return json.dumps({"通过": True, "点评": "机制清楚", "修改建议": ""})
     if "应用小题" in text and "判断学员" not in text:
         return json.dumps({"题目": "某论证……，以下哪项最能削弱？", "参考答案": "A", "参考思路": "否定论点"})
     if "判断学员对应用小题的作答" in text:
@@ -166,6 +170,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.state()["items"][iid]["level"], 1)
         self.run_task(dict(t, type="feynman"))
         self.assertEqual(self.state()["items"][iid]["level"], 2)
+        self.run_task(dict(t, type="example"))
         self.run_task(dict(t, type="apply"))
         self.run_task(dict(t, type="apply"))
         self.assertEqual(self.state()["items"][iid]["level"], 3)
@@ -178,7 +183,7 @@ class FlowTest(unittest.TestCase):
         # 另一重也圆满 → 秘境打通、论证灵根觉醒；从藏经阁发起的练习也会勾掉今日功课
         api.plan_regenerate({})
         t2 = {"board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}
-        for typ in ("recite", "recite", "feynman", "apply", "apply"):
+        for typ in ("recite", "recite", "feynman", "example", "apply", "apply"):
             self.run_task(dict(t2, type=typ))
         s = self.state()
         self.assertIn(1, s["cleared"]["1"])
@@ -220,7 +225,7 @@ class FlowTest(unittest.TestCase):
             g.state["boss"] = [{"d": g.t, "name": "a", "score": 60, "kind": "大比"}, {"d": g.t, "name": "b", "score": 60, "kind": "大比"}]
             g.housekeeping()
         self.assertTrue(api.dashboard({})["trib"]["ready"])
-        ai.chat = lambda m, **kw: json.dumps({"答到": [False] * 5, "错误说法": [], "点评": "差"}) if "要点是否说到了" in m[-1]["content"] else fake_chat(m, **kw)
+        ai.chat = fake_chat
         r = self.run_task({"type": "tribulation", "board": "", "target": "60", "title": "渡劫"}, answer="不记得了")
         s = self.state()
         self.assertNotIn(60, s["gates"])
@@ -296,6 +301,61 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(trainer.TrainError):
             api.session_start({"task": task})
         self.assertGreater(api.dashboard({})["rest"], 0)
+
+    def test_semantic_recall_synonyms_errors_and_malformed_result(self):
+        bone = self.vault / "训练/骨架/论证逻辑.md"
+        bone.parent.mkdir(parents=True, exist_ok=True)
+        bone.write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+        task = {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::削弱题", "title": "x"}
+        # 没有字面命中两个术语，但语义对应完整，AI按含义通过。
+        ai.chat = lambda m, **kw: json.dumps({"清单": [True, True], "答到": [True, True, True], "错误说法": [], "点评": "含义正确"})
+        r = self.run_task(task, "否认主张，以及破坏证据到主张的联系")
+        self.assertTrue(any("成功" in m["text"] for m in r["messages"]))
+        ai.chat = lambda m, **kw: json.dumps({"清单": [True, True], "答到": [True, True, True], "错误说法": ["把共现当因果"], "点评": "混淆"})
+        self.run_task(task)
+        self.assertEqual(self.state()["items"][task["target"]]["l1"], 0)
+        ai.chat = lambda m, **kw: json.dumps({"清单": ["true"], "答到": [], "错误说法": []})
+        r = api.session_start({"task": task})
+        xp = self.state()["xp"]
+        with self.assertRaises(trainer.TrainError):
+            api.session_reply({"session": r["session"], "text": "讲解"})
+        self.assertEqual(self.state()["xp"], xp)
+
+    def test_example_gate_and_legacy_mastery(self):
+        with api.open_game() as g:
+            iid = "论证逻辑::测试举例"
+            st = g.item(iid)
+            st["level"] = 2
+            g.on_apply(iid, True)
+            self.assertEqual(st["l3"], 0)
+            g.on_example(iid, False)
+            self.assertFalse(st["example_ok"])
+            g.on_example(iid, True)
+            g.on_apply(iid, True)
+            self.assertEqual(st["l3"], 1)
+            g.state["items"]["旧圆满::方法"] = {"level": 3}
+            self.assertTrue(g.item("旧圆满::方法")["example_ok"])
+
+    def test_full_chapter_body_and_example_not_recall_point(self):
+        from rpg import skeleton, vault
+        folder = self.vault / "copilot/skills/xue-rui-argument-logic/chapters"
+        folder.mkdir()
+        (folder / "ch02.md").write_text("## 方法\n正文里的具体边界条件", encoding="utf-8")
+        with api.open_game(save=False) as g:
+            digest = vault.skill_digest(g.paths, "xue-rui-argument-logic")
+        self.assertIn("正文里的具体边界条件", digest)
+        it = skeleton.parse("## 方法\n- 【思路】解释机制\n- 【举例】自行编情境", "论证逻辑")["items"][0]
+        self.assertEqual(it["thoughts"], ["解释机制"])
+        self.assertEqual(it["examples"], ["自行编情境"])
+
+    def test_unverified_draft_cannot_finalize(self):
+        bone = self.vault / "训练/骨架/论证逻辑.md"
+        bone.parent.mkdir(parents=True, exist_ok=True)
+        bone.write_text("---\n状态: 草稿\n---\n## 方法\n> 待核对：补充章节定义\n- 【术语】建立联系", encoding="utf-8")
+        r = api.session_start({"task": {"type": "skeleton", "board": "论证逻辑", "title": "审核"}})
+        with self.assertRaises(trainer.TrainError):
+            api.session_action({"session": r["session"], "action": "final"})
+        self.assertIn("状态: 草稿", bone.read_text(encoding="utf-8"))
 
 
 class MigrationTest(unittest.TestCase):
@@ -424,3 +484,4 @@ class EngineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

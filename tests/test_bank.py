@@ -2,6 +2,7 @@
 import datetime as dt
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from rpg import config, engine, paths, question_bank as bank, store, trainer
 
@@ -9,6 +10,16 @@ from rpg import config, engine, paths, question_bank as bank, store, trainer
 def question(ident, answer='A'):
     return ('\n## 题目 %s\n### 知识点\n削弱\n### 题干\n题干 %s\n'
             '### 选项\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n### 答案\n%s\n### 解析\n秘密解析\n') % (ident, ident, answer)
+
+
+def bank_action(g, sid, act):
+    if act.startswith("bank_answer:"):
+        _, pos, letter = act.split(":")
+        run = bank.state(g)["runs"]["论证逻辑"]
+        if pos != str(run["pos"]):
+            raise trainer.TrainError("题目切换")
+        return trainer.reply(g, sid, "方向：削弱。论据与结论需要建立联系，A排除其他解释，B/C/D无关。\n【答案】" + letter)
+    return trainer.action(g, sid, act)
 
 
 class BankTest(unittest.TestCase):
@@ -43,10 +54,10 @@ class BankTest(unittest.TestCase):
         self.assertNotIn('正确答案', str(r))
         sid = r['session']
         self.assertTrue(trainer.is_studying(sid))
-        trainer.action(self.g, sid, 'bank_answer:0:B')
+        bank_action(self.g, sid, 'bank_answer:0:B')
         xp = self.g.state['xp']
         with self.assertRaises(trainer.TrainError):
-            trainer.action(self.g, sid, 'bank_answer:0:B')
+            bank_action(self.g, sid, 'bank_answer:0:B')
         self.assertEqual(self.g.state['xp'], xp)
         store.Store(self.paths).save(self.g.state, self.day)
         trainer.SESSIONS.clear()
@@ -54,11 +65,11 @@ class BankTest(unittest.TestCase):
         r = trainer.start(self.g, self.task)
         self.assertIn('秘密解析', str(r))
         sid = r['session']
-        r = trainer.action(self.g, sid, 'bank_next')
+        r = bank_action(self.g, sid, 'bank_next')
         self.assertIn('编号 01', str(r))
         for pos in range(1, 10):
-            trainer.action(self.g, sid, 'bank_answer:%s:A' % pos)
-            r = trainer.action(self.g, sid, 'bank_next')
+            bank_action(self.g, sid, 'bank_answer:%s:A' % pos)
+            r = bank_action(self.g, sid, 'bank_next')
         self.assertTrue(r['finished'])
         stats = bank.summary(self.g)['boards'][0]
         self.assertEqual((stats['first_total'], stats['first_correct'], stats['wrong']), (10, 9, 1))
@@ -70,15 +81,15 @@ class BankTest(unittest.TestCase):
     def test_wrong_review_snapshot_stats_and_no_extra_xp(self):
         self.file.write_text(question('1'), encoding='utf-8')
         r = trainer.start(self.g, self.task)
-        trainer.action(self.g, r['session'], 'bank_answer:0:B')
-        trainer.action(self.g, r['session'], 'bank_next')
+        bank_action(self.g, r['session'], 'bank_answer:0:B')
+        bank_action(self.g, r['session'], 'bank_next')
         self.file.write_text('', encoding='utf-8')  # 原题删掉仍可按错题快照复练
         self.task['type'] = 'bank_review'
         xp = self.g.state['xp']
         for _ in range(2):
             r = trainer.start(self.g, self.task)
-            trainer.action(self.g, r['session'], 'bank_answer:0:A')
-            trainer.action(self.g, r['session'], 'bank_next')
+            bank_action(self.g, r['session'], 'bank_answer:0:A')
+            bank_action(self.g, r['session'], 'bank_next')
         s = bank.summary(self.g)['boards'][0]
         self.assertEqual((s['first_correct'], s['first_total'], s['review_correct'], s['review_total'], s['wrong']), (0, 1, 2, 2, 0))
         self.assertEqual(self.g.state['xp'], xp)
@@ -99,12 +110,12 @@ class BankTest(unittest.TestCase):
         r = trainer.start(self.g, self.task)
         self.assertEqual(r['battle']['total'], 1)
         self.assertNotIn('秘密解析', str(r['battle']))
-        trainer.action(self.g, r['session'], 'bank_answer:0:A')
-        r = trainer.action(self.g, r['session'], 'bank_next')
+        bank_action(self.g, r['session'], 'bank_answer:0:A')
+        r = bank_action(self.g, r['session'], 'bank_next')
         self.assertIn('破阵无伤', str(r))
         self.assertEqual(sum(e['type'] == 'bank_clear' for e in self.g.state['events']), 1)
         with self.assertRaises(trainer.TrainError):
-            trainer.action(self.g, r['session'], 'bank_next')
+            bank_action(self.g, r['session'], 'bank_next')
         self.g.state['theme'] = '玄幻'
         self.assertEqual(self.g.T('nav.bank'), '🗼 试炼塔')
         self.assertEqual(self.g.T('bank_rank.3'), '完美通关')
@@ -115,12 +126,12 @@ class BankTest(unittest.TestCase):
     def test_old_partial_run_keeps_answers_without_retroactive_reward(self):
         self.file.write_text(question('1') + question('2'), encoding='utf-8')
         r = trainer.start(self.g, self.task)
-        trainer.action(self.g, r['session'], 'bank_answer:0:A')
+        bank_action(self.g, r['session'], 'bank_answer:0:A')
         run = bank.state(self.g)['runs']['论证逻辑']
         run['results'][0].pop('first')  # 模拟上一版保存的作答，没有新奖励标记
-        trainer.action(self.g, r['session'], 'bank_next')
-        trainer.action(self.g, r['session'], 'bank_answer:1:A')
-        trainer.action(self.g, r['session'], 'bank_next')
+        bank_action(self.g, r['session'], 'bank_next')
+        bank_action(self.g, r['session'], 'bank_answer:1:A')
+        bank_action(self.g, r['session'], 'bank_next')
         ev = next(e for e in self.g.state['events'] if e['type'] == 'bank_clear')
         self.assertEqual(ev['xp'], 15)  # 只奖励本组一半的新记录
         self.assertEqual(len(bank.state(self.g)['records']), 2)
@@ -145,25 +156,62 @@ class BankTest(unittest.TestCase):
         bank.state(self.g)['records'] = {'旧板块::%s' % i: {'history': [{'ok': True}], 'question': {'board': '片段阅读'}, 'wrong': False} for i in range(49)}
         self.file.write_text(question('50'), encoding='utf-8')
         r = trainer.start(self.g, self.task)
-        r = trainer.action(self.g,r['session'],'bank_answer:0:B')
+        r = bank_action(self.g,r['session'],'bank_answer:0:B')
         self.assertEqual(r['battle']['tower']['cleared'],1)
         self.assertTrue(any('登上试炼塔第 1 层' in e.get('msg','') for e in r['events']))
-        trainer.action(self.g,r['session'],'bank_next')
+        bank_action(self.g,r['session'],'bank_next')
         self.task['type'] = 'bank_review'
         r = trainer.start(self.g,self.task)
-        r = trainer.action(self.g,r['session'],'bank_answer:0:A')
+        r = bank_action(self.g,r['session'],'bank_answer:0:A')
         self.assertEqual(r['battle']['tower']['completed'],50)
         self.assertFalse(any('登上试炼塔' in e.get('msg','') for e in r['events']))
 
     def test_appended_questions_continue_without_numeric_sort(self):
         self.file.write_text(question('999'), encoding='utf-8')
         r = trainer.start(self.g, self.task)
-        trainer.action(self.g,r['session'],'bank_answer:0:A')
-        trainer.action(self.g,r['session'],'bank_next')
+        bank_action(self.g,r['session'],'bank_answer:0:A')
+        bank_action(self.g,r['session'],'bank_next')
         self.file.write_text(question('999') + question('001'), encoding='utf-8')
         r = trainer.start(self.g,self.task)
         self.assertIn('编号 001',str(r))
         self.assertEqual(len(bank.state(self.g)['runs']['论证逻辑']['questions']),1)
+
+    def test_reasoning_answer_field_no_leak_and_method_separate(self):
+        from rpg import ai
+        self.file.write_text(question("1"), encoding="utf-8")
+        skill = self.paths.skills / "xue-rui-argument-logic"
+        skill.mkdir(parents=True, exist_ok=True)
+        (skill / "SKILL.md").write_text("判断底层结构与每个选项的作用", encoding="utf-8")
+        r = trainer.start(self.g, self.task)
+        self.assertEqual(r["input"]["mode"], "text")
+        self.assertNotIn("秘密解析", str(r))
+        with self.assertRaises(trainer.TrainError):
+            trainer.reply(self.g, r["session"], "A是支持，D是无关")
+        with self.assertRaises(trainer.TrainError):
+            trainer.reply(self.g, r["session"], "【答案】A")
+        self.assertFalse(bank.state(self.g)["records"])
+        judgement = {"通过": True, "维度": {"方向": True, "结论论据": True, "结构": True, "选项分析": False}, "点评": "只报术语", "正确思路": "应落到具体词句"}
+        with patch.object(ai, "available", return_value=True), patch.object(ai, "chat_json", return_value=judgement):
+            result = trainer.reply(self.g, r["session"], "方向、论据结论、结构说清了，选项没有落地。D也是无关。\n【答案】A")
+        record = bank.state(self.g)["records"]["论证逻辑::1"]
+        self.assertTrue(record["history"][0]["ok"])
+        self.assertFalse(record["history"][0]["method_ok"])
+        self.assertTrue(record["wrong"])
+        self.assertIn("未通过", str(result))
+        self.assertEqual(bank.summary(self.g)["boards"][0]["method_total"], 1)
+        with self.assertRaises(trainer.TrainError):
+            trainer.reply(self.g, r["session"], "重复作答\n【答案】B")
+        self.assertEqual(len(record["history"]), 1)
+
+    def test_reasoning_ai_failure_keeps_question_unsubmitted(self):
+        from rpg import ai
+        self.file.write_text(question("1"), encoding="utf-8")
+        r = trainer.start(self.g, self.task)
+        with patch.object(ai, "available", return_value=True), patch.object(ai, "chat_json", side_effect=ai.AIError("超时")):
+            with self.assertRaises(ai.AIError):
+                trainer.reply(self.g, r["session"], "论据、结论与四个选项分析\n【答案】A")
+        self.assertFalse(bank.state(self.g)["records"])
+        self.assertEqual(bank.state(self.g)["runs"]["论证逻辑"]["phase"], "answer")
 
 
 if __name__ == '__main__':
