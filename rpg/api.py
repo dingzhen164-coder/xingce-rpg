@@ -7,15 +7,18 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
 接口一览（GET 无参数，POST 请求体是 JSON）：
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
     POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
+    POST /api/theme                {"theme": "修仙"|"玄幻"}  切换风格
+    POST /api/retreat/start        {"board", "minutes"}  闭关；POST /api/retreat/end 提前出关
     POST /api/plan/regenerate      重新生成今日任务
-    POST /api/session/start        {"task_id"} 或 {"task": {type, board, target, title}} 开始训练
+    POST /api/session/start        {"task_id"} 或 {"task": {type, board, target, title}} 开始修炼
+                                   （type 还可以是 tribulation 渡劫、alchemy 炼丹(board)、chat 聊天）
     POST /api/session/reply        {"session", "text"}      提交文字
     POST /api/session/action       {"session", "action"}    点按钮
     GET  /api/skeletons            各板块骨架与每个大项的掌握度
     GET  /api/wrong                错题池统计
     POST /api/heartbeat            {"seconds"}  网页每分钟上报一次学习时间
     POST /api/leave                用请假卡
-    POST /api/boss                 {"name", "score"}  录入模考 / 国考真实分
+    POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
     POST /api/practice             {"board", "total", "correct", "minutes"}  录入自练
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
@@ -31,7 +34,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import ai, config, engine, paths as paths_mod, store, trainer, tutor, vault
+from . import ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -44,10 +47,11 @@ def open_game(save=True):
     with store.LOCK:
         paths = Paths(find_vault())
         paths.ensure_train_dir()
-        rules, persona, lines = config.load_all(paths)
         st = store.Store(paths)
         today = dt.date.today()
         state = st.load(today)
+        # 风格存在存档里：它决定用哪套导师设定、哪个台词库
+        rules, persona, lines = config.load_all(paths, state.get("theme") or themes.DEFAULT_THEME)
         g = engine.Game(paths, rules, persona, lines, state, today)
         g.store = st
         yield g
@@ -136,7 +140,7 @@ def skeletons(body):
                 st = g.state["items"].get(it["id"], {})
                 items.append({"id": it["id"], "name": it["name"], "terms": len(it["terms"]),
                               "thoughts": len(it["thoughts"]), "level": st.get("level", 0),
-                              "levelName": engine.LEVEL_NAMES[st.get("level", 0)],
+                              "levelName": g.level_names()[st.get("level", 0)],
                               "l1": st.get("l1", 0), "l3": st.get("l3", 0),
                               "next": st.get("next"), "rusty": st.get("rusty", False),
                               "lapCheck": st.get("lap_check", False)})
@@ -162,7 +166,8 @@ def heartbeat(body):
     sec = max(0, min(90, int(body.get("seconds", 60))))
     with open_game() as g:
         ev = tutor.enrich(g, g.add_seconds(sec))
-        return {"events": ev, "minutes": int(g.minutes(g.t)), "other_device": g.store.heartbeat()}
+        return {"events": ev, "minutes": int(g.minutes(g.t)), "other_device": g.store.heartbeat(),
+                "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 
 
 def leave(body):
@@ -173,13 +178,52 @@ def leave(body):
 
 
 def boss(body):
+    """宗门大比（kind=大比，默认）或飞升大典（kind=飞升，国考）成绩"""
     name = str(body.get("name", "")).strip() or "模考"
+    kind = "飞升" if body.get("kind") == "飞升" else "大比"
     try:
         score = float(body["score"])
     except Exception:
         raise ApiError("分数要填数字")
+    if not 0 <= score <= 100:
+        raise ApiError("分数要在 0–100 之间")
     with open_game() as g:
-        return {"events": tutor.enrich(g, g.add_boss(name, score))}
+        if kind == "飞升" and body.get("result"):
+            name = f"{name}（{body['result']}）"
+        return {"events": tutor.enrich(g, g.add_boss(name, score, kind) + g.housekeeping())}
+
+
+def theme_set(body):
+    name = body.get("theme")
+    if name not in themes.THEMES:
+        raise ApiError("未知的风格")
+    with open_game() as g:
+        g.state["theme"] = name
+        g.state["tutor_greet"] = None   # 换了导师，重新打招呼
+        g.state["plan"] = None          # 功课标题换成新风格的说法
+        return {"ok": True}
+
+
+def retreat_start(body):
+    try:
+        minutes = int(body.get("minutes") or 60)
+    except Exception:
+        raise ApiError("分钟要填数字")
+    board = str(body.get("board", "")).strip()
+    with open_game() as g:
+        if board not in g.boards and board not in g.rules.side:
+            raise ApiError("先选一个板块")
+        if g.resting():
+            raise ApiError(f"还需调息 {g.resting()} 分钟")
+        ok, msg = g.start_retreat(board, max(15, min(240, minutes)))
+        if not ok:
+            raise ApiError(msg)
+        return {"events": [{"kind": "info", "msg": msg}]}
+
+
+def retreat_end(body):
+    with open_game() as g:
+        return {"events": tutor.enrich(g, g.end_retreat())}
 
 
 def practice(body):
@@ -227,6 +271,9 @@ def settings_test(body):
 ROUTES = {
     ("GET", "/api/dashboard"): dashboard,
     ("POST", "/api/plan/regenerate"): plan_regenerate,
+    ("POST", "/api/theme"): theme_set,
+    ("POST", "/api/retreat/start"): retreat_start,
+    ("POST", "/api/retreat/end"): retreat_end,
     ("POST", "/api/tutor/greet"): tutor_greet,
     ("POST", "/api/session/start"): session_start,
     ("POST", "/api/session/reply"): session_reply,

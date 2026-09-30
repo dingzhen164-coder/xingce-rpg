@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 LOCK = threading.RLock()  # 所有读改写存档的操作都要先拿这把锁
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEVICE = platform.node() or "本机"
 
 
@@ -34,12 +34,24 @@ def new_state(today):
         "plan": None,            # 今日任务 {date, tasks: [...]}
         "lap": 1,                # 当前周目
         "cleared": {},           # {周目: [已通关批次序号(从1开始)]}
-        "gates": [],             # 已通过的突破等级
+        "gates": [],             # 已渡过的劫（渡劫分数线，如 60、65）
         "boss": [],              # 模考 / 国考真实分 {d, name, score}
         "practice": [],          # 自练记录 {d, board, total, correct, minutes}
         "progress_hist": {},     # 每天的周目进度快照 {日期: 0~1}，算“近7天速度”用
         "last_seen": None,       # 上次打开网页的日期（判断“回归”）
         "tutor_greet": None,     # AI 导师今天的开场问候缓存 {d, text}
+        "theme": "修仙",         # 界面风格：修仙 / 玄幻
+        "roots": {},             # 灵根 {板块: {on: 觉醒日期, grade: 上次品阶}}
+        "bag": {},               # 储物袋 {物品名: 数量}（护心丹、筑基丹……）
+        "trib": {"cooldown": None, "heal": []},  # 渡劫：冷却到哪天、待疗伤的关卡
+        "pills": [],             # 服过的丹药 {d, board, name, grade, rate}
+        "weekly": {},            # 已领取的周常 {“2026-W40”: [键…]}
+        "protected": [],         # 护心丹保住的日期
+        "hx_awards": [],         # 已发放的“连续修炼护心丹”
+        "fail_streak": 0,        # 连续失败次数（走火入魔）
+        "run": None,             # 本次连续修炼 {start, last}（时间戳）
+        "rest_until": 0,         # 调息到什么时候（时间戳）
+        "retreat": None,         # 闭关 {board, start, end, minutes, xp0, d}
     }
 
 
@@ -60,6 +72,12 @@ class Store:
             os.replace(f, bad)
             return self._latest_backup() or new_state(today)
         base = new_state(today)
+        if data.get("version", 1) < 2:
+            # 第一、二版的 gates 是“等级”（10/20/30、30/60/90），第三版改成渡劫分数线，旧值作废；
+            # 今日任务的标题也换了说法，重新生成
+            data["gates"] = []
+            data["plan"] = None
+            data["version"] = 2
         base.update(data)  # 老存档缺的新字段用默认值补上
         return base
 

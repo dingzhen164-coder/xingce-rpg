@@ -1,9 +1,9 @@
 """
 读取 训练/ 下的三个用户配置文件，给出带默认值的配置对象。
 
-    规则.md      → Rules      （游戏规则：时间线、等级、分批、经验值……）
-    角色设定.md  → Persona    （ID、称呼、头像、导师人设）
-    台词库.md    → Lines      （导师在各场景下随机说的话）
+    规则.md                    → Rules      （游戏规则：时间线、境界、渡劫、灵根、丹药、分批、修为值……）
+    角色设定.md                → Persona    （ID、头像；每种风格的称呼、导师名 / 头像 / 人设）
+    台词库.md / 台词库·玄幻.md → Lines      （导师在各场景下随机说的话，修仙 / 玄幻各一份）
 
 每次请求都重新读取（文件很小），所以用户改完刷新网页就生效。
 规则文件里缺的键一律用 DEFAULT_RULES 里的默认值，写错的值也回退到默认值，程序不会因此崩溃。
@@ -16,19 +16,54 @@ from . import mdconf
 
 # 默认规则：和 defaults/规则.md 保持一致。新增规则时两边都要加。
 DEFAULT_RULES = {
+    # 时间线
     "开始日期": "2026-09-29",
-    "满级目标日": "2027-12-01",
+    "目标日": "2027-12-01",
     "每日目标分钟": 120,
     "保底分钟": 15,
     "每月请假卡": 4,
-    "满级等级": 100,
+    # 分数与境界（修为 → 预估分 → 境界）
     "起始分数": 50,
-    "满级分数": 80,
+    "目标分数": 80,
+    "最高分数": 100,
     "每日理想经验": 300,
-    "后期升级倍数": 3.0,
-    "突破等级": "30, 60, 90",
-    "突破题数": 8,
-    "突破通过率": 0.9,
+    # 渡劫
+    "渡劫分数线": "60, 65, 70, 75, 80, 85",
+    "天劫雷数": "3, 5, 7, 9, 9, 9",
+    "渡劫冷却天数": 3,
+    "渡劫道心": 60,
+    "渡劫灵根.60": "激活1",
+    "渡劫灵根.65": "激活3",
+    "渡劫灵根.70": "激活5 玄阶2",
+    "渡劫灵根.75": "激活7 玄阶4 地阶1",
+    "渡劫灵根.80": "激活9 玄阶6 地阶3",
+    "渡劫灵根.85": "激活10 地阶5 天阶2",
+    # 灵根
+    "灵根正确率": "55, 60, 65, 70, 75, 80, 85, 90",
+    "灵根正确率.常识判断": "45, 50, 55, 60, 65, 70, 75, 80",
+    "灵根取最近几季": 3,
+    "灵根每阶加成": 0.05,
+    "灵根复查间隔加成": 0.1,
+    # 丹药 / 闭关 / 顿悟 / 走火入魔 / 道心
+    "炼丹题数": 5,
+    "丹药加成": "0.1, 0.2, 0.3",
+    "闭关加成": 0.2,
+    "顿悟概率": 0.08,
+    "顿悟倍数": 1.0,
+    "走火入魔分钟": 180,
+    "走火入魔连错": 5,
+    "走火调息分钟": 10,
+    "道心统计天数": 14,
+    "护心丹连续天数": 30,
+    # 宗门周常（每周一刷新）
+    "周常.斩心魔": 20,
+    "周常.背诵口诀": 15,
+    "周常.论道": 3,
+    "周常.修炼分钟": 600,
+    "周常.宗门大比": 1,
+    # 导师
+    "导师AI": "开",
+    # 分批与日常
     "每批预计天数": 14,
     "每日新学大项": 4,
     "每日新学板块数": 2,
@@ -43,6 +78,7 @@ DEFAULT_RULES = {
     "回炉间隔天数": 2,
     "回炉连续判对": 2,
     "错题只取最近几季": 0,
+    # 修为（经验）
     "经验.默写通过": 30,
     "经验.默写未过": 5,
     "经验.首次通过加成": 20,
@@ -58,10 +94,11 @@ DEFAULT_RULES = {
     "经验.大项掌握": 40,
     "经验.批次通关": 500,
     "经验.周目通关": 2000,
-    "经验.突破成功": 300,
+    "经验.渡劫成功": 500,
     "经验.自练每题": 2,
     "经验.模考录分": 100,
-    "经验.模考进步每分": 20,
+    "经验.周常": 150,
+    "经验.飞升": 3000,
     "连续打卡每天加成": 0.02,
     "连续打卡加成上限": 0.2,
     "分钟.默写": 5,
@@ -70,12 +107,14 @@ DEFAULT_RULES = {
     "分钟.错题": 4,
     "分钟.复查": 3,
     "分钟.骨架": 15,
-    "导师AI": "开",
+    "分钟.疗伤": 5,
+    "分钟.渡劫": 20,
 }
 
 # 用户配置文件的版本号。defaults/ 里的文件改了结构（不只是改数值）时 +1，
 # 程序启动时会把旧版本的用户文件备份成 “xxx.旧版.md” 并换成新默认文件（见 paths.ensure_train_dir）。
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
+TIER_WORDS = {"黄阶": 0, "玄阶": 1, "地阶": 2, "天阶": 3}
 
 DEFAULT_BATCHES = [
     ["论证逻辑", "形式逻辑", "一拖五"],
@@ -108,13 +147,16 @@ def _date(s, default):
 
 
 class Rules:
-    """规则。用 r.num("经验.默写通过") / r.date("满级目标日") / r.nums("复查间隔天数") 取值。"""
+    """规则。用 r.num("经验.默写通过") / r.date("目标日") / r.nums("复查间隔天数") 取值。"""
 
     def __init__(self, text=""):
         self.raw = mdconf.parse(text)
 
     def get(self, key):
         return self.raw.get(key, DEFAULT_RULES.get(key))
+
+    def has(self, key):
+        return key in self.raw or key in DEFAULT_RULES
 
     def num(self, key):
         return mdconf.to_num(self.get(key), DEFAULT_RULES[key])
@@ -165,6 +207,22 @@ class Rules:
             out.setdefault(b, {"skill": "", "sources": [b]})
         return out
 
+    def gate_roots(self, gate):
+        """某道渡劫线的灵根要求：{"激活": n, 0: 黄阶及以上个数, 1: 玄阶…, 2: 地阶…, 3: 天阶…}"""
+        out = {}
+        for m in re.finditer(r"(激活|黄阶|玄阶|地阶|天阶)\s*(\d+)", str(self.get(f"渡劫灵根.{gate}") or "")):
+            key = "激活" if m.group(1) == "激活" else TIER_WORDS[m.group(1)]
+            out[key] = int(m.group(2))
+        return out
+
+    def root_thresholds(self, board):
+        """灵根八个品阶的正确率门槛（0~1）"""
+        key = f"灵根正确率.{board}"
+        raw = self.raw.get(key) or DEFAULT_RULES.get(key) or self.get("灵根正确率")
+        vals = [mdconf.to_num(x, None) for x in mdconf.split_list(str(raw))]
+        vals = [v / 100 if v and v > 1 else v for v in vals if v is not None]
+        return (vals + [1.01] * 8)[:8]
+
     @property
     def side(self):
         """副线 {复盘板块名: 目标正确率}"""
@@ -173,34 +231,32 @@ class Rules:
 
 
 class Persona:
-    DEFAULT = {
-        "ID": "无名冒险者",
-        "称呼": "小岸",
-        "头像": "头像.png",
-        "称号": "见习学徒, 青铜剑士, 白银骑士, 黄金圣骑士, 秘银剑圣, 奥术大法师, 龙骑士, 屠龙勇者, 传奇英雄, 半神, 神域·上岸者",
-        "称号间隔": "10",
-        "导师名": "艾琳学姐",
-        "导师头像": "导师.png",
-        "导师人设": ("王立行测魔法学院的首席大魔导师，你的学姐。表面温柔、总是笑眯眯，实际腹黑毒舌："
-                   "你偷懒时她笑着补刀、阴阳怪气地“关心”你；你超额完成时嘴上说“哼，还算像样”，其实比谁都骄傲；"
-                   "你真的累了、遇到困难时，她会收起毒舌，认真温柔地安慰你。"),
-        "吐槽尺度": "中",
+    """角色设定。两种风格各有一套导师和称呼：角色设定.md 里写成 “修仙.导师名: …” “玄幻.导师名: …”；
+    不带前缀的键（ID、头像）两种风格共用。用 p["导师名"] 取当前风格的值。"""
+    COMMON = {"ID": "", "头像": "头像.png"}
+    THEMED = {
+        "修仙": {"称呼": "徒儿", "导师名": "劭神韵", "导师头像": "师尊.png", "吐槽尺度": "中",
+                 "导师人设": ("仙门长老，你的师尊，修为深不可测的傲娇女仙。嘴上嫌弃、句句带刺，总说“为师才不是担心你”，"
+                            "其实一直暗中关注你的修炼；你偷懒时她冷着脸训你“朽木不可雕也”，你表现好时别过脸说“哼，勉强算你有几分悟性”，"
+                            "你真的累了或遇到难处时，她会嘴硬心软地替你护法、认真开解你。")},
+        "玄幻": {"称呼": "小岸", "导师名": "艾琳学姐", "导师头像": "导师.png", "吐槽尺度": "中",
+                 "导师人设": ("王立行测魔法学院的首席大魔导师，你的学姐。表面温柔、总是笑眯眯，实际腹黑毒舌："
+                            "你偷懒时她笑着补刀、阴阳怪气地“关心”你；你超额完成时嘴上说“哼，还算像样”，其实比谁都骄傲；"
+                            "你真的累了、遇到困难时，她会收起毒舌，认真温柔地安慰你。")},
     }
 
-    def __init__(self, text=""):
+    def __init__(self, text="", theme="修仙"):
+        from . import themes
         raw = mdconf.parse(text)
-        self.d = {k: (raw.get(k) or v) for k, v in self.DEFAULT.items()}
+        self.theme = theme if theme in self.THEMED else "修仙"
+        self.d = {k: (raw.get(k) or v) for k, v in self.COMMON.items()}
+        for k, v in self.THEMED[self.theme].items():
+            self.d[k] = raw.get(f"{self.theme}.{k}") or v
+        if not self.d["ID"]:
+            self.d["ID"] = themes.get(self.theme)["terms"]["hero_empty_id"]
 
     def __getitem__(self, k):
         return self.d[k]
-
-    def title(self, level, max_level):
-        """称号：每“称号间隔”级换一个（默认 10：Lv1–9 第一个，Lv10–19 第二个……）；满级一定是最后一个"""
-        titles = mdconf.split_list(self.d["称号"]) or ["上岸者"]
-        step = max(1, int(mdconf.to_num(self.d["称号间隔"], 10)))
-        if level >= max_level or len(titles) == 1:
-            return titles[-1]
-        return titles[min(level // step, len(titles) - 2)]
 
 
 class Lines:
@@ -226,12 +282,17 @@ def read_text(path):
         return ""
 
 
-def load_all(paths):
-    """返回 (Rules, Persona, Lines)；库没找到或文件缺失时用 defaults/ 里的默认文件"""
+LINES_FILE = {"修仙": "台词库.md", "玄幻": "台词库·玄幻.md"}
+
+
+def load_all(paths, theme="修仙"):
+    """返回 (Rules, Persona, Lines)；库没找到或文件缺失时用 defaults/ 里的默认文件。
+    theme 决定用哪套导师设定和哪个台词库（修仙：台词库.md；玄幻：台词库·玄幻.md）"""
     from .paths import DEFAULTS_DIR
 
     def txt(p, name):
         return (read_text(p) if p else "") or read_text(DEFAULTS_DIR / name)
 
-    return (Rules(txt(paths.rules, "规则.md")), Persona(txt(paths.persona, "角色设定.md")),
-            Lines(txt(paths.lines, "台词库.md")))
+    lines_name = LINES_FILE.get(theme, "台词库.md")
+    return (Rules(txt(paths.rules, "规则.md")), Persona(txt(paths.persona, "角色设定.md"), theme),
+            Lines(txt(paths.train / lines_name if paths.train else None, lines_name)))

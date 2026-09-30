@@ -31,6 +31,8 @@ def parse(text):
             continue
         key = m.group(1).strip()
         val = COMMENT_RE.sub("", m.group(2)).strip()
+        if val.startswith("#"):  # “- ID:  # 说明” —— 值留空、后面直接是注释
+            val = ""
         out[key] = val
     return out
 

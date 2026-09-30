@@ -1,5 +1,6 @@
 """
-端到端测试：在临时文件夹里造一个迷你行测库，走一遍 面板 → 骨架定稿 → 默写 → 费曼 → 应用 → 掌握 → 复查 → 错题 → 突破。
+端到端测试：在临时文件夹里造一个迷你行测库，走一遍 面板 → 功法定稿 → 背诵 → 论道 → 试剑 → 圆满 → 斩心魔 → 灵根觉醒
+→ 宗门大比 → 渡劫 → 炼丹，外加境界、瓶颈、周常、护心丹、走火入魔、风格切换等规则的单元测试。
 AI 用假函数代替（不联网）。运行：
 
     python -m unittest discover -s tests -v
@@ -140,72 +141,113 @@ class FlowTest(unittest.TestCase):
 
     def test_full_flow(self):
         d = api.dashboard({})
-        self.assertEqual(d["level"]["level"], 1)
+        self.assertEqual(d["realm"]["name"], "凡人 · 未入道")
         titles = [t["title"] for t in d["plan"]["tasks"]]
-        self.assertIn("编纂「论证逻辑」咒文书（生成骨架）", titles)
-        self.assertTrue(any("讨伐魔物" in t for t in titles))
+        self.assertIn("编撰「论证逻辑」功法（生成骨架）", titles)
+        self.assertTrue(any("斩心魔" in t for t in titles))
 
-        # 生成骨架 → 定稿
-        r = api.session_start({"task": {"type": "skeleton", "board": "论证逻辑", "target": "论证逻辑", "title": "骨架"}})
+        # 生成功法 → 定稿
+        r = api.session_start({"task": {"type": "skeleton", "board": "论证逻辑", "target": "论证逻辑", "title": "功法"}})
         r = api.session_action({"session": r["session"], "action": "gen"})
         self.assertIn("草稿", (self.vault / "训练/骨架/论证逻辑.md").read_text(encoding="utf-8"))
         r = api.session_action({"session": r["session"], "action": "final"})
         self.assertTrue(r["finished"])
-        sk = api.skeletons({})
-        board = [b for b in sk["boards"] if b["board"] == "论证逻辑"][0]
+        board = [b for b in api.skeletons({})["boards"] if b["board"] == "论证逻辑"][0]
         self.assertTrue(board["final"])
         self.assertEqual([i["name"] for i in board["items"]], ["削弱题", "加强题"])
+        self.assertEqual(board["items"][0]["levelName"], "未入门")
 
         iid = "论证逻辑::削弱题"
         t = {"board": "论证逻辑", "target": iid, "title": "x"}
-        # 默写：术语缺一个 → 不过
-        r = self.run_task(dict(t, type="recite"), answer="否定论点，先找论点和论据")
-        self.assertTrue(any("咏唱失败" in m["text"] for m in r["messages"]))
-        # 连续两次通过 → L1
+        r = self.run_task(dict(t, type="recite"), answer="否定论点，先找论点和论据")   # 缺口诀“拆桥”
+        self.assertTrue(any("背诵口诀失败" in m["text"] for m in r["messages"]))
         self.run_task(dict(t, type="recite"))
         self.run_task(dict(t, type="recite"))
         self.assertEqual(self.state()["items"][iid]["level"], 1)
-        # 费曼 → L2
         self.run_task(dict(t, type="feynman"))
         self.assertEqual(self.state()["items"][iid]["level"], 2)
-        # 应用两次 → 掌握
         self.run_task(dict(t, type="apply"))
         self.run_task(dict(t, type="apply"))
-        st = self.state()["items"][iid]
-        self.assertEqual(st["level"], 3)
-        self.assertIsNotNone(st["next"])
+        self.assertEqual(self.state()["items"][iid]["level"], 3)
 
-        # 错题：判对，标记对应大项
-        r = self.run_task({"type": "wrong", "board": "论证逻辑", "target": "36|论证逻辑|2", "title": "错题"})
-        self.assertTrue(any(b["t"] == "img" for m in api.session_start(
-            {"task": {"type": "wrong", "board": "论证逻辑", "target": "36|论证逻辑|2", "title": "错题"}})["messages"]
-            for b in m.get("blocks", [])))
+        r = api.session_start({"task": {"type": "wrong", "board": "论证逻辑", "target": "36|论证逻辑|2", "title": "心魔"}})
+        self.assertTrue(any(b["t"] == "img" for m in r["messages"] for b in m.get("blocks", [])))
+        self.run_task({"type": "wrong", "board": "论证逻辑", "target": "36|论证逻辑|2", "title": "心魔"})
         self.assertEqual(self.state()["wrong"]["36|论证逻辑|2"]["status"], "done")
-        self.assertGreater(self.state()["xp"], 200)
 
-        # 另一个大项也掌握 → 第 1 批（其余板块没有 skill，被跳过）通关，XP 大奖；从“骨架”页发起的练习也会勾掉今日任务
+        # 另一重也圆满 → 秘境打通、论证灵根觉醒；从藏经阁发起的练习也会勾掉今日功课
         api.plan_regenerate({})
         t2 = {"board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}
         for typ in ("recite", "recite", "feynman", "apply", "apply"):
             self.run_task(dict(t2, type=typ))
         s = self.state()
         self.assertIn(1, s["cleared"]["1"])
-        self.assertTrue(any(e["type"] == "batch" for e in s["events"]))
+        self.assertTrue(s["roots"]["论证逻辑"]["on"])
         self.assertTrue(any(t["done"] for t in s["plan"]["tasks"] if t["target"] == "论证逻辑::加强题"))
 
-    def test_ai_tutor(self):
+        # 修为推到筑基线 → 瓶颈；两次大比 ≥ 60 → 可以渡劫
+        with api.open_game() as g:
+            g.state["xp"] = int(g.xp_at(61)) + 10
+            info = g.realm_info()
+        self.assertTrue(info["bottleneck"])
+        self.assertEqual(info["name"], "炼气九层")
+        self.assertFalse(api.dashboard({})["trib"]["ready"])
+        api.boss({"name": "第37季", "score": 61})
+        api.boss({"name": "第38季", "score": 63})
+        d = api.dashboard({})
+        self.assertTrue(d["trib"]["ready"], d["trib"])
+        self.assertEqual(d["trib"]["pills"], 2)   # 每次大比达到 60 分奖励一颗筑基丹
+        self.assertTrue(any(t["type"] == "tribulation" for t in d["plan"]["tasks"]) or api.plan_regenerate({}))
+        r = self.run_task({"type": "tribulation", "board": "", "target": "60", "title": "渡劫"})
+        self.assertIn(60, self.state()["gates"])
+        self.assertTrue(any(e.get("kind") == "realm" and e.get("major") for e in r["events"]))
+        self.assertTrue(api.dashboard({})["realm"]["name"].startswith("筑基"))
+
+        # 炼丹：一炉论证逻辑，成丹后额外修为
+        xp0 = self.state()["xp"]
+        r = self.run_task({"type": "alchemy", "board": "论证逻辑", "target": "论证逻辑", "title": "炼丹"})
+        self.assertTrue(any("明辨是非丹" in e.get("msg", "") for e in r["events"]))
+        self.assertGreater(self.state()["xp"], xp0)
+        self.assertEqual(self.state()["pills"][-1]["grade"], "上品")
+
+    def test_tribulation_failure_needs_healing(self):
+        (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
+        (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+        with api.open_game() as g:
+            for it in g.final_items("论证逻辑"):
+                g.item(it["id"]).update(level=3, stage=0, next="2099-01-01")
+            g.state["xp"] = int(g.xp_at(60.5))
+            g.state["boss"] = [{"d": g.t, "name": "a", "score": 60, "kind": "大比"}, {"d": g.t, "name": "b", "score": 60, "kind": "大比"}]
+            g.housekeeping()
+        self.assertTrue(api.dashboard({})["trib"]["ready"])
+        ai.chat = lambda m, **kw: json.dumps({"答到": [False] * 5, "错误说法": [], "点评": "差"}) if "要点是否说到了" in m[-1]["content"] else fake_chat(m, **kw)
+        r = self.run_task({"type": "tribulation", "board": "", "target": "60", "title": "渡劫"}, answer="不记得了")
+        s = self.state()
+        self.assertNotIn(60, s["gates"])
+        self.assertTrue(s["trib"]["cooldown"])
+        self.assertEqual(len(s["trib"]["heal"]), 1)
+        d = api.dashboard({})
+        self.assertFalse(d["trib"]["ready"])
+        self.assertTrue(any(t["title"].startswith("疗伤") for t in d["plan"]["tasks"]))
+
+    def test_ai_tutor_and_theme_switch(self):
         d = api.dashboard({})
         self.assertTrue(d["greet_pending"])
         self.assertEqual(api.tutor_greet({})["text"], "哎呀，学姐的现场台词。")
         d = api.dashboard({})
-        self.assertFalse(d["greet_pending"])            # 当天已缓存，不再花钱
-        self.assertEqual(d["greeting"], "哎呀，学姐的现场台词。")
-        with api.open_game() as g:                     # 里程碑台词被换成 AI 现场说的
-            _, cum = g.level_table()
-            ev = api.tutor.enrich(g, g._award(cum[1], "bonus", note="测试", bonus=False))
-        self.assertTrue(any(e.get("kind") == "level" for e in ev))
+        self.assertFalse(d["greet_pending"])
+        self.assertEqual(d["persona"]["tutor"], "劭神韵")
+        self.assertEqual(d["theme"]["terms"]["skeleton"], "功法")
+        with api.open_game() as g:                      # 里程碑台词被换成 AI 现场说的
+            ev = api.tutor.enrich(g, g._award(int(g.xp_at(52)), "bonus", note="测试", bonus=False))
+        self.assertTrue(any(e.get("kind") == "realm" for e in ev))
         self.assertIn("哎呀，学姐的现场台词。", [e.get("msg") for e in ev])
-        self.assertIn("艾琳学姐", (self.vault / "训练/角色设定.md").read_text(encoding="utf-8"))
+        api.theme_set({"theme": "玄幻"})
+        d = api.dashboard({})
+        self.assertEqual(d["persona"]["tutor"], "艾琳学姐")
+        self.assertEqual(d["theme"]["terms"]["skeleton"], "咒文书")
+        self.assertTrue(d["realm"]["name"].startswith("见习学徒"))
+        self.assertTrue(d["greet_pending"])            # 换了导师要重新打招呼
 
     def test_no_ai_self_rating(self):
         paths.save_settings({"vault": str(self.vault)})  # 没有 key
@@ -230,6 +272,16 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(r2["input"]["mode"], "text")
         self.assertEqual(self.state()["xp"], 0)
 
+    def test_qi_deviation_after_repeated_failures(self):
+        (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
+        (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
+        task = {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}
+        for _ in range(5):
+            self.run_task(task, answer="忘了")
+        with self.assertRaises(trainer.TrainError):
+            api.session_start({"task": task})
+        self.assertGreater(api.dashboard({})["rest"], 0)
+
 
 class MigrationTest(unittest.TestCase):
     def test_old_config_is_backed_up_and_replaced(self):
@@ -238,57 +290,93 @@ class MigrationTest(unittest.TestCase):
             v = tmp / "行测"
             (v / "copilot/skills").mkdir(parents=True)
             (v / "训练").mkdir()
-            (v / "训练/角色设定.md").write_text("- 导师名: 教官\n", encoding="utf-8")  # 第一版的文件，没有“配置版本”
+            (v / "训练/角色设定.md").write_text("- 配置版本: 2\n- 导师名: 艾琳学姐\n", encoding="utf-8")  # 第二版的文件
             (v / "训练/规则.md").write_text((ROOT / "defaults/规则.md").read_text(encoding="utf-8"), encoding="utf-8")
             up = paths.Paths(v).ensure_train_dir()
             self.assertEqual(up, ["角色设定.md"])  # 台词库不存在 → 直接新建，不算升级
-            self.assertIn("艾琳学姐", (v / "训练/角色设定.md").read_text(encoding="utf-8"))
-            self.assertIn("教官", (v / "训练/角色设定.旧版.md").read_text(encoding="utf-8"))
-            self.assertEqual(paths.Paths(v).ensure_train_dir(), [])  # 第二次不再升级
+            self.assertIn("劭神韵", (v / "训练/角色设定.md").read_text(encoding="utf-8"))
+            self.assertIn("艾琳学姐", (v / "训练/角色设定.旧版.md").read_text(encoding="utf-8"))
+            self.assertTrue((v / "训练/台词库·玄幻.md").exists())
+            self.assertEqual(paths.Paths(v).ensure_train_dir(), [])
+        finally:
+            paths.UPGRADED.clear()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_old_save_gates_are_reset(self):
+        from rpg import store
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            v = tmp / "行测"
+            (v / "copilot/skills").mkdir(parents=True)
+            p = paths.Paths(v)
+            p.ensure_train_dir()
+            (v / "训练/存档/存档.json").write_text(json.dumps({"version": 1, "created": "2026-09-29", "xp": 500, "gates": [30]}),
+                                                  encoding="utf-8")
+            st = store.Store(p).load(dt.date(2026, 10, 1))
+            self.assertEqual(st["gates"], [])
+            self.assertEqual(st["xp"], 500)
+            self.assertEqual(st["theme"], "修仙")
         finally:
             paths.UPGRADED.clear()
             shutil.rmtree(tmp, ignore_errors=True)
 
 
 class EngineTest(unittest.TestCase):
-    def make(self, today, state=None):
+    def make(self, today, state=None, theme="修仙"):
+        import random
         from rpg import config, store
         p = paths.Paths(None)
-        return engine.Game(p, config.Rules(), config.Persona(), config.Lines(), state or store.new_state(today), today)
+        st = state or store.new_state(today)
+        st["theme"] = theme
+        return engine.Game(p, config.Rules(), config.Persona("", theme), config.Lines(), st, today, rng=random.Random(1))
 
-    def test_level_curve_reaches_max_on_target(self):
+    def test_realm_table(self):
+        from rpg import themes
+        names = {s: themes.realm_name("修仙", s) for s in (50, 51, 53, 59, 60, 61, 62, 63, 64, 65, 69, 70, 80, 84, 85, 92)}
+        self.assertEqual(names[50], "凡人 · 未入道")
+        self.assertEqual(names[51], "炼气一层")
+        self.assertEqual(names[53], "炼气三层")
+        self.assertEqual(names[59], "炼气九层")
+        self.assertEqual([names[x] for x in (60, 61, 62, 63, 64)], ["筑基初期", "筑基初期", "筑基中期", "筑基中期", "筑基后期"])
+        self.assertEqual([names[x] for x in (65, 69, 70)], ["金丹初期", "金丹后期", "元婴初期"])
+        self.assertEqual([names[x] for x in (80, 84, 85, 92)], ["大乘初期", "大乘后期", "真仙", "真仙"])
+        self.assertEqual(themes.realm_name("玄幻", 62), "青铜骑士中位")
+
+    def test_score_follows_xp_and_target_date(self):
         g = self.make(dt.date(2026, 9, 29))
-        costs, cum = g.level_table()
-        self.assertEqual(len(cum), 100)
-        self.assertAlmostEqual(cum[-1], 300 * (dt.date(2027, 12, 1) - dt.date(2026, 9, 29)).days, delta=50)
-        self.assertLess(costs[0], costs[-1])
+        total = 300 * (dt.date(2027, 12, 1) - dt.date(2026, 9, 29)).days
+        g.state["xp"] = total
+        g.state["gates"] = [60, 65, 70, 75, 80]
+        self.assertAlmostEqual(g.realm_info()["score"], 80.0, places=1)   # 目标日的理想修为 = 80 分
+        g.state["xp"] = total * 7 // 6
+        self.assertEqual(g.realm_info()["name"], "大乘后期")               # 85 分线要渡劫 → 卡在 84.99
+        self.assertTrue(g.realm_info()["bottleneck"])
 
-    def test_gate_blocks_level(self):
-        g = self.make(dt.date(2026, 9, 29))
-        _, cum = g.level_table()
-        g.state["xp"] = cum[40]  # 够 Lv41
-        info = g.level_info()
-        self.assertEqual(info["level"], 29)  # 要到 Lv30 必须先过晋升试炼
-        self.assertEqual(info["gate"], 30)
-        self.assertEqual(info["gate_title"], "黄金圣骑士")
-        g.state["gates"].append(30)
-        self.assertEqual(g.level_info()["level"], 41)
-        self.assertEqual(g.level_info()["title"], "秘银剑圣")
+    def test_bottleneck_and_calibration_by_contest(self):
+        g = self.make(dt.date(2026, 10, 1))
+        g.add_boss("第37季", 57)
+        self.assertEqual(g.realm_info()["name"], "凡人 · 未入道")   # 只有一次，不校准
+        g.add_boss("第38季", 58)
+        self.assertEqual(g.realm_info()["name"], "炼气七层")        # min(57, 58) = 57 → 直接跨到炼气七层
+        self.assertLessEqual(g.ideal()["diff_days"], 2)              # 大比悟道的修为不算天道进度
+        g.add_boss("第39季", 66)
+        g.add_boss("第40季", 64)
+        info = g.realm_info()
+        self.assertEqual(info["name"], "炼气九层")                  # 修为补到 64，但筑基要渡劫
+        self.assertTrue(info["bottleneck"])
+        st = g.tribulation_status()
+        self.assertEqual(st["gate"], 60)
+        self.assertTrue(st["conds"][1]["ok"])                       # 最近两次大比都 ≥ 60
+        self.assertFalse(st["conds"][2]["ok"])                      # 还没觉醒灵根
 
-    def test_score_and_titles(self):
-        g = self.make(dt.date(2026, 9, 29))
-        _, cum = g.level_table()
-        self.assertEqual(g.level_info()["score"], 50.0)
-        self.assertEqual(g.level_info()["title"], "见习学徒")
-        g.state["xp"] = cum[-1] // 2
-        g.state["gates"] = [30, 60, 90]
-        self.assertAlmostEqual(g.level_info()["score"], 65.0, delta=0.1)  # 经验过半 ≈ 65 分，与等级数无关
-        g.state["xp"] = cum[-1]
-        self.assertEqual(g.level_info()["level"], 100)
-        self.assertEqual(g.level_info()["title"], "神域·上岸者")
-        self.assertEqual(g.level_info()["score"], 80.0)
+    def test_root_grades(self):
+        from rpg import config
+        r = config.Rules()
+        self.assertEqual(r.root_thresholds("论证逻辑"), [0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9])
+        self.assertEqual(r.root_thresholds("常识判断")[-1], 0.8)
+        self.assertEqual(r.gate_roots(75), {"激活": 7, 1: 4, 2: 1})
 
-    def test_streak_halves_on_miss(self):
+    def test_streak_halves_on_miss_and_heart_pill(self):
         t = dt.date(2026, 10, 10)
         g = self.make(t)
         g.state["created"] = "2026-10-01"
@@ -296,14 +384,27 @@ class EngineTest(unittest.TestCase):
             g.state["seconds"][f"2026-10-0{d}"] = 3600
         run, bonus = g.streak()
         self.assertEqual(run, 0)
-        self.assertAlmostEqual(bonus, 0.08)  # 8 天 → 断一天减半为 4 → 4×2%
+        self.assertAlmostEqual(bonus, 0.08)
+        g.bag_add("护心丹")
+        g.housekeeping()                                            # 10/9 自动服护心丹
+        self.assertEqual(g.streak()[0], 9)
+        self.assertEqual(g.state["bag"]["护心丹"], 0)
 
-    def test_ideal_line(self):
+    def test_ideal_line_and_dao(self):
         g = self.make(dt.date(2026, 10, 9))
         g.state["created"] = "2026-09-29"
         self.assertEqual(g.ideal()["diff_days"], 10.0)
         g.state["leave"] = ["2026-10-01"]
         self.assertEqual(g.ideal()["diff_days"], 9.0)
+        self.assertEqual(g.dao(), 36)                               # 近 14 天：开始前 4 天 + 告假 1 天 = 5/14
+
+    def test_weekly_quests(self):
+        g = self.make(dt.date(2026, 10, 7))
+        for _ in range(20):
+            g._award(15, "wrong", "论证逻辑", "", True, "斩", bonus=False)
+        ev = g.housekeeping()
+        self.assertTrue(any("周常完成：斩心魔" in e.get("msg", "") for e in ev))
+        self.assertNotIn("all", g.state["weekly"][g.week_key()])
 
 
 if __name__ == "__main__":

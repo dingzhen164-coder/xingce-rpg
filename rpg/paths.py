@@ -84,7 +84,7 @@ class Paths:
         for d in (self.train, self.skeletons, self.save_dir):
             d.mkdir(parents=True, exist_ok=True)
         upgraded = []
-        for name in ("规则.md", "角色设定.md", "台词库.md"):
+        for name in ("规则.md", "角色设定.md", "台词库.md", "台词库·玄幻.md"):
             dst = self.train / name
             src = DEFAULTS_DIR / name
             if dst.exists():

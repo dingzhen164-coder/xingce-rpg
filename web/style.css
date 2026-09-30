@@ -22,6 +22,22 @@
     --shadow: 0 6px 22px rgba(90,60,20,.14);
   }
 }
+/* 东方修仙：暗色 = 墨色夜空 + 青玉 + 鎏金；亮色 = 宣纸 + 墨 + 朱砂 */
+body.xiuxian {
+  --bg: #0e1412; --panel: #151e1b; --panel2: #1d2925; --line: #2c3d37;
+  --text: #e6ece8; --muted: #9db0a8; --faint: #637770;
+  --accent: #3fbf9f; --accent2: #6aa6d8; --gold: #dcb45a; --green: #58cf8e;
+  --red: #e0674f; --orange: #e79a52; --purple: #9ad7c4;
+  --display: "STKaiti", "KaiTi", "Kaiti SC", "楷体", "Songti SC", "SimSun", serif;
+}
+@media (prefers-color-scheme: light) {
+  body.xiuxian {
+    --bg: #f3efe4; --panel: #fbf8f0; --panel2: #ede6d5; --line: #d6ccb4;
+    --text: #1f2421; --muted: #5d665f; --faint: #9a9f93;
+    --accent: #2f8f78; --accent2: #2f6fa8; --gold: #a8791c; --green: #2f8a57;
+    --red: #b8412d; --orange: #c0661d; --purple: #2f8f78;
+  }
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; color: var(--text);
   background: radial-gradient(1200px 600px at 15% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
@@ -165,3 +181,31 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   text-shadow: 0 0 24px color-mix(in srgb, var(--gold) 60%, transparent); }
 .levelup .rune { letter-spacing: 4px; }
 .levelup .promo { margin-top: 8px; font-size: 18px; font-weight: 800; color: var(--purple); font-family: var(--display); }
+
+/* ---------- 第三版新增：境界、渡劫、灵根、心魔榜、周常、闭关、飞升 ---------- */
+.g3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.g5 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.realm-name { font-family: var(--display); font-size: 30px; font-weight: 800; color: var(--gold); line-height: 1.25;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--gold) 35%, transparent); }
+button.big { padding: 10px 22px; font-size: 16px; }
+.trib-card { border-color: var(--gold); background: linear-gradient(135deg, color-mix(in srgb, var(--gold) 10%, var(--panel)), var(--panel)); }
+.conds { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.cond { background: var(--panel2); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; border-left: 3px solid var(--line); }
+.cond.ok { border-left-color: var(--green); } .cond.ok b { color: var(--green); }
+.cond.no { border-left-color: var(--red); } .cond.no b { color: var(--red); }
+.task.trib .ttl { color: var(--gold); font-weight: 700; }
+.roots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.root { background: var(--panel2); border-radius: 10px; padding: 7px 10px; opacity: .55; border: 1px solid transparent; }
+.root.on { opacity: 1; }
+.root.t0 { border-color: #b08d57; } .root.t1 { border-color: #7aa7d9; } .root.t2 { border-color: #b98be0; }
+.root.t3 { border-color: var(--gold); box-shadow: 0 0 12px color-mix(in srgb, var(--gold) 40%, transparent); }
+.tag.root { color: var(--accent); } .tag.root.t3 { color: var(--gold); }
+.rank { display: inline-block; width: 20px; text-align: center; color: var(--faint); }
+.retreat { display: flex; gap: 10px; align-items: center; border-color: var(--accent); margin-top: 14px; }
+.ascend { margin-top: 8px; color: var(--gold); font-family: var(--display); }
+.ascend-card { border-color: color-mix(in srgb, var(--gold) 60%, var(--line)); }
+.levelup.major { border-width: 3px; box-shadow: 0 0 90px color-mix(in srgb, var(--gold) 60%, transparent); }
+.levelup .lv { font-size: 52px; }
+.toast.info { border-color: var(--accent); }
+select { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.hero .avatar .def { font-family: var(--display); }
