@@ -509,15 +509,21 @@ async function doAction(act) {
 // 整套试炼：练习册按“前缀-套-题”编号，一次刷完一整套（跨板块，如言语书一套里有片段阅读和逻辑填空）
 function setsHtml(books) {
   if (!books?.length) return '';
-  const setName = (x) => `第${x.set}套`;
-  const btn = (book, x, cls) => `<button class="${cls}" data-bank="套:${esc(x.name)}" data-mode="new" data-title="${esc(book)} ${setName(x)}"
-      ${!x.active && x.done >= x.total ? 'disabled' : ''}>${x.active ? '▶ ' : x.done >= x.total ? '✓ ' : ''}${setName(x)} <span class="small">${x.done}/${x.total}</span></button>`;
+  // 练习册：第NN套；历年真题：卷子名去掉“《行测》…”这类尾巴
+  const short = (x) => x.year !== undefined ? x.name.replace(/公务员录用考试|录用公务员考试|《行测》|试卷|题|（网友回忆版）/g, '').slice(0, 30) : `第${x.set}套`;
+  const btn = (book, x, cls, verb = '') => `<button class="${cls}" data-bank="套:${esc(x.name)}" data-mode="new" data-title="${esc(x.year !== undefined ? x.name : book + ' 第' + x.set + '套')}"
+      title="${esc(x.name)}" ${!x.active && x.done >= x.total ? 'disabled' : ''}>${x.active ? '▶ ' : x.done >= x.total ? '✓ ' : ''}${verb}${esc(short(x))} <span class="small">${x.done}/${x.total}</span></button>`;
+  const grid = (b) => {
+    if (!b.paper) return `<div class="set-grid">${b.sets.map(x => btn(b.book, x, 'ghost')).join('')}</div>`;
+    const years = [...new Set(b.sets.map(x => x.year))];
+    return years.map(y => `<p class="small muted">${esc(y)} 年</p><div class="set-grid">${b.sets.filter(x => x.year === y).map(x => btn(b.book, x, 'ghost')).join('')}</div>`).join('');
+  };
   return `<div class="card set-card"><h3>📚 整套试炼 <span class="small muted">一次刷完一整套，做完再看下一套；答案待补的题不出</span></h3>
     ${books.map(b => {
       const nx = b.sets.find(x => x.name === b.next);
-      return `<div class="set-book"><div class="row"><b>${esc(b.book)}</b><span class="small muted">共 ${b.sets.length} 套 · 已完成 ${b.finished} 套</span><span class="spacer"></span>
-        ${nx ? btn(b.book, nx, 'primary').replace(`${setName(nx)} <span`, `${nx.active ? '继续' : '开始'} ${setName(nx)} <span`) : '<span class="tag ok">全部完成</span>'}</div>
-        <details><summary class="small">选择其他套</summary><div class="set-grid">${b.sets.map(x => btn(b.book, x, 'ghost')).join('')}</div></details></div>`;
+      return `<div class="set-book"><div class="row"><b>${esc(b.book)}</b><span class="small muted">共 ${b.sets.length} ${b.paper ? '张卷子（只含判断推理，新卷在前）' : '套'} · 已完成 ${b.finished}</span><span class="spacer"></span>
+        ${nx ? btn(b.book, nx, 'primary', nx.active ? '继续 ' : '开始 ') : '<span class="tag ok">全部完成</span>'}</div>
+        <details><summary class="small">选择其他${b.paper ? '卷子' : '套'}</summary>${grid(b)}</details></div>`;
     }).join('')}</div>`;
 }
 function bindBank() {

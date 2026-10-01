@@ -636,14 +636,15 @@ def _bank_show(g, s, run, events=None):
     q = run['questions'][run['pos']]
     if run['phase'] == 'analysis':
         r = run['results'][-1]
-        msg = '你的答案：%s · %s\n正确答案：%s\n知识点：%s\n\n解析：\n%s' % (
-            r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'],
-            q['analysis'] or '（解析待补，之后可以用 skill 补写）')
+        msg = '你的答案：%s · %s\n正确答案：%s\n知识点：%s\n\n解析：' % (
+            r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'])
+        # 解析里可能有图（图形推理的讲解图），和题干一样转成网页块
+        msgs = [_msg('sys', msg, _bank_blocks(g, q['board'], q['analysis'] or '（解析待补，之后可以用 skill 补写）'))]
         if r.get('reasoning'):
-            msg += '\n\n你的拆题：\n' + r['reasoning']
-            msg += '\n方法审核：' + ('通过' if r.get('method_ok') is True else '未通过' if r.get('method_ok') is False else '未验证（未连接AI）')
-            msg += '\n' + r.get('feedback', '')
-        return _bank_resp(g, s, run, [_msg('sys', msg), _msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
+            msgs.append(_msg('sys', '你的拆题：\n' + r['reasoning'] + '\n方法审核：' + (
+                '通过' if r.get('method_ok') is True else '未通过' if r.get('method_ok') is False else '未验证（未连接AI）')
+                + '\n' + r.get('feedback', '')))
+        return _bank_resp(g, s, run, msgs + [_msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
                           _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
                                    ('bank_pause', g.T('bank_pause'))))
     msg = '%s · 第 %s/%s 关 · 编号 %s' % (question_bank.label(run['board']), run['pos'] + 1, len(run['questions']), q['id'])
