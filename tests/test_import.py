@@ -158,6 +158,22 @@ class ImportTest(unittest.TestCase):
         self.assertEqual((q["options"], q["answer"]), ({k: k for k in "ABCD"}, "C"))
         self.assertFalse(fix.exists())                                        # 入库后从待修里删掉
 
+    def test_same_stem_figures_and_shared_material_not_deduped(self):
+        d = self.p.seasons / "第36季"
+        fig = "### %d. ✅\n\n![[S36-Q%03d.png]]\n\n从所给的四个选项中，选择最合适的一个填入问号处，使之呈现一定的规律性：\n\n> 正确答案：**A**\n---\n"
+        for n in (77, 78, 79):
+            (d / ("attachments/S36-Q%03d.png" % n)).write_bytes(b"png")
+        (d / "07-图形推理.md").write_text("".join(fig % (n, n) for n in (77, 78, 79)), encoding="utf-8")
+        mat = "2023年，全国规模以上工业企业实现营业收入133.4万亿元，比上年增长1.1%；发生营业成本113.6万亿元，增长1.2%；实现利润总额7.7万亿元，下降2.3%。"
+        q = "### %d. ✅\n%s\n- **A.** 1\n- **B.** 2\n- **C.** 3\n- **D.** 4\n> 正确答案：**B**\n---\n"
+        (d / "13-资料分析.md").write_text("## 材料（第111-112题）\n![[S36-M111-112.png]]\n" + mat + "\n---\n" + q % (111, "营业收入利润率约为？")
+                                       + q % (112, "营业成本同比增量约为？"), encoding="utf-8")
+        r = importer.commit(self.p, {"kind": "season", "season": 36})
+        self.assertEqual((r["ready"], r["dup"]), (5, 0))                     # 同一句题干的图形题、同材料的资料题都不算重复
+        self.assertEqual(len(bank.read(self.p, "图形推理")[0]), 3)
+        r = importer.commit(self.p, {"kind": "season", "season": 36})
+        self.assertEqual((r["ready"], r["dup"]), (0, 5))                     # 真重复仍然跳过
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)
