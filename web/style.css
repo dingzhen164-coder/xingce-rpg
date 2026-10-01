@@ -252,3 +252,4 @@ select { font: inherit; color: var(--text); background: var(--panel2); border: 1
 .import-sec input:not([type=checkbox]):not([type=file]), .import-sec select { max-width: 100%; }
 #importResult .card.inner { margin-top: 12px; background: var(--panel2); }
 #importResult details.fold { margin-top: 6px; }
+.pending-note { color: var(--gold, #b8860b); margin: 4px 0 8px; }

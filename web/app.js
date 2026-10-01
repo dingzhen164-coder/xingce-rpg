@@ -262,11 +262,12 @@ const views = {
       ${towerHtml(d.tower)}
       <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考复盘、OCR 出来的 txt 一键入库，不用 AI 逐题核对</span></summary><div id="importBody">载入中…</div></details>
       <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
-      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}（可用 xingce-tiku skill 把 txt 真题批量入库，图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
+      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}，或用上面的「📥 导入真题」批量入库（图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
       <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
       <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
-      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}${b.pending ? ` · 待补答案 ${b.pending} 道（补上答案才会出）` : ''}</p>
+      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
+      ${b.pending ? `<p class="small pending-note">另有 <b>${b.pending}</b> 道还没有答案，补上才会出题：上面「📥 导入真题 → ④ 补答案」填答案表</p>` : ''}
       ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
       <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)} · 首次方法通过率 ${rate(b.method_correct, b.method_total)}（仅统计AI已审核）</p>
       ${b.errors.length ? `<div class="warn">${b.errors.map(esc).join('<br>')}</div>` : ''}
@@ -482,6 +483,7 @@ function bindBank() {
 }
 // ------------------------------------------------------------ 导入真题（rpg/importer.py）
 let IMPORT_TEXT = null;   // 选中的 txt 内容（只在浏览器里读，导入时发给本机程序）
+let IMPORT_KEEP = '';     // 导入后整页重画时保留的结果报告
 async function loadImport() {
   const box = $('#importBody');
   try {
@@ -508,7 +510,8 @@ async function loadImport() {
           <input id="ansKey" placeholder="1-5 ABCDA 6-10 BCDAB 或 1.A 2.B" style="flex:1;min-width:220px"><button id="ansGo">补答案</button></div></div>
       <div class="import-sec"><h4>⑤ 知识点</h4><div class="row"><span>“待分类”的题：${d.unsorted} 道</span><span class="spacer"></span>
         ${d.ai ? `<button id="clsGo" ${d.unsorted ? '' : 'disabled'}>AI 补 100 题</button>` : '<span class="small muted">在设置里填 DeepSeek key 后可以让 AI 补；不补也能正常做题</span>'}</div></div>
-      <div id="importResult"></div>`;
+      <div id="importResult">${IMPORT_KEEP}</div>`;
+    IMPORT_KEEP = '';
     bindImport();
   } catch (e) { box.innerHTML = `<p class="small">⚠ ${esc(e.message)}</p>`; }
 }
@@ -532,7 +535,12 @@ function bindImport() {
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
-      if (!dry) { const keep = $('#importResult').innerHTML; await loadImport(); $('#importResult').innerHTML = keep; }
+      if (!dry) {   // 入库后整页重画：下面各板块的题数要跟着变
+        IMPORT_KEEP = $('#importResult').innerHTML;
+        await render();
+        const card = $('#importCard');
+        if (card) card.open = true;   // 触发 toggle → loadImport，再把这次的结果放回去
+      }
     } catch (e) { show(`<p>⚠ ${esc(e.message)}</p>`); }
     finally { btn.disabled = false; btn.textContent = label; }
   };
