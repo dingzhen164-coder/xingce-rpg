@@ -58,6 +58,83 @@ def skill_digest(paths, name, limit=None):
     return text
 
 
+# skill 里常见的“操作规程”引用（脚本、调度器、本程序文件），不是知识资料
+_NOT_MATERIAL = re.compile(r"\.py\b|[<>*$]|/scripts/|python|jiexi|board-map|^=== |^【|^\.|^-|projects/|\s")
+_SKIP_DIRS = {".obsidian", ".opencode", ".trash", "训练", "FB模考试卷复盘", "node_modules", ".git"}
+MATERIAL_LIMIT = 120000   # 引用资料总字数上限；超出的部分明确写“未读”，不悄悄截断
+
+
+def _vault_find(paths, ref):
+    """按名字在库里找资料：文件（xxx.md）或文件夹；先按相对路径，再全库按名字找（跳过程序、模考、隐藏目录）"""
+    ref = ref.strip().strip("/").replace("\\", "/")
+    if not ref or len(ref) > 80:
+        return None
+    for c in (paths.vault / ref, paths.vault / (ref + ".md")):
+        if c.exists():
+            return c
+    name = Path(ref).name
+    for p in sorted(paths.vault.rglob(name)) + sorted(paths.vault.rglob(name + ".md")):
+        rel = p.relative_to(paths.vault).parts
+        if any(x in _SKIP_DIRS for x in rel[:-1]) or (len(rel) > 1 and rel[0] == "copilot"):
+            continue
+        return p
+    return None
+
+
+def skill_material(paths, name, extra=()):
+    """生成骨架用的素材：skill 自己的文字 + 它引用的库内资料正文（`00-xxx.md`、`01-治理母逻辑` 文件夹、其他检索 skill 里的资料），
+    再加上规则里“骨架素材.<板块>”指定的路径。返回 (文字, 读到的资料清单)。
+    很多 skill 只是“去读某个文件、调用某个检索 skill”的操作规程，真正要背的知识在被引用的文件里，所以要一起读。"""
+    base = skill_digest(paths, name)
+    d = skill_dir(paths, name)
+    if not d:
+        return base, []
+    refs = list(extra)
+    for f in [d / "SKILL.md", *sorted((d / "chapters").glob("*.md"))]:
+        if f.is_file():
+            refs += re.findall(r"`([^`\n]{2,80})`", f.read_text(encoding="utf-8", errors="ignore"))
+    files, seen = [], set()
+
+    def add(p):
+        if p.is_file() and p.suffix.lower() == ".md" and p.resolve() not in seen and not p.name.startswith("."):
+            seen.add(p.resolve())
+            files.append(p)
+
+    for ref in dict.fromkeys(refs):
+        ref = ref.strip()
+        if ref in extra:
+            pass
+        elif _NOT_MATERIAL.search(ref) or ref == name:
+            continue
+        other = paths.skills / ref if paths.skills else None
+        if other and other.is_dir() and other != d:      # 引用了另一个 skill（如检索知识库的 skill）：读它的资料，不读它的操作说明
+            for p in sorted(other.rglob("*.md")):
+                if p.name != "SKILL.md":
+                    add(p)
+            continue
+        hit = _vault_find(paths, ref) if paths.vault else None
+        if hit is None or d in hit.parents or hit == d:
+            continue
+        if hit.is_dir():
+            for p in sorted(hit.rglob("*.md")):
+                add(p)
+        else:
+            add(hit)
+    parts, used, total = [], [], 0
+    for f in files:
+        rel = f.relative_to(paths.vault).as_posix() if paths.vault in f.parents else f.name
+        t = f.read_text(encoding="utf-8", errors="ignore")
+        if total + len(t) > MATERIAL_LIMIT:
+            parts.append("=== 资料 %s ===\n（资料总量超过上限，这个文件没有读入；需要时在规则.md 用“骨架素材.板块”只列核心文件）" % rel)
+            used.append(rel + "（未读入：超出上限）")
+            continue
+        total += len(t)
+        parts.append("=== 资料 %s ===\n%s" % (rel, t))
+        used.append(rel)
+    text = base + ("\n\n######## 以下是 skill 引用的资料正文（知识以这里为准） ########\n\n" + "\n\n".join(parts) if parts else "")
+    return text, used
+
+
 # ---------------------------------------------------------------- 模考复盘
 def seasons(paths):
     """[(季数, 目录)]，按季数从小到大"""

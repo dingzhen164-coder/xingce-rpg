@@ -567,14 +567,20 @@ def _skeleton_action(g, s, act):
     S, I = g.T("skeleton"), g.T("item")
     if act == "gen":
         _need_ai(f"生成{S}")
-        digest = vault.skill_digest(g.paths, g.boards[b]["skill"])
+        # skill 常常只是“去读某文件 / 调某知识库”的规程，真正的知识在它引用的资料里，一起读；规则里可用“骨架素材.板块”补充
+        extra = [x.strip() for x in re.split(r"[,，;；]", g.rules.get("骨架素材." + b) or "") if x.strip()]
+        digest, used = vault.skill_material(g.paths, g.boards[b]["skill"], extra)
         md = ai.chat(prompts.skeleton_gen(b, digest), max_tokens=8000, timeout=240)
-        if not skeleton.save_draft(g.paths, b, g.boards[b]["skill"], md):
+        md = re.sub(r"^```(?:markdown|md)?\s*\n|\n```\s*$", "", md.strip())
+        src = "> 生成时读到的资料：" + ("、".join(used) if used else "无（只有 skill 本身）") + "\n\n"
+        if not skeleton.save_draft(g.paths, b, g.boards[b]["skill"], src + md):
             raise TrainError(f"{S}已定稿，不会覆盖。要重做请先在文件里把状态改回“草稿”")
         g._skel.pop(b, None)
         sk = g.skel(b)
         n = len(sk["items"]) if sk else 0
-        return _resp(s, [_msg("npc", f"草稿已写到 `训练/骨架/{b}.md`（{n} {I}）。去 Obsidian 里审改，改好点“定稿”。")],
+        tip = "" if used else (f"\n\n⚠ 这个 skill 没引用任何库里的资料，骨架可能只有方法没有知识。可以在 `训练/规则.md` 加一行"
+                               f"“- 骨架素材.{b}: 资料文件或文件夹路径”（多个用逗号隔开），再重新生成。")
+        return _resp(s, [_msg("npc", f"草稿已写到 `训练/骨架/{b}.md`（{n} {I}）。读到的资料：{'、'.join(used) or '无'}。去 Obsidian 里审改，改好点“定稿”。{tip}")],
                      [{"kind": "info", "msg": f"已生成「{b}」{S}草稿"}],
                      input=_buttons(("final", "已审改，定稿"), ("gen", "重新生成草稿"), ("skip", "稍后再说")))
     if act == "final":
