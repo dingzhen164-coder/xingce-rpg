@@ -2,6 +2,10 @@
 
 格式：## 题目 固定编号；### 知识点/题干/选项/答案/解析。选项用 A. 到 D.。
 按文档出现顺序读题，编号是身份，重复编号或格式错误阻止该板块新开组。
+答案写“（待补）”或留空的题先不出（练习册答案在另一本书里时常见），网页上显示“待补答案 N 道”；
+解析可以留空或写“（待补）”，作答后显示“解析待补”。
+题干里可以插图：![[训练/题库/图片/<板块>/<编号>.png]]（Obsidian 写法，库内路径），图形推理、资料分析靠它。
+真题由 obsidian-to-xingce 仓库的 xingce-tiku skill 批量整理入库，也可以手动添加。
 存档 bank 含 records（题目快照与作答历史）、runs（可恢复的一组）、groups（组成绩）。
 不改写用户题库；首次错误及复练都留记录，首次正确率与复练正确率分开。
 """
@@ -19,7 +23,21 @@ def boards(g):
     return list(dict.fromkeys(list(g.boards) + list(g.rules.side)))
 
 
+TODO_RE = re.compile(r'^[（(]?\s*待补\s*[)）]?$')
+
+
 def read(paths, board):
+    """返回 (可以出的题, 格式错误)。答案待补的题不在里面（见 pending）"""
+    qs, errors = read_all(paths, board)
+    return [q for q in qs if not q['pending']], errors
+
+
+def pending(paths, board):
+    """答案还没补上的题数"""
+    return sum(q['pending'] for q in read_all(paths, board)[0])
+
+
+def read_all(paths, board):
     if not paths.train or not board or '/' in board or '\\' in board or board in ('.', '..'):
         return [], []
     path = paths.train / '题库' / (board + '真题.md')
@@ -49,17 +67,21 @@ def read(paths, board):
             end = matches[j + 1].start() if j + 1 < len(matches) else len(fields.get('选项', ''))
             options[key] = fields.get('选项', '')[m.start():end].strip()[2:].strip()
         answer = fields.get('答案', '').strip().upper()
+        todo = not answer or bool(TODO_RE.match(answer))
+        analysis = fields.get('解析', '').strip()
+        if TODO_RE.match(analysis):
+            analysis = ''
         if ident in seen:
             errors.append('题目 %s：编号重复，请使用固定且唯一的编号' % ident)
         seen.add(ident)
-        if not fields.get('题干') or not fields.get('知识点') or not fields.get('解析'):
-            errors.append('题目 %s：知识点、题干、解析不能为空' % ident)
-        if set(options) != set('ABCD') or not all(options.values()) or answer not in options:
-            errors.append('题目 %s：需要 A/B/C/D 四个选项和单个正确答案字母' % ident)
+        if not fields.get('题干') or not fields.get('知识点'):
+            errors.append('题目 %s：知识点、题干不能为空' % ident)
+        if set(options) != set('ABCD') or not all(options.values()) or (not todo and answer not in options):
+            errors.append('题目 %s：需要 A/B/C/D 四个选项和单个正确答案字母（不知道答案就写“（待补）”）' % ident)
         questions.append({'key': board + '::' + ident, 'id': ident, 'board': board,
                           'topic': fields.get('知识点', ''), 'stem': fields.get('题干', ''),
-                          'options': options, 'answer': answer, 'analysis': fields.get('解析', ''),
-                          'source': str(path.name)})
+                          'options': options, 'answer': '' if todo else answer, 'analysis': analysis,
+                          'source': str(path.name), 'pending': todo})
     for line in text.splitlines():
         if re.match(r'^##\s+题目(?:\s|$)', line) and not re.match(r'^##\s+题目\s+\S', line):
             errors.append('题目标题需要编号，例如：## 题目 001')
@@ -85,7 +107,7 @@ def summary(g):
         repeats = [a for r in records for a in r['history'][1:]]
         wrong = [r for r in records if r.get('wrong')]
         run = next((r for r in data['runs'].values() if r['board'] == board), None)
-        result.append({'board': board, 'total': len(qs), 'remaining': sum(q['key'] not in data['records'] for q in qs),
+        result.append({'board': board, 'total': len(qs), 'pending': pending(g.paths, board), 'remaining': sum(q['key'] not in data['records'] for q in qs),
                        'first_total': len(first), 'first_correct': sum(a['ok'] for a in first),
                        'review_total': len(repeats), 'review_correct': sum(a['ok'] for a in repeats),
                        'method_total': sum(a.get('method_ok') is not None for a in first),
@@ -177,6 +199,8 @@ def ensure_templates(paths):
         return
     folder = paths.train / '题库'
     folder.mkdir(parents=True, exist_ok=True)
+    for board in ('图形推理', '资料分析'):  # 这两个板块的题要配图
+        (folder / '图片' / board).mkdir(parents=True, exist_ok=True)
     from .paths import DEFAULTS_DIR
     for src in (DEFAULTS_DIR / '题库').glob('*.md'):
         dst = folder / src.name

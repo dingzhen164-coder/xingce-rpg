@@ -22,6 +22,7 @@
 import re
 import time
 import uuid
+from pathlib import Path
 
 from . import question_bank, ai, prompts, skeleton, tutor, vault
 
@@ -630,7 +631,8 @@ def _bank_show(g, s, run, events=None):
     if run['phase'] == 'analysis':
         r = run['results'][-1]
         msg = '你的答案：%s · %s\n正确答案：%s\n知识点：%s\n\n解析：\n%s' % (
-            r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'], q['analysis'])
+            r['answer'], '破关成功（正确）' if r['ok'] else '失手（错误），' + g.T('bank_record'), q['answer'], q['topic'],
+            q['analysis'] or '（解析待补，之后可以用 skill 补写）')
         if r.get('reasoning'):
             msg += '\n\n你的拆题：\n' + r['reasoning']
             msg += '\n方法审核：' + ('通过' if r.get('method_ok') is True else '未通过' if r.get('method_ok') is False else '未验证（未连接AI）')
@@ -638,17 +640,36 @@ def _bank_show(g, s, run, events=None):
         return _bank_resp(g, s, run, [_msg('sys', msg), _msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
                           _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
                                    ('bank_pause', g.T('bank_pause'))))
-    msg = '%s · 第 %s/%s 关 · 编号 %s\n\n%s\n\n%s' % (
-        run['board'], run['pos'] + 1, len(run['questions']), q['id'], q['stem'],
-        '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    msg = '%s · 第 %s/%s 关 · 编号 %s' % (run['board'], run['pos'] + 1, len(run['questions']), q['id'])
+    blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
     if run.get('reasoning'):
         msg += '\n\n独立拆题：问法方向 → 结论（主体/结果）→ 论据 → 底层结构 → A/B/C/D的作用与排除理由。最后单独写一行【答案】B（填你的选择）。提交后才显示标准答案。'
-        return _bank_resp(g, s, run, [_msg('sys', msg)], events,
+        return _bank_resp(g, s, run, [_msg('sys', msg, blocks)], events,
                           _remember(s, _text_input('写出拆题过程，最后一行【答案】A/B/C/D')))
     # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
-    return _bank_resp(g, s, run, [_msg('sys', msg)], events,
+    return _bank_resp(g, s, run, [_msg('sys', msg, blocks)], events,
                       _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
                                ('bank_pause', g.T('bank_pause'))))
+
+
+def _bank_blocks(g, board, text):
+    """题干 + 选项 → 网页块；![[训练/题库/图片/…png]] 变成图片（库内路径，找不到时按文件名在 题库/图片/<板块>/ 里找）"""
+    blocks, pos = [], 0
+    for m in vault.IMG_RE.finditer(text):
+        if text[pos:m.start()].strip():
+            blocks.append({"t": "text", "v": text[pos:m.start()].strip()})
+        name = (m.group(1) or m.group(2) or "").strip()
+        rel = None
+        if g.paths.vault:
+            for c in (name, "训练/题库/" + name, "训练/题库/图片/%s/%s" % (board, Path(name).name)):
+                if vault.safe_vault_file(g.paths, c):
+                    rel = c
+                    break
+        blocks.append({"t": "img", "v": rel} if rel else {"t": "text", "v": "（缺图：%s，请把图片放到 训练/题库/图片/%s/）" % (name, board)})
+        pos = m.end()
+    if text[pos:].strip():
+        blocks.append({"t": "text", "v": text[pos:].strip()})
+    return blocks
 
 
 def _bank_action(g, s, act):

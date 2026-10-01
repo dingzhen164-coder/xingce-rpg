@@ -261,11 +261,11 @@ const views = {
       <div class="npc">${tutorFace()}<div><b>${esc(DASH.persona.tutor)}</b><p>${esc(W('bank_intro'))}</p></div></div>
       ${towerHtml(d.tower)}
       <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
-      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
+      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}（可用 xingce-tiku skill 把 txt 真题批量入库，图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
       <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
       <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
-      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
+      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}${b.pending ? ` · 待补答案 ${b.pending} 道（补上答案才会出）` : ''}</p>
       ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
       <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)} · 首次方法通过率 ${rate(b.method_correct, b.method_total)}（仅统计AI已审核）</p>
       ${b.errors.length ? `<div class="warn">${b.errors.map(esc).join('<br>')}</div>` : ''}

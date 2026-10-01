@@ -233,6 +233,10 @@ python tests/fake_ai_server.py              # 假 AI 服务器，手动点网页
   12 个默认板块包括 DEFAULT_BOARDS 和 DEFAULT_SIDE；模板示例代码块不会进入抽题池。
 - Markdown 题块以 `## 题目 编号` 开头，五个三级标题为知识点、题干、选项、答案、解析；四选一。
   按文档出现顺序，题号按板块唯一。格式有误禁止该板块新开组，并在题库页列出错误。
+- 答案为空或“（待补）”的题由 `read_all` 标 pending，`read` 不返回（不出题、不报错），summary 给 `pending` 数；
+  解析为空或“（待补）”允许，作答后显示占位。题干中的 `![[库内路径]]` 由 `trainer._bank_blocks` 转成图片块
+  （找不到时按文件名在 `训练/题库/图片/<板块>/` 找，仍缺就显示缺图提示）；`ensure_templates` 建好图形推理、资料分析的图片文件夹。
+- 批量入库在 obsidian-to-xingce 仓库的 `xingce-tiku` skill（`tiku.py prepare/commit/answers`），本程序只读题库。
 - 存档新增 `bank: {records, runs, groups}`，通过 new_state 默认值合并兼容 version 2 存档，无字段重解释。
   records 键是板块::编号，保存原题快照、history（日期/答案/是否正确/模式）、wrong、streak。
   runs 按板块保存 token、mode、questions 快照、pos、results、phase，逐题持久化，重启后新会话恢复同一组。

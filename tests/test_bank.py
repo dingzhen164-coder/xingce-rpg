@@ -214,5 +214,27 @@ class BankTest(unittest.TestCase):
         self.assertEqual(bank.state(self.g)["runs"]["论证逻辑"]["phase"], "answer")
 
 
+    def test_pending_answer_empty_analysis_and_images(self):
+        f = self.paths.train / '题库/图形推理真题.md'
+        img = self.paths.train / '题库/图片/图形推理/粉笔36季-077.png'
+        self.assertTrue(img.parent.is_dir())                    # 图片文件夹自动建好
+        img.write_bytes(b'png')
+        f.write_text('\n## 题目 粉笔36季-077\n### 知识点\n位置规律\n### 题干\n（粉笔第36季模考）\n'
+                     '![[训练/题库/图片/图形推理/粉笔36季-077.png]]\n从所给的四个选项中选择\n'
+                     '### 选项\nA. A\nB. B\nC. C\nD. D\n### 答案\nC\n### 解析\n（待补）\n'
+                     + question('四海-01-01', '（待补）') + question('四海-01-02', ''), encoding='utf-8')
+        qs, errors = bank.read(self.paths, '图形推理')
+        self.assertEqual(errors, [])
+        self.assertEqual([q['id'] for q in qs], ['粉笔36季-077'])   # 答案待补的不出
+        board = next(b for b in bank.summary(self.g)['boards'] if b['board'] == '图形推理')
+        self.assertEqual((board['total'], board['pending']), (1, 2))
+        task = {'type': 'bank', 'board': '图形推理', 'title': '实战', 'target': '图形推理', 'id': 'bank:图形推理'}
+        r = trainer.start(self.g, task)
+        blocks = [b for m in r['messages'] for b in m.get('blocks', [])]
+        self.assertIn({'t': 'img', 'v': '训练/题库/图片/图形推理/粉笔36季-077.png'}, blocks)
+        self.assertTrue(any('粉笔第36季模考' in b['v'] for b in blocks if b['t'] == 'text'))
+        r = trainer.action(self.g, r['session'], 'bank_answer:0:C')
+        self.assertIn('解析待补', str(r))
+
 if __name__ == '__main__':
     unittest.main()
