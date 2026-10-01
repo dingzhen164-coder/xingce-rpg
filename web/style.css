@@ -364,3 +364,77 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .tome-label, .slip-label { writing-mode: horizontal-tb; letter-spacing: 0; line-height: 1.25; display: flex; flex-direction: column; justify-content: center; align-items: center; }
 .tome-label { width: 34px; padding: 6px 4px; }
 .tome-grid { padding-top: 44px; }
+
+/* ===== 修炼殿：两扇门 ===== */
+.hall-gates { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 16px; }
+.gate { position: relative; overflow: hidden; cursor: pointer; border-radius: 18px; padding: 22px 22px 18px; min-height: 132px;
+  border: 1px solid var(--line); background: linear-gradient(135deg, var(--panel), var(--panel2));
+  box-shadow: var(--shadow); transition: transform .25s, box-shadow .25s, border-color .25s; }
+.gate:hover { transform: translateY(-3px); }
+.gate.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 0 34px color-mix(in srgb, var(--gold) 30%, transparent), var(--shadow); }
+.gate-cloud { position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background: radial-gradient(60% 40% at 85% 20%, color-mix(in srgb, var(--gold) 22%, transparent), transparent 70%),
+              radial-gradient(50% 35% at 10% 110%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%); }
+.gate-icon { position: absolute; right: 18px; bottom: 6px; font-size: 64px; opacity: .18; }
+.gate-name { font-family: var(--display); font-size: 30px; letter-spacing: .5em; color: var(--gold); }
+.gate-sub { margin-top: 4px; font-family: var(--display); letter-spacing: .15em; }
+.gate-stat { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.gate.on::after { content: "◆ 当前"; position: absolute; top: 12px; right: 16px; font-size: 11px; color: var(--gold); }
+.rec-card summary { cursor: pointer; }
+
+/* 修炼：板块印章 + 大项卡 */
+.board-seals { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 14px; }
+.seal { position: relative; cursor: pointer; padding: 8px 16px; border-radius: 6px; font-family: var(--display); letter-spacing: .12em;
+  border: 1px solid var(--line); background: var(--panel); box-shadow: 0 2px 8px rgba(0,0,0,.08); transition: all .2s; }
+.seal:hover { border-color: var(--gold); }
+.seal.on { color: #fff8e6; background: linear-gradient(135deg, #a8322a, #7a1f1a); border-color: #6b1a15; box-shadow: 0 0 0 2px rgba(168,50,42,.25), 0 6px 14px rgba(122,31,26,.35); }
+.seal em { position: absolute; top: -8px; right: -8px; font-style: normal; font-size: 11px; background: var(--red); color: #fff; border-radius: 999px; padding: 0 6px; }
+.seal-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); margin-left: 6px; vertical-align: middle; }
+.art-hall { border-top: 3px solid var(--gold); }
+.art-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.art-title { font-family: var(--display); font-size: 24px; letter-spacing: .3em; color: var(--gold); }
+.art-head button small { opacity: .8; margin-left: 4px; }
+.art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.art-card { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: linear-gradient(160deg, var(--panel), var(--panel2));
+  transition: transform .2s, box-shadow .2s, border-color .2s; }
+.art-card:hover { transform: translateY(-2px); border-color: var(--gold); box-shadow: 0 0 18px color-mix(in srgb, var(--gold) 25%, transparent); }
+.art-card.due { border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }
+.art-card.lv3, .art-card.lv4 { background: linear-gradient(160deg, var(--panel), color-mix(in srgb, var(--gold) 12%, var(--panel2))); }
+.due-tag { color: var(--orange); }
+.art-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.art-acts a { cursor: pointer; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+.art-acts a:hover { border-color: var(--gold); color: var(--gold); }
+
+/* 实战：宝塔 */
+.pagoda-card { display: grid; grid-template-columns: 260px 1fr; gap: 26px; align-items: center;
+  background: radial-gradient(80% 90% at 20% 100%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 70%), linear-gradient(160deg, var(--panel), var(--panel2)); }
+.pagoda { display: flex; flex-direction: column; align-items: center; padding: 8px 0; }
+.spire { color: var(--gold); font-size: 20px; text-shadow: 0 0 12px var(--gold); animation: spire 3s ease-in-out infinite; }
+@keyframes spire { 50% { opacity: .55; } }
+.tier { width: var(--w); display: flex; flex-direction: column; align-items: center; }
+.roof { width: 118%; height: 14px; background: linear-gradient(#5a3a22, #3a2412); clip-path: polygon(0 100%, 8% 0, 92% 0, 100% 100%);
+  border-radius: 0 0 4px 4px; position: relative; }
+.roof::before, .roof::after { content: ""; position: absolute; bottom: 2px; width: 10px; height: 8px; border-top: 2px solid #5a3a22; }
+.tier-body { width: 100%; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 12px; letter-spacing: .1em;
+  background: repeating-linear-gradient(90deg, #8b2e24 0 12px, #a8392c 12px 26px); color: #f6e7c4; border-left: 3px solid #5a1d16; border-right: 3px solid #5a1d16; }
+.tier.clear .tier-body { background: repeating-linear-gradient(90deg, #2f6b52 0 12px, #3b7f62 12px 26px); }
+.tier.up .tier-body { background: repeating-linear-gradient(90deg, #6d6a66 0 12px, #807c77 12px 26px); color: #e8e4dc; opacity: .75; }
+.tier.cur .tier-body { background: repeating-linear-gradient(90deg, #b8862a 0 12px, #d4a23a 12px 26px); color: #3a2410; font-weight: bold;
+  box-shadow: 0 0 22px rgba(232,184,74,.75); animation: tier-glow 2.4s ease-in-out infinite; }
+@keyframes tier-glow { 50% { box-shadow: 0 0 34px rgba(232,184,74,.95); } }
+.pagoda-base { margin-top: 4px; width: 100%; text-align: center; font-family: var(--display); letter-spacing: .6em; padding: 6px 0;
+  background: linear-gradient(#6b5a45, #4a3d2e); color: #f3e6c8; border-radius: 4px; }
+.floor-big { font-family: var(--display); font-size: 26px; margin: 4px 0 8px; }
+.floor-big b { color: var(--gold); font-size: 40px; }
+.pagoda-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+.pagoda-stats div { text-align: center; padding: 10px 4px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.pagoda-stats b { display: block; font-size: 22px; color: var(--gold); font-family: var(--display); }
+.pagoda-stats span { font-size: 12px; color: var(--muted); }
+.arena-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-top: 10px; }
+.arena { padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: linear-gradient(160deg, var(--panel), var(--panel2)); }
+.arena.active { border-color: var(--gold); box-shadow: 0 0 16px color-mix(in srgb, var(--gold) 30%, transparent); }
+.arena .row { margin-top: 6px; }
+/* 整套试炼：卷轴 */
+.set-card { position: relative; border-left: 0; border-right: 0; border-radius: 4px;
+  background: linear-gradient(90deg, #6b4a2b 0 10px, transparent 10px calc(100% - 10px), #6b4a2b calc(100% - 10px)), linear-gradient(var(--panel), var(--panel2)); padding-left: 26px; padding-right: 26px; }
+@media (max-width: 760px) { .hall-gates, .pagoda-card { grid-template-columns: 1fr; } }

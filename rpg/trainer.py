@@ -179,6 +179,11 @@ def start(g, task):
         return _resp(s, [_msg("npc", f"{g.T('apply')}：\n\n{q.get('题目', '')}")],
                      input=_remember(s, _text_input("先说你认出的考点和思路，再给答案")))
     if typ == "wrong":
+        if not task.get("target"):   # 修炼殿里自选板块斩心魔：挑这个板块最该斩的一只（到期回炉 > 没交手过 > 其余）
+            pool = sorted(g._pool_wrong([task["board"]]))
+            if not pool:
+                raise TrainError(f"「{task['board']}」还没有{g.T('wrong')}（模考板块复盘里做错的题）")
+            task = dict(task, target=pool[0][2])
         q = vault.find_question(g.paths, task["target"])
         if not q:
             raise TrainError("找不到这道题（复盘文件可能改名或删除了）")
@@ -205,6 +210,8 @@ def reply(g, sid, text):
         raise TrainError("内容是空的")
     if is_tired(text):
         return tired_response(g, s, text)
+    if s.get("discuss"):
+        return _discuss_reply(g, s, text)
     typ = s["type"]
     if typ in ("recite", "review", "speedrun"):
         return _grade_recite(g, s, text)
@@ -230,6 +237,8 @@ def action(g, sid, act):
     s = get(sid)
     if s["type"] in ("bank", "bank_review"):
         return _bank_action(g, s, act)
+    if s.get("discuss"):
+        return _discuss_action(g, s, act)
     if act == "skip":
         if s["type"] == "tribulation":
             raise TrainError(f"{g.T('tribulation')}开始后不能跳过")
@@ -355,8 +364,56 @@ def _example(g, s, text):
     st["last_example"] = {"date": g.t, "text": text, "ok": ok, "feedback": r.get("点评", "")}
     ev = g.on_example(s["iid"], ok)
     g.mark_done(s["task"], ok)
-    return _resp(s, [_msg("sys", "举例通过：下一步实战迁移。" if ok else "举例尚未通过，请按反馈修改。"),
-                     _msg("npc", r.get("点评", "")), _msg("sys", r.get("修改建议", ""))], ev, finished=True)
+    it = _item(g, s["iid"])
+    return _to_discuss(g, s, [_msg("sys", "举例通过：下一步实战迁移。" if ok else "举例尚未通过，请按反馈修改。"),
+                              _msg("npc", r.get("点评", "")), _msg("sys", r.get("修改建议", ""))], ev,
+                       {"kind": "举例", "title": it["name"], "question": "为大项「%s」举一个自己的例子" % it["name"],
+                        "mine": text, "reference": r.get("修改建议", "")})
+
+
+# ---------------------------------------------------------------- 题后复盘：继续问师傅（按板块 skill 回答）
+def _discuss_input():
+    return {"mode": "text", "placeholder": "还有哪里不懂？直接问师傅（会参照这个板块的 skill），Ctrl+Enter 发送",
+            "buttons": [{"id": "ask_explain", "label": "🧙 师傅解惑"}, {"id": "discuss_end", "label": "结束复盘"}]}
+
+
+def _to_discuss(g, s, messages, events, ctx):
+    """判完分不马上关门：进入复盘，可以点“师傅解惑”或继续追问；点“结束复盘”才算这次修炼结束"""
+    s["discuss"] = dict(ctx, board=s.get("board", ""), history=[])
+    return _resp(s, messages + [_msg("sys", "可以继续复盘：点「🧙 师傅解惑」让师傅按功法讲透，或者直接打字追问。")],
+                 events, input=_remember(s, _discuss_input()))
+
+
+def _skill_digest(g, board):
+    skill = g.boards.get(board, {}).get("skill") or SIDE_SKILLS.get(board)
+    return vault.skill_digest(g.paths, skill) if skill else ""
+
+
+def _discuss_ask(g, s, text):
+    d = s["discuss"]
+    if not ai.available():
+        return [_msg("npc", (_say(g, "试炼·解惑没AI") or "为师今日闭关（没连上 AI）。") +
+                     "\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题、回答追问。）")]
+    try:
+        r = ai.chat(prompts.discuss(g.persona, d, _skill_digest(g, d["board"]), text), temperature=0.6, max_tokens=1500)
+    except ai.AIError as e:
+        raise TrainError("师傅没回话：%s" % e)
+    d["history"] += [{"role": "user", "content": text}, {"role": "assistant", "content": r}]
+    d["history"] = d["history"][-10:]
+    return [_msg("npc", r)]
+
+
+def _discuss_reply(g, s, text):
+    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input()))
+
+
+def _discuss_action(g, s, act):
+    if act == "ask_explain":
+        return _resp(s, [_msg("me", "🧙 师傅，这题给我讲透。")] + _discuss_ask(g, s, "请按 skill 的方法把这道题完整讲一遍"),
+                     input=_remember(s, _discuss_input()))
+    if act in ("discuss_end", "skip"):
+        return _resp(s, [_msg("npc", _say(g, "试炼·复盘结束") or "复盘完了就去下一项。")], finished=True)
+    raise TrainError("这一步请打字追问，或点「师傅解惑」/「结束复盘」")
 
 
 # ---------------------------------------------------------------- 试剑（应用）
@@ -372,9 +429,10 @@ def _apply(g, s, text):
     ok, comment = _grade_apply(g, s["board"], it, q, text)
     ev = g.on_apply(s["iid"], ok)
     g.mark_done(s["task"], ok)
-    return _resp(s, [_msg("sys", f"✨ {g.T('apply')}成功" if ok else f"💥 {g.T('apply')}失败"), _msg("npc", comment),
-                     _msg("sys", f"参考答案：{q.get('参考答案', '')}\n参考思路：{q.get('参考思路', '')}", fold="参考答案")],
-                 ev, finished=True)
+    return _to_discuss(g, s, [_msg("sys", f"✨ {g.T('apply')}成功" if ok else f"💥 {g.T('apply')}失败"), _msg("npc", comment),
+                              _msg("sys", f"参考答案：{q.get('参考答案', '')}\n参考思路：{q.get('参考思路', '')}", fold="参考答案")], ev,
+                       {"kind": "试剑", "title": it["name"], "question": q.get("题目", ""), "answer": q.get("参考答案", ""),
+                        "mine": text, "reference": q.get("参考思路", "")})
 
 
 # ---------------------------------------------------------------- 斩心魔（错题）
@@ -407,6 +465,7 @@ def _grade_wrong(g, key, board, text):
 
 
 def _wrong(g, s, text):
+    s["answer_text"] = text
     ok, iid, extra, r, answer_ok = _grade_wrong(g, s["key"], s["board"], text)
     if ok is None:
         s["pending"] = {"answer_ok": answer_ok}
@@ -422,7 +481,11 @@ def _wrong_finish(g, s, ok, iid, extra, r=None):
         head += f"　答案{'✓' if r.get('答案正确') else '✗'}　思路{'✓' if r.get('思路正确') else '✗'}"
     if iid:
         head += f"　对应：{iid.split('::', 1)[1]}"
-    return _resp(s, [_msg("sys", head)] + extra, ev, finished=True)
+    q = vault.find_question(g.paths, s["key"]) or {}
+    qtext = "\n".join(b["v"] for b in vault.render_blocks(g.paths, q) if b["t"] == "text") if q else ""
+    return _to_discuss(g, s, [_msg("sys", head)] + extra, ev,
+                       {"kind": "模考错题", "title": s.get("title", ""), "question": qtext, "answer": q.get("correct", ""),
+                        "mine": s.get("answer_text", "") or "（自评）", "reference": q.get("analysis", "")})
 
 
 # ---------------------------------------------------------------- 渡劫 / 炼丹（连续关卡）

@@ -1205,6 +1205,7 @@ class Game:
 
     # ================================================================ 面板
     def dashboard(self):
+        from . import question_bank
         info = self.realm_info()
         run, bonus = self.streak()
         cur = self.current_batch()
@@ -1232,6 +1233,7 @@ class Game:
         dao = self.dao()
         retreat = self.state.get("retreat")
         return {
+            "tower": question_bank.tower(self),
             "today": self.t, "theme": {"name": self.theme, "terms": self.th["terms"],
                                        "levels": self.level_names(), "face": self.th["tutor_face"]},
             "realm": info, "xp": self.state["xp"],

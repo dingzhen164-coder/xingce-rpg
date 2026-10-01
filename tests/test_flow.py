@@ -90,6 +90,8 @@ def fake_chat(messages, json_mode=False, **kw):
         names = [l.split(". ", 1)[1] for l in text.split("需要判断的名称清单（按顺序）：")[1].split("\n\n")[0].splitlines() if ". " in l]
         answer = text.split("学员的默写：\n")[1].split("\n\n")[0]
         return json.dumps({"清单": [name in answer for name in names], "答到": [True] * n, "错误说法": [], "点评": "不错"})
+    if "陪学员复盘" in sys_text:
+        return "师傅：先看问法。" + text[:12]
     if "费曼学习法" in sys_text:
         return json.dumps({"reply": "讲得清楚", "done": True,
                            "维度": {"是什么": True, "识别信号": True, "怎么用": True, "易错": True}, "通过": True})
@@ -135,7 +137,9 @@ class FlowTest(unittest.TestCase):
     def run_task(self, task, answer="否定论点 拆桥 先找论点和论据 搭桥"):
         r = api.session_start({"task": task})
         while not r["finished"]:
-            if r["input"]["mode"] == "text":
+            if any(b["id"] == "discuss_end" for b in r["input"].get("buttons", [])):   # 题后复盘：结束
+                r = api.session_action({"session": r["session"], "action": "discuss_end"})
+            elif r["input"]["mode"] == "text":
                 r = api.session_reply({"session": r["session"], "text": answer})
             elif r["input"]["mode"] == "buttons":
                 r = api.session_action({"session": r["session"], "action": r["input"]["buttons"][0]["id"]})
@@ -179,6 +183,18 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(any(b["t"] == "img" for m in r["messages"] for b in m.get("blocks", [])))
         self.run_task({"type": "wrong", "board": "论证逻辑", "target": "36|论证逻辑|2", "title": "心魔"})
         self.assertEqual(self.state()["wrong"]["36|论证逻辑|2"]["status"], "done")
+
+        # 自选板块斩心魔（不指定哪题）→ 判完进入复盘，可以追问、请师傅解惑，点结束才收工
+        r = api.session_start({"task": {"type": "wrong", "board": "论证逻辑", "target": "", "title": "心魔"}})
+        r = api.session_reply({"session": r["session"], "text": "削弱 否定论点 选A"})
+        self.assertFalse(r["finished"])
+        self.assertEqual([b["id"] for b in r["input"]["buttons"]], ["ask_explain", "discuss_end"])
+        r = api.session_reply({"session": r["session"], "text": "为什么不选B"})
+        self.assertIn("师傅：先看问法。为什么不选B", str(r["messages"]))
+        r = api.session_action({"session": r["session"], "action": "ask_explain"})
+        self.assertIn("请按 skill 的方法", str(r["messages"]))
+        r = api.session_action({"session": r["session"], "action": "discuss_end"})
+        self.assertTrue(r["finished"])
 
         # 另一重也圆满 → 秘境打通、论证灵根觉醒；从藏经阁发起的练习也会勾掉今日功课
         api.plan_regenerate({})

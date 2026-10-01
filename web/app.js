@@ -118,9 +118,9 @@ async function render() {
   const v = $("#view");
   try {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
-    else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = views.train(); bindTrain(); }
+    else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
-    else if (VIEW === "bank") { await refresh(); v.innerHTML = await views.bank(); bindBank(); }
+    else if (VIEW === "bank") { HALL = 'shizhan'; return go('train'); }   // 试炼塔并进了修炼殿
     else if (VIEW === "wrong") { await refresh(); v.innerHTML = await views.wrong(); }
     else if (VIEW === "pill") { await refresh(); v.innerHTML = views.pill(); bindPill(); }
     else if (VIEW === "log") { await refresh(); v.innerHTML = views.log(); bindLog(); }
@@ -244,49 +244,22 @@ const views = {
     </div>`;
   },
 
-  train() {
+  async train() {
     const tasks = DASH?.plan?.tasks || [];
-    if (!T.session && !T.msgs.length) {
-      return `<div class="card"><h3>${esc(W("nav.train"))}</h3><p class="muted">从${esc(W("tasks"))}里选一项开始：</p>${tasks.map(taskRow).join("") || '<div class="muted">今天没有功课</div>'}</div>`;
-    }
+    if (!T.session && !T.msgs.length) return await hubHtml();
     const inp = T.input;
     let composer = "";
     if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在判定</div>`;
     else if (inp.mode === "text") composer = `<textarea id="answer" placeholder="${esc(inp.placeholder || "")}"></textarea>
         <div class="row" style="margin-top:8px"><span class="small muted">Ctrl / ⌘ + Enter 提交</span><span class="spacer"></span>
-        <button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button><button class="primary" id="send">提交</button></div>`;
+        ${inp.buttons ? inp.buttons.map((b) => `<button class="ghost" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")
+          : `<button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button>`}<button class="primary" id="send">${inp.buttons ? "问师傅" : "提交"}</button></div>`;
     else if (inp.mode === "buttons") composer = `<div class="row">${inp.buttons.map((b) => `<button class="${b.id === "skip" ? "ghost" : "primary"}" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
-    else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回${esc(NAV("home"))}</button></div>`;
+    else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     return `<div class="train">
-      <div class="card"><h3>📜 ${esc(W("tasks"))}</h3>${tasks.map(taskRow).join("")}</div>
+      <div class="card"><h3>📜 师尊荐课</h3>${tasks.map(taskRow).join("")}<button class="ghost small" id="toHall" style="margin-top:8px">↩ 回修炼殿</button></div>
       <div class="card chat"><h3>${esc(T.title)}</h3>${battlePanel()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
-  },
-
-  async bank() {
-    const d = await api('/api/bank');
-    const rate = (ok, n) => n ? `${(ok / n * 100).toFixed(1)}%（${ok}/${n}）` : '—';
-    const done = d.boards.reduce((n,b) => n + b.first_total, 0);
-    const wrong = d.boards.reduce((n,b) => n + b.wrong, 0);
-    return `<div class="card bank-banner"><div class="rune">⚔ ${esc(NAV('bank'))} ⚔</div><h2>以真题验${esc(W('skeleton'))}，在实战中精进</h2>
-      <div class="npc">${tutorFace()}<div><b>${esc(DASH.persona.tutor)}</b><p>${esc(W('bank_intro'))}</p></div></div>
-      ${towerHtml(d.tower)}
-      <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考复盘、OCR 出来的 txt 一键入库，不用 AI 逐题核对</span></summary><div id="importBody">载入中…</div></details>
-      <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
-      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}，或用上面的「📥 导入真题」批量入库（图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。点选项的组按考试来：全部选完交卷才揭晓对错和正确率，再逐题复盘，看不懂点「🧙 师傅解惑」（按该板块 skill 讲题，需要 AI）。</p>
-      <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
-      <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
-      ${setsHtml(d.sets)}
-      <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
-      <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
-      ${b.pending ? `<p class="small pending-note">另有 <b>${b.pending}</b> 道还没有答案，补上才会出题：上面「📥 导入真题 → ④ 补答案」填答案表</p>` : ''}
-      ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
-      <p class="small">首次正确率 ${rate(b.first_correct, b.first_total)} · 复练正确率 ${rate(b.review_correct, b.review_total)} · 首次方法通过率 ${rate(b.method_correct, b.method_total)}（仅统计AI已审核）</p>
-      ${b.errors.length ? `<div class="warn">${b.errors.map(esc).join('<br>')}</div>` : ''}
-      <div class="row"><button class="primary" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${esc(W(b.active ? 'bank_resume' : 'bank_start'))}</button>
-      <button data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>${esc(W('bank_review'))}</button></div>
-      ${b.wrong_items.length ? `<details><summary>${esc(W('bank_wrong'))}（错题）</summary>${b.wrong_items.map(q => `<p>编号 ${esc(q.id)} · ${esc(q.topic)} · 上次选 ${esc(q.last.answer)} · 共 ${q.tries} 次 · ${esc(q.last.date)}</p>`).join('')}</details>` : ''}</div>`).join('')}</div>
-      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span>${x.seconds ? `<span class="small muted">⏱ ${clock(x.seconds)}</span>` : ''}</div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
   },
 
   async skeleton() {
@@ -482,9 +455,11 @@ function applyResp(r) {
   T.battle = r.battle || null;
   if (r.finished) refresh().then(() => VIEW === "train" && renderTrain());
 }
-function renderTrain() {
+async function renderTrain() {
   if (VIEW !== "train") return;
-  $("#view").innerHTML = views.train();
+  const html = await views.train().catch((e) => { showError(e); return ''; });
+  if (VIEW !== "train") return;
+  $("#view").innerHTML = html;
   bindTrain();
   const box = $("#msgs"); if (box) box.scrollTop = T.top ? 0 : box.scrollHeight;
   if (T.top) window.scrollTo(0, 0);
@@ -492,6 +467,7 @@ function renderTrain() {
   const ta = $("#answer"); if (ta) ta.focus();
 }
 function bindTrain() {
+  if (!T.session && !T.msgs.length) return bindHub();
   bindTaskClicks($("#view"));
   const send = $("#send");
   if (send) {
@@ -504,7 +480,12 @@ function bindTrain() {
     const t = (DASH?.plan?.tasks || []).find((x) => !x.done);
     t ? startTask({ task_id: t.id }) : (toast(`${W("tasks")}全部完成 ✦`), go("home"));
   };
-  const bh = $("#backHome"); if (bh) bh.onclick = () => { Object.assign(T, { session: null, msgs: [] }); go("home"); };
+  const th = $("#toHall");
+  if (th) th.onclick = () => {
+    if (T.session && !T.finished && !confirm("这项功课还没结束，先回修炼殿吗？（试炼的进度会保存，其他功课需要重新开始）")) return;
+    Object.assign(T, { session: null, msgs: [], battle: null }); clearInterval(TIMER); renderTrain();
+  };
+  const bh = $("#backHome"); if (bh) bh.onclick = () => { Object.assign(T, { session: null, msgs: [], battle: null }); renderTrain(); };
 }
 async function submitText() {
   const text = $("#answer").value.trim();
@@ -540,15 +521,110 @@ function setsHtml(books) {
         <details><summary class="small">选择其他${b.paper ? '卷子' : '套'}</summary>${grid(b)}</details></div>`;
     }).join('')}</div>`;
 }
+// ------------------------------------------------------------ 修炼殿：两扇门（修炼 / 实战），没在做功课时显示
+let HALL = 'xiulian';            // xiulian 修炼（自选功法练习）| shizhan 实战（真题试炼，原试炼塔）
+let XL_BOARD = '';               // 修炼殿里选中的板块
+async function hubHtml() {
+  const d = DASH || {};
+  const tower = d.tower;
+  const gates = `<div class="hall-gates">
+    <div class="gate ${HALL === 'xiulian' ? 'on' : ''}" data-hall="xiulian"><div class="gate-cloud"></div><div class="gate-icon">🧘</div>
+      <div class="gate-name">修 炼</div><div class="gate-sub">参悟功法 · 自选大项</div><div class="gate-stat">口诀 · 论道 · 化境 · 试剑 · 斩心魔</div></div>
+    <div class="gate ${HALL === 'shizhan' ? 'on' : ''}" data-hall="shizhan"><div class="gate-cloud"></div><div class="gate-icon">⚔</div>
+      <div class="gate-name">实 战</div><div class="gate-sub">试炼塔 · 真题成套</div><div class="gate-stat">${tower ? (tower.summit ? '百层已登顶' : `正在攀登第 ${tower.current} 层`) : '真题试炼'}</div></div></div>`;
+  const body = HALL === 'shizhan' ? await shizhanHtml() : await xiulianHtml();
+  return gates + `<div class="hall-body">${body}</div>`;
+}
+
+async function xiulianHtml() {
+  const [sk, wr] = await Promise.all([api('/api/skeletons'), api('/api/wrong')]);
+  const tasks = DASH?.plan?.tasks || [];
+  const left = tasks.filter(t => !t.done).length;
+  const rec = `<details class="card rec-card" ${left && !XL_BOARD ? 'open' : ''}><summary><b>📜 师尊荐课</b> <span class="small muted">程序按进度排的建议（到期温习、心魔回炉），做不做由你 · 还剩 ${left} 项</span></summary>
+    ${tasks.map(taskRow).join('') || '<div class="muted small">今天没有推荐</div>'}</details>`;
+  const boards = sk.boards;
+  if (!XL_BOARD || !boards.find(b => b.board === XL_BOARD)) XL_BOARD = (boards.find(b => b.final) || boards[0] || {}).board || '';
+  const wmap = Object.fromEntries((wr.boards || []).map(b => [b.board, b]));
+  const seals = `<div class="board-seals">${boards.map(b => {
+    const w = wmap[b.board];
+    const dot = b.final ? '' : '<i class="seal-dot" title="功法还没定稿"></i>';
+    return `<a class="seal ${b.board === XL_BOARD ? 'on' : ''}" data-xlboard="${esc(b.board)}">${esc(b.board)}${dot}${w && w.redo ? `<em>${w.redo}</em>` : ''}</a>`;
+  }).join('')}</div>`;
+  const b = boards.find(x => x.board === XL_BOARD);
+  if (!b) return rec + seals;
+  const w = wmap[b.board] || { total: 0, new: 0, redo: 0, done: 0 };
+  const today = DASH?.today || new Date().toISOString().slice(0, 10);
+  const head = `<div class="art-head"><div><div class="art-title">${esc(b.board)}</div>
+      <div class="small muted">${b.hasSkill ? 'skill：' + esc(b.skill) : '<span style="color:var(--red)">skill 未接入</span>'} · ${b.items.length} 大项 · 入门 ${b.items.filter(i => i.level > 0).length}</div></div><span class="spacer"></span>
+    <button class="primary" data-xlwrong="${esc(b.board)}" ${w.total ? '' : 'disabled'} title="模考板块复盘里做错的题">👹 斩心魔 <small>${w.redo ? `回炉 ${w.redo}` : `未交手 ${w.new}`}</small></button>
+    <button data-xlpill="${esc(b.board)}" ${b.final ? '' : 'disabled'}>⚗ 开炉炼丹</button>
+    ${b.final ? '' : `<button data-skel="${esc(b.board)}">${b.status === '草稿' ? '审阅 / 定稿功法' : '编撰功法'}</button>`}</div>`;
+  if (!b.final) return rec + seals + `<div class="card art-hall">${head}<p class="muted">「${esc(b.board)}」的功法还没定稿：先编撰、定稿，才能逐项修炼。斩心魔可以先做。</p></div>`;
+  const acts = [['recite', '📿'], ['feynman', '🗣'], ['example', '🌀'], ['apply', '🗡']];
+  const cards = b.items.map(it => {
+    const due = it.next && it.next <= today;
+    return `<div class="art-card ${due ? 'due' : ''} lv${it.level}">
+      <div class="row"><b>${esc(it.name)}</b><span class="spacer"></span><span class="lvchip ${it.rusty ? 'rust' : 'l' + it.level}">${esc(it.rusty && it.level === 0 ? W('rust') : it.levelName)}</span></div>
+      <div class="small muted">${it.terms} ${esc(W('term'))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? '已过' : '待过'}${due ? ' · <b class="due-tag">今日该温习</b>' : it.next ? ' · 下次 ' + it.next : ''}</div>
+      <div class="art-acts">${acts.map(([t, ic]) => `<a data-free="${esc(it.id)}" data-train="${t}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${ic} ${esc(W(t))}</a>`).join('')}</div></div>`;
+  }).join('');
+  return rec + seals + `<div class="card art-hall">${head}<div class="art-grid">${cards}</div></div>`;
+}
+
+async function shizhanHtml() {
+  const d = await api('/api/bank');
+  const rate = (ok, n) => n ? `${(ok / n * 100).toFixed(0)}%` : '—';
+  const done = d.boards.reduce((n, b) => n + b.first_total, 0);
+  const wrong = d.boards.reduce((n, b) => n + b.wrong, 0);
+  const firstOk = d.boards.reduce((n, b) => n + b.first_correct, 0);
+  const boards = d.boards.filter(b => b.total || b.pending || b.wrong);
+  return `${pagodaHtml(d.tower, done, wrong, rate(firstOk, done))}
+    ${setsHtml(d.sets)}
+    <div class="card"><div class="row"><h3 style="margin:0">⚔ 板块试炼</h3><span class="small muted">按题库顺序一组 ${d.count} 关，交卷判分</span><span class="spacer"></span>
+      <label class="small">每组 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label></div>
+      <div class="arena-grid">${boards.map(b => `<div class="arena ${b.active ? 'active' : ''}">
+        <div class="row"><b>${esc(b.board)}</b><span class="spacer"></span>${b.active ? '<span class="tag cur">进行中</span>' : ''}</div>
+        <div class="small muted">余 ${b.remaining}/${b.total} · 首次正确率 ${rate(b.first_correct, b.first_total)}${b.pending ? ` · 待补 ${b.pending}` : ''}</div>
+        ${bar(b.total ? (b.total - b.remaining) / b.total : 0, 'thin yellow')}
+        ${b.errors.length ? `<div class="warn small">${b.errors.slice(0, 2).map(esc).join('<br>')}</div>` : ''}
+        <div class="row"><button class="primary small" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${b.active ? '续闯' : '闯关'}</button>
+          <button class="small" data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>回炉${b.wrong ? ' ' + b.wrong : ''}</button></div></div>`).join('')
+        || '<p class="muted">题库还是空的：用下面的「📥 导入真题」入库。</p>'}</div></div>
+    <details class="card"><summary><b>📜 ${esc(W('bank_history'))}</b> <span class="small muted">最近 ${d.groups.length} 组</span></summary>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${x.correct}/${x.total}</span>${x.seconds ? `<span class="small muted">⏱ ${clock(x.seconds)}</span>` : ''}</div>`).join('') || '<p class="muted small">尚未留下试炼战绩。</p>'}</details>
+    <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考 PDF、txt、PDF 练习册一键入库</span></summary><div id="importBody">载入中…</div></details>
+    <p class="small muted">点选项的组按考试来：全部选完交卷才揭晓对错，再逐题复盘，看不懂点「🧙 师傅解惑」。首次作答得${esc(W('xp'))}，回炉连续答对 ${d.streak_need} 次消除残影。</p>`;
+}
+
+// 试炼塔：一座宝塔只画当前层上下几层，塔身发光的是正在攀登的那层
+function pagodaHtml(t, done, wrong, acc) {
+  if (!t) return '';
+  const top = Math.min(t.layers, t.current + 2);
+  const tiers = [];
+  for (let n = top; n >= Math.max(1, top - 4); n--) {
+    const cls = n === t.current && !t.summit ? 'cur' : n <= t.cleared ? 'clear' : 'up';
+    tiers.push(`<div class="tier ${cls}" style="--w:${62 + (top - n) * 9}%"><div class="roof"></div><div class="tier-body"><span>第 ${n} 层</span></div></div>`);
+  }
+  return `<div class="card pagoda-card"><div class="pagoda">
+      <div class="spire">✦</div>${tiers.join('')}<div class="pagoda-base">试 炼 塔</div></div>
+    <div class="pagoda-info"><div class="rune">${t.layers} 层 · ${t.total} 道真题</div>
+      <div class="floor-big">${t.summit ? '✦ 百层登顶' : `第 <b>${t.current}</b> 层`}</div>
+      ${towerProgress(t)}
+      <div class="pagoda-stats"><div><b>${done}</b><span>已闯新题</span></div><div><b>${acc}</b><span>首次正确率</span></div><div><b>${wrong}</b><span>${esc(W('bank_wrong'))}</span></div></div>
+      <div class="npc">${tutorFace()}<div class="small"><b>${esc(DASH?.persona?.tutor || '')}</b>：${esc(W('bank_intro'))}</div></div></div></div>`;
+}
+
+function bindHub() {
+  document.querySelectorAll('[data-hall]').forEach(g => g.onclick = () => { HALL = g.dataset.hall; renderTrain(); });
+  document.querySelectorAll('[data-xlboard]').forEach(a => a.onclick = () => { XL_BOARD = a.dataset.xlboard; renderTrain(); });
+  document.querySelectorAll('[data-xlwrong]').forEach(b => b.onclick = () =>
+    startTask({ task: { type: 'wrong', board: b.dataset.xlwrong, target: '', title: `👹 ${W('kill')} · ${b.dataset.xlwrong}` } }));
+  document.querySelectorAll('[data-xlpill]').forEach(b => b.onclick = () =>
+    startTask({ task: { type: 'alchemy', board: b.dataset.xlpill, target: b.dataset.xlpill, title: `⚗ ${W('alchemy')} · ${b.dataset.xlpill}` } }));
+  bindTaskClicks($('#view'));
+  bindSkeleton();   // 大项练习按钮、编撰功法
+  if ($('#bankCount')) bindBank();
+}
 function bindBank() {
-  const focusTower = () => {
-    const box = $("#towerViewport"), floor = $(".tower-floor.current");
-    if (box && floor) box.scrollTop = floor.offsetTop + floor.parentElement.offsetTop - box.clientHeight / 2 + floor.offsetHeight / 2;
-  };
-  requestAnimationFrame(focusTower);
-  $("#towerLocate").onclick = focusTower;
-  $("#towerTop").onclick = () => { $("#towerViewport").scrollTop = 0; };
-  $("#towerBottom").onclick = () => { const b = $("#towerViewport"); b.scrollTop = b.scrollHeight; };
   $('#bankCount').onchange = async (e) => {
     try { await api('/api/bank/count', { count: Number(e.target.value) }); toast('已保存，下一组生效'); }
     catch (err) { showError(err); }
@@ -908,22 +984,6 @@ function battlePanel() {
 }
 
 
-// 100 层自上而下绘制，已登层、正在攀登层和未到达层采用不同颜色。
-function towerHtml(t) {
-  if (!t) return '';
-  const floors = Array.from({length: t.layers}, (_, i) => t.layers - i).map(n => {
-    const current = n === t.current;
-    const cleared = n <= t.cleared;
-    const width = 35 + 65 * (1 - (n - 1) / Math.max(1, t.layers - 1));
-    const label = current ? (t.summit ? '✦ 百层登顶' : '◆ 正在攀登') : cleared ? '已登层' : '待攀登';
-    return `<div class="tower-floor ${cleared ? 'cleared' : ''} ${current ? 'current' : ''}" style="width:${width}%" title="第 ${n} 层 · ${label}" aria-label="第 ${n} 层 · ${label}"><span>${n} 层</span><span class="tower-windows">▪ ▪ ▪</span><span>${current ? label : cleared ? '✓' : '·'}</span></div>`;
-  }).join('');
-  return `<section class="tower-layout" aria-label="试炼塔进度"><div class="tower-art"><div class="tower-controls"><button class="small" id="towerTop">塔顶</button><button class="small" id="towerLocate">定位当前层</button><button class="small" id="towerBottom">塔底</button></div>
-    <div class="tower-viewport" id="towerViewport" tabindex="0" aria-label="可滚动查看全部楼层"><div class="tower-structure"><div class="tower-roof">✦</div>${floors}<div class="tower-base">试 炼 塔</div></div></div></div>
-    <div class="tower-summary"><div class="rune">${t.layers} 层 · ${t.total} 道真题</div><h2>${t.summit ? '✦ 已登顶' : `已登上第 ${t.cleared} 层`}</h2>
-    ${towerProgress(t)}<p>全板块累计完成 <b>${t.completed}</b> 道新题</p><p class="small muted">默认每完成 ${t.per_floor} 道新题升一层。首次提交即计数；正确率另行统计，错题复练不重复增加层数。</p>
-    <p class="small muted">已有作答自动折算进度。题库逐步添加，不改变 ${t.total} 题的登顶目标。</p><div class="tower-legend"><span>金色：当前层</span><span>绿色：已登层</span><span>灰色：待攀登</span></div></div></section>`;
-}
 function towerProgress(t) {
   if (!t) return '';
   if (t.summit) return `<div class="tower-progress">🗼 ${t.layers} 层已全部登顶 · ${t.completed} 道新题</div>${bar(1, 'thin yellow')}`;
