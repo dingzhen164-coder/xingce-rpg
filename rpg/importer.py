@@ -381,28 +381,37 @@ def _starts(text):
     return starts, skipped
 
 
-def parse_book(lines):
+def parse_book(lines, start_set=0):
     """练习册：有“练习题NN”标记就按标记分套（第几套 = 第几个有题的标记段，和答案表的“练习NN”对得上）；
     没有标记就按“题号回到 1”分套。每套里题号连续，选项按 A→B→C→D"""
-    segs, cur = [], []
+    segs, cur, nums, mark = [], [], [], None
     for ln in lines:
         if SET_RE.match(ln) and len(ln) <= 12:
             segs.append(cur)
+            nums.append(mark)
             cur = []
+            d = re.findall(r"\d+", ln)
+            mark = int(d[-1]) if d else None   # 标记里写的套号（“练习题16”）；分上下册时下册从 16 开始
         else:
             cur.append(ln)
     segs.append(cur)
+    nums.append(mark)
     texts = ["\n".join(x) for x in segs]
     by_marker = sum(bool(_starts(t)[0]) for t in texts) >= 2
     if not by_marker:
-        texts = ["\n".join(lines)]
+        texts, nums = ["\n".join(lines)], [None]
     out, group = [], 0
-    for text in texts:
+    for text, num in zip(texts, nums):
         starts, skipped = _starts(text)
         if not starts:
             continue  # 目录、封面
         if by_marker:
-            group += 1
+            # 用标记里的套号：第一套可以从任意号开始（下册），之后只接受紧跟着的号，OCR 认错 / 没认出就按上一套 +1
+            ok = num is not None and 1 <= num <= 300 and (group < num <= group + 3 if group else True)
+            if start_set:      # 用户指定了第一套是练习几：按顺序往后排，不看标记里的数字
+                group = start_set if not group else group + 1
+            else:
+                group = num if ok else group + 1
         first = len(out)
         for i, (s, e, n) in enumerate(starts):
             if not by_marker and n == 1:
@@ -736,7 +745,7 @@ def _collect(paths, body):
             qs = parse_fenbi(lines)
             note = "粉笔试卷的 OCR 文字顺序会乱，整份进待修。建议先用 xingce-mokao-split 拆这份 PDF，再在这里导入那一季。"
         else:
-            qs = parse_book(lines)
+            qs = parse_book(lines, int(body.get("start_set") or 0))
         if not qs:
             raise ImportError_("一道题也没拆出来：确认是题目文字（OCR 结果），不是扫描图片")
         board = ALIAS.get(body.get("board") or "", body.get("board") or "")
@@ -796,12 +805,17 @@ def _route(paths, qs, dry):
         if len(key) >= 12:
             stems.add(key)
     if len(clash) >= 3 or (clash and len(clash) * 5 >= len(qs)):
-        raise ImportError_("编号前缀和已导入的另一批题撞了：%s 等 %d 道题编号相同但题目不同。"
-                           "请换一个前缀（比如在书名后加“言语”“逻辑”）再导入；什么都没有写入。" % ("、".join(clash[:3]), len(clash)))
+        raise ImportError_("编号和已导入的另一批题撞了：%s 等 %d 道题编号相同但题目不同，什么都没有写入。\n"
+                           "· 如果是另一本书：换一个前缀（比如在书名后加“言语”“逻辑”）；\n"
+                           "· 如果是同一本书的下册、每套又从“练习题01”开始编：在“第一套是练习几”填下册第一套的号（如 16）。"
+                           % ("、".join(clash[:3]), len(clash)))
     return ready, fix + [dict(q, problems=["编号和已有的另一道题相同，请改编号"]) for q in qs if q["id"] in clash], dup
 
 
 def _summary(ready, fix, dup, note, name, source):
+    if dup and not ready and not fix:
+        note = (note + "\n" if note else "") + ("这一批 %d 道题全部已经在题库里。如果这其实是另一批题（比如下册），"
+                                                "说明编号和已导入的题重复了：换个前缀，或填“第一套是练习几”。" % len(dup))
     return {"name": name, "source": source, "note": note, "ready": len(ready), "fix": len(fix), "dup": len(dup),
             "boards": Counter(q["board"] for q in ready).most_common(),
             "unsorted": sum(q["topic"] == UNSORTED for q in ready),

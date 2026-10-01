@@ -551,6 +551,7 @@ async function loadImport() {
           <label><input type="checkbox" id="impNoSource"> 没有来源</label>
           <label>编号前缀 <input id="impPrefix" placeholder="如 四海逻辑600"></label>
           <label>整份板块 <select id="impBoard">${opts}</select></label>
+          <label>第一套是练习几 <input id="impStart" type="number" min="1" placeholder="不填自动（按“练习题NN”）" style="width:13em"></label>
           ${d.ai ? '<label><input type="checkbox" id="impAI"> 用 AI 补认不出的板块和知识点（DeepSeek，只发题干）</label>' : ''}</div>
         <div class="row"><button class="ghost" id="impPreview">预览</button><button class="primary" id="impCommit">导入</button></div></div>
       <div class="import-sec"><h4>③ 待修（拆不干净的题，在 Obsidian 里改好、清空“检查”后重新导入）</h4>
@@ -573,9 +574,11 @@ async function loadImport() {
           <button class="ghost" id="rmGo">删除这批没做过的题</button><span class="small muted">导错了想重导时用；做过的题有作答记录，会保留</span></div></div>
       <div class="import-sec"><h4>⑤ 知识点</h4><div class="row"><span>“待分类”的题：${d.unsorted} 道</span><span class="spacer"></span>
         ${d.ai ? `<button id="clsGo" ${d.unsorted ? '' : 'disabled'}>AI 补 100 题</button>` : '<span class="small muted">在设置里填 DeepSeek key 后可以让 AI 补；不补也能正常做题</span>'}</div></div>
-      <div id="importResult">${IMPORT_KEEP}</div>`;
+      <div id="importResult" class="import-result">${IMPORT_KEEP}</div>`;
+    const hadResult = !!IMPORT_KEEP;
     IMPORT_KEEP = '';
     bindImport();
+    if (hadResult) $('#importResult').scrollIntoView({ block: 'center' });
   } catch (e) { box.innerHTML = `<p class="small">⚠ ${esc(e.message)}</p>`; }
 }
 
@@ -591,9 +594,13 @@ function importReport(r, dry) {
 }
 
 function bindImport() {
-  const show = (html) => { $('#importResult').innerHTML = html; };
+  const show = (html) => {   // 结果写在卡片最底下：写完滚过去，免得以为“没反应”
+    const el = $('#importResult'); el.innerHTML = html;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   const run = async (btn, url, body, dry) => {
     const label = btn.textContent; btn.disabled = true; btn.textContent = '处理中…';
+    show('<p class="muted">处理中，请稍候…</p>');
     try {
       const r = await api(url, body);
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
@@ -646,7 +653,8 @@ function bindImport() {
   const textBody = () => {
     if (!IMPORT_TEXT) throw new Error('先选一个 txt 文件');
     return { kind: 'text', text: IMPORT_TEXT, name: $('#impFile').files[0]?.name || '', source: $('#impSource').value.trim(),
-             no_source: $('#impNoSource').checked, prefix: $('#impPrefix').value.trim(), board: $('#impBoard').value, ai: !!$('#impAI')?.checked };
+             no_source: $('#impNoSource').checked, prefix: $('#impPrefix').value.trim(), board: $('#impBoard').value, ai: !!$('#impAI')?.checked,
+             start_set: Number($('#impStart').value) || 0 };
   };
   $('#impPreview').onclick = (e) => { try { run(e.target, '/api/import/preview', textBody(), true); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#impCommit').onclick = (e) => { try { run(e.target, '/api/import/commit', textBody(), false); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
