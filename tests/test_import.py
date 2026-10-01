@@ -144,6 +144,20 @@ class ImportTest(unittest.TestCase):
         self.assertEqual(bank.read(self.p, "常识判断")[0][0]["id"], "粉笔37季-021")
         self.assertTrue(importer.status(self.p)["pdfs"][0]["split"])
 
+    def test_figure_options_from_screenshot_and_fix_cleanup(self):
+        d = self.p.seasons / "第36季"
+        (d / "attachments/S36-Q077.png").write_bytes(b"png")
+        (d / "07-图形推理.md").write_text("### 77. ❌\n\n![[S36-Q077.png]]\n\n从所给的四个选项中，选择最合适的一个填入问号处：\n\n"
+                                       "> [!check]- 答案\n> 正确答案：**C**　我的答案：**A**　错误\n\n> [!note] 复盘\n>\n\n---\n", encoding="utf-8")
+        fix = self.p.train / "题库/_待修/粉笔第36季模考.md"     # 旧版本导入时进了待修
+        fix.parent.mkdir(parents=True, exist_ok=True)
+        fix.write_text("# 待修\n\n## 题目 粉笔36季-077\n### 板块\n图形推理\n### 检查\n⚠ 复盘文件里选项不全\n\n", encoding="utf-8")
+        r = importer.commit(self.p, {"kind": "season", "season": 36})
+        self.assertEqual((r["ready"], r["fix"]), (3, 0))
+        q = bank.read(self.p, "图形推理")[0][0]
+        self.assertEqual((q["options"], q["answer"]), ({k: k for k in "ABCD"}, "C"))
+        self.assertFalse(fix.exists())                                        # 入库后从待修里删掉
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

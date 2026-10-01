@@ -354,8 +354,11 @@ def parse_review(season_dir):
         for q in mine:
             lines = ([x for x in mats.get(q["material"], []) if x.strip()] + [""] if q["material"] else []) + q.pop("lines")
             q["stem"] = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+            # 选项就是图里的 A/B/C/D（图形推理常见）时，拆分脚本不写选项行：有截图就补成 A. A … D. D（选项看图）
+            if "![[" in q["stem"] and not any(q["options"].values()):
+                q["options"] = {k: k for k in "ABCD"}
             if set(q["options"]) != set("ABCD") or not all(q["options"].values()):
-                q["problems"].append("复盘文件里选项不全（可能是图片选项）")
+                q["problems"].append("复盘文件里选项不全")
         out += mine
     return sorted(out, key=lambda q: q["num"])
 
@@ -688,6 +691,8 @@ def commit(paths, body):
     ready, fix, dup = _route(paths, qs, dry=False)
     _append(paths, ready)
     f = paths.train / "题库" / FIX_DIR / (safe_name(name) + ".md")
+    if f.exists() and ready:  # 以前进了待修、这次能入库的题（比如修复后的图片选项题）：从待修文件里删掉
+        _drop_ids(f, {q["id"] for q in ready})
     if f.exists():  # 同一份再导入一次：已经在待修文件里的题不重复追加
         there = {b["id"] for b in parse_blocks(f.read_text(encoding="utf-8-sig"))}
         fix = [q for q in fix if q["id"] not in there]
@@ -699,6 +704,18 @@ def commit(paths, body):
     r = _summary(ready, fix, dup, note, name, source)
     r["fix_file"] = "训练/题库/%s/%s.md" % (FIX_DIR, safe_name(name)) if f.exists() else ""
     return r
+
+
+def _drop_ids(f, ids):
+    text = f.read_text(encoding="utf-8-sig")
+    blocks = parse_blocks(text)
+    keep = [b for b in blocks if b["id"] not in ids]
+    if len(keep) == len(blocks):
+        return
+    if not keep:
+        f.unlink()
+        return
+    _write(f, text[:blocks[0]["start"]] + "".join(text[b["start"]:b["end"]] for b in keep))
 
 
 def _append(paths, qs):
