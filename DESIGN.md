@@ -236,7 +236,10 @@ python tests/fake_ai_server.py              # 假 AI 服务器，手动点网页
 - 答案为空或“（待补）”的题由 `read_all` 标 pending，`read` 不返回（不出题、不报错），summary 给 `pending` 数；
   解析为空或“（待补）”允许，作答后显示占位。题干中的 `![[库内路径]]` 由 `trainer._bank_blocks` 转成图片块
   （找不到时按文件名在 `训练/题库/图片/<板块>/` 找，仍缺就显示缺图提示）；`ensure_templates` 建好图形推理、资料分析的图片文件夹。
-- 批量入库在 obsidian-to-xingce 仓库的 `xingce-tiku` skill（`tiku.py prepare/commit/answers`），本程序只读题库。
+- 批量入库：`rpg/importer.py`（接口 /api/import*，试炼塔页“导入真题”）。模考读板块复盘（xingce-mokao-split 输出，准确）；
+  txt 按题号 + ABCD 规则拆，干净的入库、其余写 `训练/题库/_待修/`（题库格式 + 板块/来源/检查三节），改好后重新导入。
+  只追加题目，只改“待分类”知识点和“（待补）”答案；跨板块按编号和题干指纹查重。AI 只用于补板块/知识点（只发题干末尾，25 题一批），
+  导入时不拿全局存档锁。拆题规则与 obsidian-to-xingce 的 `xingce-tiku/scripts/tiku.py`（AI 精修用）保持一致，改一边要同步另一边。
 - 存档新增 `bank: {records, runs, groups}`，通过 new_state 默认值合并兼容 version 2 存档，无字段重解释。
   records 键是板块::编号，保存原题快照、history（日期/答案/是否正确/模式）、wrong、streak。
   runs 按板块保存 token、mode、questions 快照、pos、results、phase，逐题持久化，重启后新会话恢复同一组。

@@ -19,6 +19,7 @@
 | 接口 | `rpg/api.py`（顶部有接口清单） |
 | 页面、样式 | `web/app.js`、`web/style.css` |
 | 读模考复盘 / skill | `rpg/vault.py`（只读） |
+| 真题导入（模考复盘 / txt → 题库，待修、补答案、AI 补知识点） | `rpg/importer.py`；题库读取与试炼塔在 `rpg/question_bank.py` |
 | 默认人设、台词 | `defaults/角色设定.md`、`defaults/台词库.md`、`defaults/台词库·玄幻.md`（首次运行时复制给用户；改结构要升“配置版本”，见 DESIGN.md） |
 
 ## 必须遵守

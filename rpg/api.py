@@ -20,6 +20,11 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
     POST /api/practice             {"board", "total", "correct", "minutes"}  录入自练
+    GET  /api/import               导入真题页：各季模考（已导入数）、待修文件、待分类知识点数
+    POST /api/import/preview       {"kind": "season"|"text"|"fix", ...}  拆题预览（不写文件）
+    POST /api/import/commit        同上 + {"ai": bool}  入库；拆不干净的写进 训练/题库/_待修/
+    POST /api/import/answers       {"prefix", "key"}  按答案表补答案
+    POST /api/import/classify      {"limit"}  DeepSeek 补“待分类”的知识点
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
@@ -34,7 +39,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import importer, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -133,6 +138,42 @@ def session_action(body):
 def bank_view(body):
     with open_game(save=False) as g:
         return question_bank.summary(g)
+
+
+def _import_paths():
+    """导入不碰存档，不拿全局锁（AI 分类可能要几十秒，不能挡住计时心跳）"""
+    p = Paths(find_vault())
+    if not p.vault:
+        raise ApiError("请先在设置中指定行测库路径")
+    p.ensure_train_dir()
+    return p
+
+
+def _import_call(fn, body):
+    try:
+        return fn(_import_paths(), body)
+    except importer.ImportError_ as e:
+        raise ApiError(str(e))
+
+
+def import_status(body):
+    return importer.status(_import_paths())
+
+
+def import_preview(body):
+    return _import_call(importer.preview, body)
+
+
+def import_commit(body):
+    return _import_call(importer.commit, body)
+
+
+def import_answers(body):
+    return _import_call(importer.fill_answers, body)
+
+
+def import_classify(body):
+    return _import_call(lambda p, b: importer.classify(p, max(1, min(300, int(b.get("limit") or 100)))), body)
 
 
 def bank_count(body):
@@ -302,6 +343,11 @@ ROUTES = {
     ("POST", "/api/session/action"): session_action,
     ("GET", "/api/bank"): bank_view,
     ("POST", "/api/bank/count"): bank_count,
+    ("GET", "/api/import"): import_status,
+    ("POST", "/api/import/preview"): import_preview,
+    ("POST", "/api/import/commit"): import_commit,
+    ("POST", "/api/import/answers"): import_answers,
+    ("POST", "/api/import/classify"): import_classify,
     ("GET", "/api/skeletons"): skeletons,
     ("GET", "/api/wrong"): wrong,
     ("POST", "/api/heartbeat"): heartbeat,

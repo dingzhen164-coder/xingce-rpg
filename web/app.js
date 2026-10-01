@@ -260,6 +260,7 @@ const views = {
     return `<div class="card bank-banner"><div class="rune">⚔ ${esc(NAV('bank'))} ⚔</div><h2>以真题验${esc(W('skeleton'))}，在实战中精进</h2>
       <div class="npc">${tutorFace()}<div><b>${esc(DASH.persona.tutor)}</b><p>${esc(W('bank_intro'))}</p></div></div>
       ${towerHtml(d.tower)}
+      <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考复盘、OCR 出来的 txt 一键入库，不用 AI 逐题核对</span></summary><div id="importBody">载入中…</div></details>
       <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
       <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}（可用 xingce-tiku skill 把 txt 真题批量入库，图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
@@ -473,11 +474,92 @@ function bindBank() {
     try { await api('/api/bank/count', { count: Number(e.target.value) }); toast('已保存，下一组生效'); }
     catch (err) { showError(err); }
   };
+  $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
   document.querySelectorAll('[data-bank]').forEach(b => b.onclick = () => startTask({ task: {
     type: b.dataset.mode === 'review' ? 'bank_review' : 'bank', board: b.dataset.bank,
     target: b.dataset.bank, title: `⚔ ${b.dataset.bank} · ${W(b.dataset.mode === 'review' ? 'bank_review' : 'bank')}`
   } }));
 }
+// ------------------------------------------------------------ 导入真题（rpg/importer.py）
+let IMPORT_TEXT = null;   // 选中的 txt 内容（只在浏览器里读，导入时发给本机程序）
+async function loadImport() {
+  const box = $('#importBody');
+  try {
+    const d = await api('/api/import');
+    const opts = ['<option value="">自动识别</option>', ...d.boards.map(b => `<option>${esc(b)}</option>`)].join('');
+    box.innerHTML = `
+      <div class="import-sec"><h4>① 模考（读 xingce-mokao-split 拆好的板块复盘，题干、答案、截图都准）</h4>
+        ${d.seasons.map(x => `<div class="row"><span>第 ${x.season} 季</span><span class="small muted">已导入 ${x.imported} 题</span><span class="spacer"></span>
+          <button class="ghost" data-imp-season="${x.season}" data-dry="1">预览</button><button data-imp-season="${x.season}">导入</button></div>`).join('')
+          || '<p class="small muted">还没有板块复盘。用 xingce-mokao-split 拆模考 PDF 后这里会出现。</p>'}</div>
+      <div class="import-sec"><h4>② txt（练习册、试卷的 OCR 文字）</h4>
+        <div class="row"><input type="file" id="impFile" accept=".txt,.md,text/plain"><span class="small muted" id="impFileInfo"></span></div>
+        <div class="row"><label>来源 <input id="impSource" placeholder="自动识别，如 2025年国考"></label>
+          <label><input type="checkbox" id="impNoSource"> 没有来源</label>
+          <label>编号前缀 <input id="impPrefix" placeholder="如 四海逻辑600"></label>
+          <label>整份板块 <select id="impBoard">${opts}</select></label>
+          ${d.ai ? '<label><input type="checkbox" id="impAI"> 用 AI 补认不出的板块和知识点（DeepSeek，只发题干）</label>' : ''}</div>
+        <div class="row"><button class="ghost" id="impPreview">预览</button><button class="primary" id="impCommit">导入</button></div></div>
+      <div class="import-sec"><h4>③ 待修（拆不干净的题，在 Obsidian 里改好、清空“检查”后重新导入）</h4>
+        ${d.fixes.map(x => `<div class="row"><span>训练/题库/_待修/${esc(x.file)}</span><span class="small muted">${x.total} 题，已改好 ${x.ready}</span><span class="spacer"></span>
+          <button data-imp-fix="${esc(x.file)}">重新导入</button></div>`).join('') || '<p class="small muted">没有待修的题。</p>'}</div>
+      <div class="import-sec"><h4>④ 补答案（练习册答案在另一本时）</h4>
+        <div class="row"><label>编号前缀 <input id="ansPrefix" placeholder="如 四海逻辑600-03（第 3 套）"></label>
+          <input id="ansKey" placeholder="1-5 ABCDA 6-10 BCDAB 或 1.A 2.B" style="flex:1;min-width:220px"><button id="ansGo">补答案</button></div></div>
+      <div class="import-sec"><h4>⑤ 知识点</h4><div class="row"><span>“待分类”的题：${d.unsorted} 道</span><span class="spacer"></span>
+        ${d.ai ? `<button id="clsGo" ${d.unsorted ? '' : 'disabled'}>AI 补 100 题</button>` : '<span class="small muted">在设置里填 DeepSeek key 后可以让 AI 补；不补也能正常做题</span>'}</div></div>
+      <div id="importResult"></div>`;
+    bindImport();
+  } catch (e) { box.innerHTML = `<p class="small">⚠ ${esc(e.message)}</p>`; }
+}
+
+function importReport(r, dry) {
+  const boards = r.boards.map(([b, n]) => `${esc(b)} ${n}`).join('，') || '—';
+  return `<div class="card inner"><b>${dry ? '预览' : '已导入'}：${esc(r.name || '')}</b>${r.source ? ` <span class="tag">${esc(r.source)}</span>` : ''}
+    ${r.note ? `<p class="small">${esc(r.note)}</p>` : ''}
+    <p>${dry ? '可以入库' : '入库'} <b>${r.ready}</b> 题（${boards}）· 进待修 ${r.fix} 题 · 已有跳过 ${r.dup} 题</p>
+    <p class="small muted">其中知识点待分类 ${r.unsorted} 题，答案待补 ${r.no_answer} 题（答案待补的题先不出）。${r.fix_file ? '待修文件：' + esc(r.fix_file) : ''}</p>
+    ${r.samples.map(q => `<details class="fold"><summary>${esc(q.id)} · ${esc(q.board)} · ${esc(q.topic)} · 答案 ${esc(q.answer)}</summary><div>${md(q.stem)}<br>${'ABCD'.split('').map(k => esc(k + '. ' + (q.options[k] || ''))).join('<br>')}</div></details>`).join('')}
+    ${r.problems.length ? `<details class="fold"><summary>待修的题（前 ${r.problems.length} 道）</summary><div>${r.problems.map(p => esc(p.id + '：' + p.problems.join('；'))).join('<br>')}</div></details>` : ''}</div>`;
+}
+
+function bindImport() {
+  const show = (html) => { $('#importResult').innerHTML = html; };
+  const run = async (btn, url, body, dry) => {
+    const label = btn.textContent; btn.disabled = true; btn.textContent = '处理中…';
+    try {
+      const r = await api(url, body);
+      if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
+      else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
+      else show(importReport(r, dry));
+      if (!dry) { const keep = $('#importResult').innerHTML; await loadImport(); $('#importResult').innerHTML = keep; }
+    } catch (e) { show(`<p>⚠ ${esc(e.message)}</p>`); }
+    finally { btn.disabled = false; btn.textContent = label; }
+  };
+  document.querySelectorAll('[data-imp-season]').forEach(b => b.onclick = () => run(b,
+    b.dataset.dry ? '/api/import/preview' : '/api/import/commit', { kind: 'season', season: Number(b.dataset.impSeason) }, !!b.dataset.dry));
+  document.querySelectorAll('[data-imp-fix]').forEach(b => b.onclick = () => run(b, '/api/import/commit', { kind: 'fix', file: b.dataset.impFix }, false));
+  $('#impFile').onchange = async (e) => {
+    const f = e.target.files[0]; IMPORT_TEXT = null;
+    if (!f) return;
+    const buf = await f.arrayBuffer();
+    try { IMPORT_TEXT = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+    catch { IMPORT_TEXT = new TextDecoder('gb18030').decode(buf); }   // 有些 OCR 软件存成 GBK
+    IMPORT_TEXT = IMPORT_TEXT.replace(/^\uFEFF/, '');
+    $('#impFileInfo').textContent = `${f.name} · ${IMPORT_TEXT.length} 字`;
+    if (!$('#impPrefix').value) $('#impPrefix').placeholder = f.name.replace(/\.[^.]+$/, '').slice(0, 12) + '（不填就按来源/文件名）';
+  };
+  const textBody = () => {
+    if (!IMPORT_TEXT) throw new Error('先选一个 txt 文件');
+    return { kind: 'text', text: IMPORT_TEXT, name: $('#impFile').files[0]?.name || '', source: $('#impSource').value.trim(),
+             no_source: $('#impNoSource').checked, prefix: $('#impPrefix').value.trim(), board: $('#impBoard').value, ai: !!$('#impAI')?.checked };
+  };
+  $('#impPreview').onclick = (e) => { try { run(e.target, '/api/import/preview', textBody(), true); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
+  $('#impCommit').onclick = (e) => { try { run(e.target, '/api/import/commit', textBody(), false); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
+  $('#ansGo').onclick = (e) => run(e.target, '/api/import/answers', { prefix: $('#ansPrefix').value.trim(), key: $('#ansKey').value }, false);
+  if ($('#clsGo')) $('#clsGo').onclick = (e) => run(e.target, '/api/import/classify', { limit: 100 }, false);
+}
+
 function bindSkeleton() {
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
     startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `📜 「${b.dataset.skel}」${W("skeleton")}` } })));
