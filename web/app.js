@@ -99,7 +99,7 @@ async function refresh() {
 function updatePill() {
   if (!DASH) return;
   const m = DASH.minutes;
-  $("#todayPill").textContent = `🕯 ${W("minutes")} ${m.today} / ${m.goal} 分钟` + (m.today >= m.goal ? " ✦" : "");
+  $("#todayPill").textContent = `🕯 今日功行 ${m.today} / ${m.goal} 分钟（${W("study")} ${m.study ?? m.today} · ${W("lecture")} ${m.lecture ?? 0}）` + (m.today >= m.goal ? " ✦" : "");
   updateStudyDot();
 }
 function banner() {
@@ -107,6 +107,7 @@ function banner() {
   if (!DASH.vault) w.push("还没找到行测库，请到“设置”里填写库的路径。");
   if (!DASH.ai) w.push(`还没填写 AI 的 API key：${W("recite")}和${W("kill")}可以自评，导师聊天 / ${W("feynman")} / ${W("apply")} / 生成${W("skeleton")}需要 AI。去“设置”填写。`);
   if (DASH.rest > 0) w.push(`${W("qi")}预警：还需调息 ${DASH.rest} 分钟。站起来走走、喝口水。`);
+  (DASH.notices || []).forEach((n) => w.push(esc(n)));
   if (DASH.upgraded?.length) w.push("程序升级了配置文件：" + DASH.upgraded.map((n) => `训练/${esc(n)}`).join("、") + "。原来的版本备份成了同名的“.旧版.md”。");
   if (DASH.other_device) w.push(`另一台电脑（${esc(DASH.other_device)}）10 分钟内在用本程序。两台同时用，坚果云同步可能冲突，请先关掉那台。`);
   if (DASH.conflicts?.length) w.push("存档文件夹里有坚果云冲突副本：" + DASH.conflicts.map(esc).join("、") + "。保留较新的一份，删掉另一份。");
@@ -217,6 +218,7 @@ const views = {
       <div class="stat"><div class="k">🎯 预计 ${I.target_score} 分</div><div class="v">${I.eta || "—"}</div><div class="d">目标日 ${I.target}</div></div>
     </div>
     ${trib}
+    ${lectureCard(d)}
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
         <div id="tasks">${tasks.map(taskRow).join("") || `<div class="muted">今天没有功课。去“${esc(NAV("skeleton"))}”编撰${esc(W("skeleton"))}。</div>`}</div>
@@ -396,8 +398,47 @@ function bindRetreatTimer() {
   clearInterval(window._rt);
   window._rt = setInterval(() => { if (!document.body.contains(el)) return clearInterval(window._rt); tick(); }, 1000);
 }
+// ------------------------------------------------------------ 听道（其他平台看网课）：首页记录，计入每日功行
+function lectureCard(d) {
+  const m = d.minutes, goal = m.goal || 300;
+  const sw = Math.min(100, (m.study ?? 0) / goal * 100), lw = Math.min(100 - sw, (m.lecture ?? 0) / goal * 100);
+  const left = Math.max(0, goal - m.today);
+  const days = [0, 1, 2, 3, 4, 5, 6].map((k) => { const t = new Date(Date.now() - k * 864e5); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); });
+  const dayName = (ds, k) => k === 0 ? "今天" : k === 1 ? "昨天" : k === 2 ? "前天" : ds.slice(5);
+  const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
+      <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span><button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
+  return `<div class="card lecture-card" style="margin-top:14px">
+    <h3>📿 ${esc(W("lecture_title"))} <small>今日功行 ${m.today} / ${goal} 分钟 · ${esc(W("study"))} ${m.study ?? 0} · ${esc(W("lecture"))} ${m.lecture ?? 0}${left ? ` · 还差 ${left} 分钟` : " · 已圆满 ✦"}</small></h3>
+    <div class="dual-bar" title="${esc(W("study"))} ${m.study ?? 0} 分钟 + ${esc(W("lecture"))} ${m.lecture ?? 0} 分钟"><span class="s" style="width:${sw}%"></span><span class="l" style="width:${lw}%"></span></div>
+    <p class="small muted">${esc(W("lecture_hint"))}</p>
+    <div class="row lec-form">
+      <label>${esc(W("lecture"))}几分钟 <input type="number" id="lecMin" min="1" max="600" placeholder="如 90"></label>
+      <span class="lec-quick">${[30, 60, 90, 120].map((n) => `<button class="ghost small" data-lec-q="${n}">${n}</button>`).join("")}</span>
+      <label style="flex:2">讲的什么（可不填） <input id="lecNote" maxlength="40" placeholder="如：粉笔 判断推理 第3讲"></label>
+      <label>哪天 <select id="lecDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
+      <button class="primary" id="lecGo">📿 记入</button></div>
+    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录</summary>${rows}</details>` : ""}
+  </div>`;
+}
+function bindLecture() {
+  const go = $("#lecGo"); if (!go) return;
+  document.querySelectorAll("[data-lec-q]").forEach((b) => (b.onclick = () => { $("#lecMin").value = b.dataset.lecQ; }));
+  go.onclick = async () => {
+    const minutes = Number($("#lecMin").value);
+    if (!minutes) return toast(`先填${W("lecture")}了几分钟`);
+    try {
+      const r = await api("/api/lecture", { minutes, note: $("#lecNote").value.trim(), date: $("#lecDay").value });
+      handleEvents(r.events); await refresh(); render();
+    } catch (e) { showError(e); }
+  };
+  document.querySelectorAll("[data-lec-del]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("删掉这笔记录？（那次得到的修为也会扣回）")) return;
+    try { await api("/api/lecture/delete", { id: b.dataset.lecDel }); await refresh(); render(); } catch (e) { showError(e); }
+  }));
+}
 function bindHome() {
   bindTaskClicks($("#view"));
+  bindLecture();
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
   $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
   const gp = $("#goPill"); if (gp) gp.onclick = () => go("pill");

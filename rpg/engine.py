@@ -194,8 +194,52 @@ class Game:
                 "target": self.rules.num("目标分数"), "max_score": self.rules.num("最高分数")}
 
     # ================================================================ 时间 / 打卡 / 道心
-    def minutes(self, day):
+    def study_minutes(self, day):
+        """在本程序里真正修炼的分钟（网页心跳计时 + 历练录入）"""
         return self.state["seconds"].get(day if isinstance(day, str) else day.isoformat(), 0) / 60
+
+    def lecture_minutes(self, day):
+        """听道（在其他平台看网课）的分钟，首页手动记录"""
+        ds = day if isinstance(day, str) else day.isoformat()
+        return sum(x["minutes"] for x in self.state.setdefault("lectures", []) if x["d"] == ds)
+
+    def minutes(self, day):
+        """每日功行 = 修炼 + 听道；每日目标、打卡、道心、周常都按这个算"""
+        return self.study_minutes(day) + self.lecture_minutes(day)
+
+    def add_lecture(self, minutes, note="", day=None):
+        """记一笔听道。day 可以是最近 7 天内（忘了记可以补）；给少量修为（经验.听道每分钟）"""
+        minutes = int(minutes)
+        cap = int(self.rules.num("听道单次上限") or 600)
+        if not 1 <= minutes <= cap:
+            raise ValueError("听道分钟要在 1–%d 之间" % cap)
+        d = D(day) if day else self.today
+        if not (self.today - dt.timedelta(days=7) <= d <= self.today):
+            raise ValueError("只能补记最近 7 天的听道")
+        ds = d.isoformat()
+        goal = self.rules.num("每日目标分钟")
+        before = self.minutes(ds)
+        xp = int(round(minutes * self.rules.xp("听道每分钟")))
+        ev = self._award(xp, "lecture", note="%s %d 分钟%s" % (self.T("lecture"), minutes, ("：" + note) if note else ""),
+                         bonus=False) if xp else []
+        self.state["lectures"].append({"id": "%s-%d" % (ds, int(time.time() * 1000) % 10 ** 9), "d": ds,
+                                       "minutes": minutes, "note": str(note)[:40], "xp": xp})
+        if ds == self.t and before < goal <= self.minutes(ds):
+            ev.append(self._npc("今日达标"))
+        return ev
+
+    def delete_lecture(self, lid):
+        """删掉记错的一笔（同时扣回那次给的修为）"""
+        ls = self.state.setdefault("lectures", [])
+        x = next((x for x in ls if x["id"] == lid), None)
+        if not x:
+            raise ValueError("找不到这条记录")
+        ls.remove(x)
+        self.state["xp"] = max(0, self.state["xp"] - x.get("xp", 0))
+        self.state["events"].append({"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "lecture",
+                                     "board": "", "item": "", "ok": True, "xp": -x.get("xp", 0),
+                                     "note": "删除%s记录 %d 分钟" % (self.T("lecture"), x["minutes"])})
+        return []
 
     def qualifies(self, day):
         ds = day.isoformat()
@@ -256,7 +300,7 @@ class Game:
         diff_days = (ideal_xp - effort) / daily                       # >0 落后，<0 领先
         xp14 = sum(e["xp"] for e in self.state["events"]
                    if D(e["d"]) > self.today - dt.timedelta(days=14) and e["type"] != "insight")
-        min14 = sum(self.minutes(self.today - dt.timedelta(days=k)) for k in range(14))
+        min14 = sum(self.study_minutes(self.today - dt.timedelta(days=k)) for k in range(14))   # 修为主要来自修炼，不含听道
         per_min = xp14 / min14 if min14 >= 30 and xp14 > 0 else daily / r.num("每日目标分钟")
         catch = None
         if diff_days > 0.5:
@@ -699,7 +743,7 @@ class Game:
             "宗门大比": sum(1 for b in self.contests() if b["d"] in days),
         }
         label = {"斩心魔": self.T("kill"), "背诵口诀": self.T("recite"), "论道": self.T("feynman"),
-                 "修炼分钟": "修炼分钟", "宗门大比": self.T("boss")}
+                 "修炼分钟": "功行分钟（修炼 + %s）" % self.T("lecture"), "宗门大比": self.T("boss")}
         out = []
         for k in ("斩心魔", "背诵口诀", "论道", "修炼分钟", "宗门大比"):
             tgt = int(self.rules.num("周常." + k))
@@ -1202,7 +1246,9 @@ class Game:
             "retreat": ({"board": retreat["board"], "end": retreat["end"], "minutes": retreat["minutes"]}
                         if retreat and time.time() < retreat["end"] else None),
             "rest": self.resting(),
+            "lectures": [x for x in self.state.setdefault("lectures", []) if x["d"] >= (self.today - dt.timedelta(days=6)).isoformat()][::-1],
             "minutes": {"today": int(self.minutes(self.t)), "goal": self.rules.num("每日目标分钟"),
+                        "study": int(self.study_minutes(self.t)), "lecture": int(self.lecture_minutes(self.t)),
                         "floor": self.rules.num("保底分钟")},
             "leave": {"used": len([d for d in self.state["leave"] if d.startswith(self.t[:7])]),
                       "total": self.rules.num("每月请假卡"), "today": self.t in self.state["leave"]},

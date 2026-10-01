@@ -37,6 +37,7 @@ def new_state(today):
         "cleared": {},           # {周目: [已通关批次序号(从1开始)]}
         "gates": [],             # 已渡过的劫（渡劫分数线，如 60、65）
         "boss": [],              # 模考 / 国考真实分 {d, name, score}
+        "lectures": [],          # 听道（其他平台看网课）记录 {id, d, minutes, note, xp}；计入每日时长
         "practice": [],          # 自练记录 {d, board, total, correct, minutes}
         "progress_hist": {},     # 每天的周目进度快照 {日期: 0~1}，算“近7天速度”用
         "last_seen": None,       # 上次打开网页的日期（判断“回归”）

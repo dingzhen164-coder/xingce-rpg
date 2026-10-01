@@ -103,7 +103,7 @@ class BankTest(unittest.TestCase):
         result = self.g.plan()['tasks']
         self.assertEqual([t['type'] for t in result], ['recite','apply','bank'])
         self.assertEqual(len(self.g.plan()['tasks']), 3)
-        self.assertEqual(self.g.rules.num('每日目标分钟'), 120)
+        self.assertEqual(self.g.rules.num('每日目标分钟'), 300)   # 修炼 + 听道合计
 
     def test_trial_reward_once_and_theme_feedback(self):
         self.file.write_text(question('1'), encoding='utf-8')

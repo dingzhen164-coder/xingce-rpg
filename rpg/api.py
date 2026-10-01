@@ -30,6 +30,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/import/split         {"file"}  运行 xingce-mokao-split 拆分并导入那一季
     POST /api/import/install_pymupdf  用户点按钮才运行 pip install pymupdf
     GET  /api/appearance           背景 / 语录 / 音乐的可选项和当前选择；POST 同路径保存选择
+    POST /api/lecture              {"minutes", "note"?, "date"?}  记一笔听道（其他平台看网课），计入每日功行
+    POST /api/lecture/delete       {"id"}  删掉记错的一笔
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
@@ -94,8 +96,10 @@ def dashboard(body):
             d["greeting"] = cached
         upgraded = list(paths_mod.UPGRADED)
         paths_mod.UPGRADED.clear()
+        notices = list(paths_mod.NOTICES)
+        paths_mod.NOTICES.clear()
         d.update(plan=plan, persona=_persona_view(g), events=tutor.enrich(g, ev), first_today=first_today,
-                 greet_pending=bool(not cached and tutor.enabled(g)), upgraded=upgraded,
+                 greet_pending=bool(not cached and tutor.enabled(g)), upgraded=upgraded, notices=notices,
                  vault=str(g.paths.vault) if g.paths.vault else None, ai=ai.available(),
                  other_device=g.store.heartbeat(), conflicts=g.store.conflicts())
         return d
@@ -291,6 +295,25 @@ def theme_set(body):
         return {"ok": True}
 
 
+def lecture_add(body):
+    """记一笔听道（其他平台看网课的时间）"""
+    with open_game() as g:
+        try:
+            ev = g.add_lecture(body.get("minutes") or 0, str(body.get("note") or "").strip(), body.get("date") or None)
+        except (ValueError, TypeError) as e:
+            raise ApiError(str(e))
+        return {"events": tutor.enrich(g, ev)}
+
+
+def lecture_delete(body):
+    with open_game() as g:
+        try:
+            g.delete_lecture(str(body.get("id") or ""))
+        except ValueError as e:
+            raise ApiError(str(e))
+        return {"ok": True}
+
+
 def appearance_get(body):
     with open_game(save=False) as g:
         return appearance.view(g.paths, g.state) if g.paths.vault else {"current": appearance.current({}),
@@ -373,6 +396,8 @@ ROUTES = {
     ("POST", "/api/plan/regenerate"): plan_regenerate,
     ("POST", "/api/theme"): theme_set,
     ("GET", "/api/appearance"): appearance_get,
+    ("POST", "/api/lecture"): lecture_add,
+    ("POST", "/api/lecture/delete"): lecture_delete,
     ("POST", "/api/appearance"): appearance_set,
     ("POST", "/api/retreat/start"): retreat_start,
     ("POST", "/api/retreat/end"): retreat_end,

@@ -74,6 +74,21 @@ class Paths:
         self.persona = self.train / "角色设定.md" if vault else None
         self.lines = self.train / "台词库.md" if vault else None
 
+    def _migrate_rules(self):
+        """规则的小迁移：只改仍是旧默认值的行，用户改过的值不动。
+        每日目标从“只算修炼 120 分钟”改为“修炼 + 听道（网课）合计 300 分钟”，周常分钟同步放大。"""
+        f = self.rules
+        if not f or not f.is_file():
+            return
+        t = f.read_text(encoding="utf-8")
+        n = re.sub(r"(?m)^(\s*-\s*每日目标分钟\s*[:：]\s*)120\b[^\n]*$",
+                   r"\g<1>300  # 修炼 + 听道（网课）合计", t)
+        n = re.sub(r"(?m)^(\s*-\s*周常\.修炼分钟\s*[:：]\s*)600\b[^\n]*$", r"\g<1>1500  # 含听道", n)
+        if n != t:
+            with open(f, "w", encoding="utf-8", newline="\n") as fp:
+                fp.write(n)
+            NOTICES.append("规则.md 已调整：每日目标 120 → 300 分钟（修炼 + 听道合计），周常功行 600 → 1500 分钟。")
+
     def ensure_train_dir(self):
         """建 训练/ 文件夹，把缺失的默认配置复制进去。
         已有的配置文件不覆盖；只有它的“配置版本”低于程序里这个文件的版本（config.FILE_VERSIONS，程序升级改了结构）时，
@@ -122,6 +137,7 @@ class Paths:
                     continue
             with open(dst, "w", encoding="utf-8", newline="\n") as fp:
                 fp.write(text)
+        self._migrate_rules()
         if upgraded:
             UPGRADED.extend(upgraded)
         from .question_bank import ensure_templates
@@ -130,5 +146,6 @@ class Paths:
 
 
 UPGRADED = []  # 本次运行中被升级的配置文件（网页上提示一次）
+NOTICES = []   # 本次运行中对配置做的小改动说明（网页上提示一次）
 AUTO_SKELETONS = ("图形推理.md", "资料分析.md")
 
