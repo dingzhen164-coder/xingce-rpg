@@ -309,7 +309,8 @@ def record(g, run, answer, reasoning="", method_ok=None, feedback=""):
     return ev
 
 
-def finish(g, run):
+def finish(g, run, keep=False):
+    """记一组成绩。keep=True：交卷后还要逐题复盘，组先留在 runs 里，复盘结束再 close"""
     group = {'date': g.t, 'board': run['board'], 'mode': run['mode'],
              'total': len(run['results']), 'correct': sum(r['ok'] for r in run['results']),
              'method_total': sum(r.get('method_ok') is not None for r in run['results']),
@@ -319,8 +320,15 @@ def finish(g, run):
              'first_count': sum(bool(r.get('first')) for r in run['results']),
              'rank': rank(g, sum(r['ok'] for r in run['results']), len(run['results']))}
     state(g)['groups'].append(group)
-    del state(g)['runs'][run['board']]
+    if keep:
+        run['settled'] = group
+    else:
+        close(g, run)
     return group
+
+
+def close(g, run):
+    state(g)['runs'].pop(run['board'], None)
 
 
 def ensure_templates(paths):

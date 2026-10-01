@@ -100,7 +100,10 @@ class ZhentiTest(unittest.TestCase):
         self.assertNotIn('数量规律', str(r))
         order = [x['id'] for x in bank.state(g)['runs']['套:' + books[0]['next']]['questions']]
         self.assertEqual(order, ['真题-20', '真题-10', '真题-11', '真题-30', '真题-40'])
-        r = trainer.action(g, r['session'], 'bank_answer:0:B')
+        for i in range(5):
+            r = trainer.action(g, r['session'], 'exam_pick:%d:B' % i)
+        r = trainer.action(g, r['session'], 'exam_submit')
+        self.assertIn('正确率 100.0%', str(r))
         self.assertIn('官方20', str(r))
 
 

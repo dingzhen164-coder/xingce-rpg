@@ -627,12 +627,16 @@ def _start_bank(g, task):
     typ = 'bank_review' if run['mode'] == 'review' else 'bank'
     s = new_session(typ, '%s · %s' % (g.T(typ), question_bank.label(task['board'])), task, board=task['board'], token=run['token'])
     run.setdefault('reasoning', task['board'] == '论证逻辑')   # 整套试炼按套刷，统一用选项按钮
+    # 选项按钮的组按“考试”来：全部选完交卷才判分，再逐题复盘；写拆题过程的组仍然一题一判（要逐题审方法）
+    run.setdefault('exam', not run['reasoning'] and not run['results'])
     r = _bank_show(g, s, run)
     r['messages'].insert(0, _msg('npc', g.T('bank_intro')))
     return r
 
 
 def _bank_show(g, s, run, events=None):
+    if run.get('exam'):
+        return _exam_show(g, s, run, events)
     q = run['questions'][run['pos']]
     if run['phase'] == 'analysis':
         r = run['results'][-1]
@@ -700,6 +704,8 @@ def _bank_action(g, s, act):
         raise TrainError('本组已经结束，请重新进入实战')
     if act in ('bank_pause', 'skip'):
         return _resp(s, [_msg('sys', '试炼进度已保存，下次进入这个板块续闯。')], finished=True)
+    if run.get('exam'):
+        return _exam_action(g, s, run, act)
     if act.startswith('bank_answer:'):
         if run.get('reasoning'):
             raise TrainError('请写拆题过程及最后的【答案】再提交')
@@ -716,18 +722,7 @@ def _bank_action(g, s, act):
             run['pos'] += 1
             run['phase'] = 'answer'
             return _bank_show(g, s, run)
-        group = question_bank.finish(g, run)
-        # 错题复练不代替当日的新题实战；完成一组即完成任务，不要求全对。
-        if group['mode'] == 'new':   # 整套试炼也算完成了套里各板块今天的实战功课
-            for b in group['boards'] if question_bank.is_set(s['board']) else [s['board']]:
-                g.mark_done({'id': 'bank:' + b}, True)
-        events = []
-        # 通关奖只对应本组首次作答的题目；旧组缺 first 标记不补发，复练不刷修为。
-        if group['mode'] == 'new' and group['first_count']:
-            base = g.rules.xp('实战通关') * group['first_count'] / group['total']
-            main = max(group['boards'], key=lambda b: sum(q['board'] == b for q in run['questions']))
-            events = g._award(base, 'bank_clear', main if question_bank.is_set(s['board']) else s['board'], ok=True,
-                              note='%s · %s 通关' % (g.T('bank'), question_bank.label(s['board'])))
+        group, events = _settle(g, s, run)
         text = '%s · %s完成：%s/%s 正确，正确率 %.1f%%。\n试炼品评：%s\n%s已保存，可到%s继续磨练。' % (
             question_bank.label(s['board']), g.T('bank_review' if group['mode'] == 'review' else 'bank'),
             group['correct'], group['total'], 100 * group['correct'] / group['total'],
@@ -736,12 +731,186 @@ def _bank_action(g, s, act):
     raise TrainError('这一步请使用当前题目的按钮')
 
 
+def _settle(g, s, run, keep=False):
+    """一组做完：记成绩、发通关奖、勾掉今日功课。返回 (成绩, 事件)"""
+    group = question_bank.finish(g, run, keep)
+    # 错题复练不代替当日的新题实战；完成一组即完成任务，不要求全对。
+    if group['mode'] == 'new':   # 整套试炼也算完成了套里各板块今天的实战功课
+        for b in group['boards'] if question_bank.is_set(s['board']) else [s['board']]:
+            g.mark_done({'id': 'bank:' + b}, True)
+    events = []
+    # 通关奖只对应本组首次作答的题目；旧组缺 first 标记不补发，复练不刷修为。
+    if group['mode'] == 'new' and group['first_count']:
+        base = g.rules.xp('实战通关') * group['first_count'] / group['total']
+        main = max(group['boards'], key=lambda b: sum(q['board'] == b for q in run['questions']))
+        events = g._award(base, 'bank_clear', main if question_bank.is_set(s['board']) else s['board'], ok=True,
+                          note='%s · %s 通关' % (g.T('bank'), question_bank.label(s['board'])))
+    return group, events
+
+
+# ---------------------------------------------------------------- 考试式：全部选完交卷 → 正确率 → 逐题复盘（可请师傅解惑）
+SIDE_SKILLS = {'常识判断': 'xingce-changshi'}   # 副线板块没有骨架设置，按名字找 skill
+
+
+def _say(g, scene, **vals):
+    return g.lines.pick(scene, 称呼=g.persona['称呼'], 导师名=g.persona['导师名'], **vals)
+
+
+def _exam_show(g, s, run, events=None, extra=None):
+    qs = run['questions']
+    if run['phase'] == 'review':
+        return _review_show(g, s, run, events, extra)
+    picks = run.setdefault('picks', {})
+    pos = run['pos']
+    q = qs[pos]
+    left = [str(i + 1) for i in range(len(qs)) if str(i) not in picks]
+    msg = '%s · 第 %s/%s 题 · 编号 %s' % (question_bank.label(run['board']), pos + 1, len(qs), q['id'])
+    blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    sheet = '答题卡：' + ' '.join('%d%s' % (i + 1, '·' + picks[str(i)] if str(i) in picks else '·_') for i in range(len(qs)))
+    mine = picks.get(str(pos))
+    btns = [('exam_pick:%s:%s' % (pos, k), ('✓ ' if k == mine else '') + k) for k in 'ABCD']
+    if pos > 0:
+        btns.append(('exam_prev', '← 上一题'))
+    if pos + 1 < len(qs):
+        btns.append(('exam_next', '下一题 →'))
+    btns.append(('exam_submit', '交卷' if not left else '交卷（还有 %d 题没选）' % len(left)))
+    btns.append(('bank_pause', g.T('bank_pause')))
+    msgs = [_msg('sys', msg, blocks), _msg('sys', sheet)] + (extra or [])
+    r = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
+    r['replace'] = True
+    return r
+
+
+def _exam_action(g, s, run, act):
+    qs, picks = run['questions'], run.setdefault('picks', {})
+    if run['phase'] == 'review':
+        return _review_action(g, s, run, act)
+    if act.startswith('exam_pick:'):
+        _, pos, k = act.split(':')
+        if pos != str(run['pos']) or k not in 'ABCD':
+            raise TrainError('题目已经切换，请重新进入本组')
+        picks[pos] = k
+        if run['pos'] + 1 < len(qs):      # 选完自动翻到下一题；最后一题停住等交卷
+            run['pos'] += 1
+        return _exam_show(g, s, run)
+    if act == 'exam_prev':
+        run['pos'] = max(0, run['pos'] - 1)
+        return _exam_show(g, s, run)
+    if act == 'exam_next':
+        run['pos'] = min(len(qs) - 1, run['pos'] + 1)
+        return _exam_show(g, s, run)
+    if act == 'exam_submit':
+        left = [i for i in range(len(qs)) if str(i) not in picks]
+        if left:
+            run['pos'] = left[0]
+            return _exam_show(g, s, run, extra=[_msg('npc', _say(g, '试炼·没做完', 题号='、'.join(str(i + 1) for i in left))
+                                                     or '还有第 %s 题没选，交什么卷？' % '、'.join(str(i + 1) for i in left))])
+        events = []
+        for i in range(len(qs)):
+            run['pos'], run['phase'] = i, 'answer'
+            try:
+                events += question_bank.record(g, run, picks[str(i)])
+            except question_bank.BankError as e:
+                raise TrainError(str(e))
+        group, ev = _settle(g, s, run, keep=True)
+        # 一题一条“+5 修为”会刷屏，合成一条
+        xp = sum(e['v'] for e in events + ev if e.get('kind') == 'xp')
+        events = ([{'kind': 'xp', 'v': xp, 'msg': '%s · %s 交卷' % (g.T('bank'), question_bank.label(s['board']))}] if xp else []) + \
+            [e for e in events + ev if e.get('kind') != 'xp']
+        run['phase'], run['rpos'] = 'review', 0
+        return _review_show(g, s, run, events, head=True)
+    raise TrainError('这一步请使用当前题目的按钮')
+
+
+def _rank_scene(group):
+    if group['correct'] == group['total']:
+        return '试炼·全对'
+    return {2: '试炼·上品', 1: '试炼·中品'}.get(group['rank'], '试炼·下品')
+
+
+def _review_show(g, s, run, events=None, extra=None, head=False):
+    qs, res, group = run['questions'], run['results'], run['settled']
+    i = run.setdefault('rpos', 0)
+    q, r = qs[i], res[i]
+    msgs = []
+    if head:
+        rate = 100 * group['correct'] / group['total']
+        msgs.append(_msg('sys', '交卷！%s · 正确率 %.1f%%（%s/%s）\n试炼品评：%s\n答题卡：%s\n\n下面逐题复盘，看不懂的点「师傅解惑」。' % (
+            question_bank.label(run['board']), rate, group['correct'], group['total'], g.T('bank_rank.' + str(group['rank'])),
+            ' '.join('%d%s' % (k + 1, '✓' if x['ok'] else '✗') for k, x in enumerate(res)))))
+        msgs.append(_msg('npc', _say(g, _rank_scene(group), 正确率='%.0f%%' % rate, 对题数=group['correct'],
+                                     总题数=group['total'], 错题数=group['total'] - group['correct']) or g.T('bank_close')))
+    msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错'),
+                     _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))))
+    msgs.append(_msg('sys', '你的答案：%s · 正确答案：%s\n知识点：%s\n\n解析：' % (r['answer'], q['answer'], q['topic']),
+                     _bank_blocks(g, q['board'], q['analysis'] or '（这题没有解析，点「师傅解惑」让师傅讲）')))
+    if not r['ok'] and not head:
+        line = _say(g, '试炼·复盘错题', 你的答案=r['answer'], 正确答案=q['answer'])
+        if line:
+            msgs.append(_msg('npc', line))
+    if str(i) in run.get('explain', {}):
+        msgs.append(_msg('npc', run['explain'][str(i)]))
+    msgs += extra or []
+    wrong_after = [k for k in range(i + 1, len(qs)) if not res[k]['ok']]
+    btns = [('exam_explain:%s' % i, '🧙 师傅解惑' if str(i) not in run.get('explain', {}) else '🧙 再问师傅')]
+    if i > 0:
+        btns.append(('exam_rprev', '← 上一题'))
+    if i + 1 < len(qs):
+        btns.append(('exam_rnext', '下一题 →'))
+    if wrong_after:
+        btns.append(('exam_rwrong', '下一道错题'))
+    btns.append(('exam_close', '结束复盘'))
+    btns.append(('bank_pause', '稍后再看'))
+    rr = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
+    rr['replace'] = True
+    return rr
+
+
+def _review_action(g, s, run, act):
+    qs, res = run['questions'], run['results']
+    i = run.get('rpos', 0)
+    if act == 'exam_rprev':
+        run['rpos'] = max(0, i - 1)
+    elif act == 'exam_rnext':
+        run['rpos'] = min(len(qs) - 1, i + 1)
+    elif act == 'exam_rwrong':
+        run['rpos'] = next((k for k in range(i + 1, len(qs)) if not res[k]['ok']), i)
+    elif act.startswith('exam_explain:'):
+        if act.split(':')[1] != str(i):
+            raise TrainError('题目已经切换，请重新点')
+        if not ai.available():   # 没连 AI：说一句，不记成“讲过了”
+            return _review_show(g, s, run, extra=[_msg('npc', (_say(g, '试炼·解惑没AI') or '为师今日闭关（没连上 AI）。先把解析读三遍。')
+                                                       + '\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）')])
+        run.setdefault('explain', {})[str(i)] = _explain(g, qs[i], res[i])
+    elif act == 'exam_close':
+        group = run['settled']
+        question_bank.close(g, run)
+        text = '%s 复盘结束：%s/%s 正确。%s已保存，可到%s继续磨练。' % (
+            question_bank.label(run['board']), group['correct'], group['total'], g.T('bank_wrong'), g.T('bank_review'))
+        return _resp(s, [_msg('sys', text), _msg('npc', _say(g, '试炼·复盘结束') or g.T('bank_close'))], finished=True)
+    else:
+        raise TrainError('这一步请使用当前题目的按钮')
+    return _review_show(g, s, run)
+
+
+def _explain(g, q, r):
+    """师傅解惑：按这道题所属板块的 skill 讲题；没连 AI 时给一句台词，提示先看解析"""
+    skill = g.boards.get(q['board'], {}).get('skill') or SIDE_SKILLS.get(q['board'])
+    digest = vault.skill_digest(g.paths, skill) if skill else ''
+    try:
+        return ai.chat(prompts.bank_explain(g.persona, q, r['answer'], digest), temperature=0.6, max_tokens=1500)
+    except ai.AIError as e:
+        raise TrainError('师傅没回话：%s' % e)
+
+
 def _bank_resp(g, s, run, messages, events, inp):
     """给网页提供只含进度的战斗面板，绝不包含答案或解析快照。"""
     r = _resp(s, messages, events, input=inp)
+    exam = run.get('exam') and run['phase'] != 'review'
     r['battle'] = {'board': run['board'], 'total': len(run['questions']),
-                   'position': run['pos'] + 1, 'answered': len(run['results']),
-                   'correct': sum(x['ok'] for x in run['results']),
+                   'position': (run.get('rpos', 0) if run['phase'] == 'review' else run['pos']) + 1,
+                   'answered': len(run.get('picks', {})) if exam else len(run['results']),
+                   'correct': None if exam else sum(x['ok'] for x in run['results']),
                    'mode': run['mode'], 'phase': run['phase'], 'tower': question_bank.tower(g)}
     return r
 

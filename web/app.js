@@ -268,7 +268,7 @@ const views = {
       ${towerHtml(d.tower)}
       <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考复盘、OCR 出来的 txt 一键入库，不用 AI 逐题核对</span></summary><div id="importBody">载入中…</div></details>
       <div class="bank-counters"><span>已完成 ${done} 道新题</span><span>${esc(W('bank_wrong'))} ${wrong}</span><span>通关可获${esc(W('xp'))}</span></div>
-      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}，或用上面的「📥 导入真题」批量入库（图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
+      <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}，或用上面的「📥 导入真题」批量入库（图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。点选项的组按考试来：全部选完交卷才揭晓对错和正确率，再逐题复盘，看不懂点「🧙 师傅解惑」（按该板块 skill 讲题，需要 AI）。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
       <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
       ${setsHtml(d.sets)}
@@ -465,6 +465,9 @@ async function startTask(body) {
 }
 function applyResp(r) {
   T.session = r.session; T.title = r.title; T.busy = false; T_TYPE = r.type;
+  // 试炼答题 / 复盘：每一屏只显示当前这道题（不在聊天里越堆越长），从顶上看起
+  if (r.replace) T.msgs = [];
+  T.top = !!r.replace;
   T.msgs.push(...r.messages);
   handleEvents(r.events, { inChat: true });
   T.input = r.input || { mode: "none" };
@@ -476,7 +479,8 @@ function renderTrain() {
   if (VIEW !== "train") return;
   $("#view").innerHTML = views.train();
   bindTrain();
-  const box = $("#msgs"); if (box) box.scrollTop = box.scrollHeight;
+  const box = $("#msgs"); if (box) box.scrollTop = T.top ? 0 : box.scrollHeight;
+  if (T.top) window.scrollTo(0, 0);
   const ta = $("#answer"); if (ta) ta.focus();
 }
 function bindTrain() {
@@ -790,8 +794,9 @@ render();
 function battlePanel() {
   const b = T.battle;
   if (!b) return '';
-  return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>第 ${b.position}/${b.total} 关</span></div>
-    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span><span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span></div></div>`;
+  return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>${b.phase === 'review' ? '复盘 ' : ''}第 ${b.position}/${b.total} 关</span></div>
+    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.correct === null
+      ? '<span>交卷后揭晓对错</span>' : `<span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span>`}</div></div>`;
 }
 
 

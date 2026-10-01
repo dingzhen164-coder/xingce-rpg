@@ -280,8 +280,10 @@ class Persona:
 class Lines:
     """台词库：lines.pick("开场·落后", 称呼="小岸", 落后天数=3)"""
 
-    def __init__(self, text=""):
-        self.sec = mdconf.sections(text)
+    def __init__(self, text="", fallback=""):
+        # 自己的台词库里没有的场景（程序新加的），用默认台词库里的
+        self.sec = mdconf.sections(fallback)
+        self.sec.update({k: v for k, v in mdconf.sections(text).items() if v})
 
     def pick(self, scene, **vals):
         opts = self.sec.get(scene) or []
@@ -313,5 +315,5 @@ def load_all(paths, theme="修仙"):
 
     lines_name = LINES_FILE.get(theme, "台词库.md")
     return (Rules(txt(paths.rules, "规则.md")), Persona(txt(paths.persona, "角色设定.md"), theme),
-            Lines(txt(paths.train / lines_name if paths.train else None, lines_name)))
+            Lines(txt(paths.train / lines_name if paths.train else None, lines_name), read_text(DEFAULTS_DIR / lines_name)))
 

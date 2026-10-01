@@ -225,13 +225,17 @@ class BankTest(unittest.TestCase):
         self.assertEqual(sets[0]['sets'][0]['total'], 20)
         task = {'type': 'bank', 'board': '套:懒猫-01', 'title': '整套', 'target': '套:懒猫-01'}
         r = trainer.start(self.g, task)
-        self.assertIn('懒猫 第01套 · 第 1/20 关 · 编号 懒猫-01-01', str(r))
+        self.assertIn('懒猫 第01套 · 第 1/20 题 · 编号 懒猫-01-01', str(r))
         sid = r['session']
         for pos in range(20):
-            r = trainer.action(self.g, sid, 'bank_answer:%s:%s' % (pos, 'A' if pos else 'B'))
-            if pos == 1:
-                self.assertIn('片段阅读 第懒猫-01-02关', str(r))
-            r = trainer.action(self.g, sid, 'bank_next')
+            r = trainer.action(self.g, sid, 'exam_pick:%s:%s' % (pos, 'A' if pos else 'B'))
+            if pos == 0:
+                self.assertIn('编号 懒猫-01-02', str(r))          # 选完自动翻页，不判对错
+                self.assertNotIn('秘密解析', str(r))
+        r = trainer.action(self.g, sid, 'exam_submit')
+        self.assertIn('正确率 95.0%（19/20）', str(r))
+        self.assertEqual(len([e for e in r['events'] if e['kind'] == 'xp']), 1)   # 修为合成一条
+        r = trainer.action(self.g, sid, 'exam_close')
         self.assertTrue(r['finished'])
         self.assertIn('19/20', str(r))
         d = bank.summary(self.g)
@@ -241,6 +245,53 @@ class BankTest(unittest.TestCase):
         self.assertEqual(d['sets'][0]['finished'], 1)
         with self.assertRaises(trainer.TrainError):
             trainer.start(self.g, task)
+
+    def test_exam_submit_review_explain(self):
+        f = self.paths.train / '题库/类比推理真题.md'
+        f.write_text(''.join(question(x) for x in ('01', '02', '03')), encoding='utf-8')
+        task = {'type': 'bank', 'board': '类比推理', 'title': '实战', 'target': '类比推理', 'id': 'bank:类比推理'}
+        r = trainer.start(self.g, task)
+        sid = r['session']
+        self.assertTrue(r['replace'])
+        self.assertIsNone(r['battle']['correct'])                     # 答题时不显示对了几道
+        trainer.action(self.g, sid, 'exam_pick:0:B')
+        r = trainer.action(self.g, sid, 'exam_submit')                 # 还有两道没选：不交卷，跳到第 2 题
+        self.assertIn('2、3', str(r))
+        self.assertIn('编号 02', str(r))
+        self.assertEqual(bank.state(self.g)['records'], {})
+        trainer.action(self.g, sid, 'exam_prev')
+        trainer.action(self.g, sid, 'exam_pick:0:A')                   # 回去改答案
+        trainer.action(self.g, sid, 'exam_pick:1:A')
+        r = trainer.action(self.g, sid, 'exam_pick:2:C')
+        self.assertIn('答题卡：1·A 2·A 3·C', str(r))
+        r = trainer.action(self.g, sid, 'exam_submit')
+        self.assertIn('正确率 66.7%（2/3）', str(r))
+        self.assertIn('1✓ 2✓ 3✗', str(r))
+        self.assertIn('秘密解析', str(r))
+        # 暂离后再进来还在复盘
+        trainer.action(self.g, sid, 'bank_pause')
+        r = trainer.start(self.g, task)
+        sid = r['session']
+        self.assertIn('复盘 第 1/3 题', str(r))
+        r = trainer.action(self.g, sid, 'exam_rwrong')
+        self.assertIn('复盘 第 3/3 题 · 编号 03 · ✗ 答错', str(r))
+        with patch.object(trainer.ai, 'available', return_value=False):
+            r = trainer.action(self.g, sid, 'exam_explain:2')
+        self.assertIn('API key', str(r))
+        self.assertIn('师傅解惑', str(r))                              # 没连 AI 不算讲过
+        sent = {}
+        def fake_chat(messages, **kw):
+            sent['prompt'] = messages[-1]['content']
+            return '选C？坑都写脸上了。'
+        with patch.object(trainer.ai, 'available', return_value=True), patch.object(trainer.ai, 'chat', side_effect=fake_chat):
+            r = trainer.action(self.g, sid, 'exam_explain:2')
+        self.assertIn('坑都写脸上了', str(r))
+        self.assertIn('学员选了：C（答错）', sent['prompt'])
+        self.assertIn('再问师傅', str(r))
+        r = trainer.action(self.g, sid, 'exam_close')
+        self.assertTrue(r['finished'])
+        self.assertNotIn('类比推理', bank.state(self.g)['runs'])
+        self.assertEqual(bank.summary(self.g)['groups'][0]['correct'], 2)
 
     def test_pending_answer_empty_analysis_and_images(self):
         f = self.paths.train / '题库/图形推理真题.md'
@@ -261,8 +312,9 @@ class BankTest(unittest.TestCase):
         blocks = [b for m in r['messages'] for b in m.get('blocks', [])]
         self.assertIn({'t': 'img', 'v': '训练/题库/图片/图形推理/粉笔36季-077.png'}, blocks)
         self.assertTrue(any('粉笔第36季模考' in b['v'] for b in blocks if b['t'] == 'text'))
-        r = trainer.action(self.g, r['session'], 'bank_answer:0:C')
-        self.assertIn('解析待补', str(r))
+        trainer.action(self.g, r['session'], 'exam_pick:0:C')
+        r = trainer.action(self.g, r['session'], 'exam_submit')
+        self.assertIn('这题没有解析', str(r))
 
 if __name__ == '__main__':
     unittest.main()
