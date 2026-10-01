@@ -82,8 +82,12 @@ class Paths:
         from .mdconf import parse, to_num
         if not self.vault:
             return []
-        for d in (self.train, self.skeletons, self.save_dir):
+        for d in (self.train, self.skeletons, self.save_dir, self.train / "外观" / "背景", self.train / "外观" / "音乐"):
             d.mkdir(parents=True, exist_ok=True)
+        quotes = self.train / "语录.md"   # 背景上的语录，用户自己改；只在缺失时复制
+        if not quotes.exists() and (DEFAULTS_DIR / "语录.md").exists():
+            with open(quotes, "w", encoding="utf-8", newline="\n") as fp:
+                fp.write((DEFAULTS_DIR / "语录.md").read_text(encoding="utf-8"))
         upgraded = []
         for name in ("规则.md", "角色设定.md", "台词库.md", "台词库·玄幻.md"):
             dst = self.train / name

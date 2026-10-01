@@ -74,6 +74,8 @@ function go(view) {
   render();
 }
 document.querySelectorAll("#nav a").forEach((a) => (a.onclick = () => go(a.dataset.view)));
+$("#bgmBtn").onclick = () => AMB.bgm.toggle();   // 背景音乐默认关闭，点了才响
+AMB.load();                                        // 背景、语录
 
 function applyTheme() {
   if (!DASH?.theme) return;
@@ -121,7 +123,7 @@ async function render() {
     else if (VIEW === "wrong") { await refresh(); v.innerHTML = await views.wrong(); }
     else if (VIEW === "pill") { await refresh(); v.innerHTML = views.pill(); bindPill(); }
     else if (VIEW === "log") { await refresh(); v.innerHTML = views.log(); bindLog(); }
-    else if (VIEW === "settings") { await refresh(); v.innerHTML = await views.settings(); bindSettings(); }
+    else if (VIEW === "settings") { await refresh(); await AMB.load(); v.innerHTML = await views.settings(); bindSettings(); }
   } catch (e) { showError(e); }
 }
 
@@ -353,7 +355,7 @@ const views = {
   async settings() {
     const s = await api("/api/settings");
     const cur = DASH?.theme?.name;
-    return `<div class="card"><h3>🎨 风格</h3>
+    return AMB.settingsHtml() + `<div class="card"><h3>🎨 风格</h3>
       <div class="row"><button class="${cur === "修仙" ? "primary" : ""}" data-theme="修仙">☯ 东方修仙（师尊 劭神韵）</button>
       <button class="${cur === "玄幻" ? "primary" : ""}" data-theme="玄幻">⚔ 西方玄幻（艾琳学姐）</button></div>
       <p class="small muted">两种风格共用同一份进度，只换名字、导师、配色和台词。两台电脑同步。</p></div>
@@ -607,6 +609,7 @@ function bindLog() {
   };
 }
 function bindSettings() {
+  AMB.bindSettings(showError);
   document.querySelectorAll("[data-theme]").forEach((b) => (b.onclick = async () => {
     try { await api("/api/theme", { theme: b.dataset.theme }); await refresh(); render(); } catch (e) { showError(e); }
   }));

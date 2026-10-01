@@ -253,3 +253,26 @@ select { font: inherit; color: var(--text); background: var(--panel2); border: 1
 #importResult .card.inner { margin-top: 12px; background: var(--panel2); }
 #importResult details.fold { margin-top: 6px; }
 .pending-note { color: var(--gold, #b8860b); margin: 4px 0 8px; }
+
+/* 背景 / 语录 / BGM（web/ambience.js） */
+#bgLayer { position: fixed; inset: 0; z-index: -2; background-size: cover; background-position: center; pointer-events: none; }
+#bgLayer::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: var(--dim, .35); }
+body.has-bg { background: transparent; }   /* body 自己的底色会盖住 z-index 为负的背景层 */
+body.has-bg .card, body.has-bg .topbar { background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px); }
+body.has-bg .topbar { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+#quoteLayer { position: fixed; right: 26px; top: 96px; z-index: -1; writing-mode: vertical-rl; pointer-events: none;
+  font-family: var(--display); font-size: 34px; letter-spacing: .35em; line-height: 1.6; color: var(--text); opacity: .32;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--bg) 70%, transparent); max-height: 80vh; }
+@media (max-width: 1300px) {
+  #quoteLayer { writing-mode: horizontal-tb; top: auto; bottom: 10px; right: 0; left: 0; text-align: center; font-size: 18px; letter-spacing: .25em; }
+}
+.bgm-btn { border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 16px; color: var(--muted); background: var(--panel); }
+.bgm-btn.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 45%, transparent); animation: bgmPulse 2.4s ease-in-out infinite; }
+@keyframes bgmPulse { 50% { box-shadow: 0 0 2px color-mix(in srgb, var(--gold) 20%, transparent); } }
+.bg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin: 6px 0 8px; }
+.bg-tile { display: flex; flex-direction: column; gap: 4px; padding: 6px; text-align: center; }
+.bg-tile.sel { border-color: var(--gold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 50%, transparent); }
+.bg-thumb { display: block; height: 70px; border-radius: 8px; background: var(--panel2) center / cover no-repeat; }
+.bg-name { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+hr.soft { border: none; border-top: 1px dashed var(--line); margin: 12px 0; }
+input[type=range] { accent-color: var(--accent); padding: 0; background: none; border: none; }

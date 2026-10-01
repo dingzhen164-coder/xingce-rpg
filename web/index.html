@@ -2,7 +2,7 @@
 <!--
   行测修仙传 / 行测魔法学院 前端页面骨架。所有内容由 app.js 渲染到 #view 里；样式在 style.css。
   导航文字、标题、配色由 app.js 按当前风格（修仙 / 玄幻）替换。
-  页面结构：顶栏（标志 / 导航 / 今日时长） + 主视图 + 右下角提示层（经验、导师台词） + 升级弹窗。
+  页面结构：背景层 + 语录层（ambience.js） + 顶栏（标志 / 导航 / 今日时长 / ♪ 背景音乐） + 主视图 + 右下角提示层 + 升级弹窗。
 -->
 <html lang="zh-CN">
 <head>
@@ -13,6 +13,8 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="xiuxian">
+<div id="bgLayer"></div>
+<div id="quoteLayer"></div>
 <header class="topbar">
   <div class="brand">☯ 行测修仙传</div>
   <nav id="nav">
@@ -26,11 +28,13 @@
     <a data-view="settings">设置</a>
   </nav>
   <div class="today-pill" id="todayPill" title="今天的有效修炼时间（只有做功课时才计时）">🕯 今日修炼</div>
+  <button class="bgm-btn" id="bgmBtn" title="背景音乐：关（点一下打开）">♪</button>
 </header>
 <div id="banner"></div>
 <main id="view"></main>
 <div id="toasts"></div>
 <div id="modal" class="modal hidden"></div>
+<script src="ambience.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

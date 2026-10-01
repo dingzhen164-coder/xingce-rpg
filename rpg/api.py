@@ -26,6 +26,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/import/answers       {"prefix", "key"}  按答案表补答案
     POST /api/import/classify      {"limit"}  DeepSeek 补“待分类”的知识点
     POST /api/import/remove        {"prefix"}  撤销一批导入（只删没做过的题）
+    GET  /api/appearance           背景 / 语录 / 音乐的可选项和当前选择；POST 同路径保存选择
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
@@ -35,12 +36,13 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
 import datetime as dt
 import json
 import mimetypes
+import re
 import traceback
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import importer, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, importer, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -274,6 +276,19 @@ def theme_set(body):
         return {"ok": True}
 
 
+def appearance_get(body):
+    with open_game(save=False) as g:
+        return appearance.view(g.paths, g.state) if g.paths.vault else {"current": appearance.current({}),
+                                                                             "backgrounds": [], "music": [], "quotes": [], "daily": ""}
+
+
+def appearance_set(body):
+    with open_game() as g:
+        if not g.paths.vault:
+            raise ApiError("请先在设置中指定行测库路径")
+        return {"current": appearance.update(g.paths, g.state, body)}
+
+
 def retreat_start(body):
     try:
         minutes = int(body.get("minutes") or 60)
@@ -342,6 +357,8 @@ ROUTES = {
     ("GET", "/api/dashboard"): dashboard,
     ("POST", "/api/plan/regenerate"): plan_regenerate,
     ("POST", "/api/theme"): theme_set,
+    ("GET", "/api/appearance"): appearance_get,
+    ("POST", "/api/appearance"): appearance_set,
     ("POST", "/api/retreat/start"): retreat_start,
     ("POST", "/api/retreat/end"): retreat_end,
     ("POST", "/api/tutor/greet"): tutor_greet,
@@ -368,6 +385,17 @@ ROUTES = {
 }
 
 
+def _music_file(paths, rel):
+    """网页播放 BGM 用：只允许 训练/外观/音乐/ 里的音频文件"""
+    if not paths.vault or not rel:
+        return None
+    p = (paths.vault / rel).resolve()
+    root = appearance.folder(paths, appearance.MUSIC_DIR).resolve()
+    if root not in p.parents or not p.is_file() or p.suffix.lower() not in appearance.AUDIO_EXT:
+        return None
+    return p
+
+
 # ---------------------------------------------------------------- HTTP
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 不在终端刷屏
@@ -379,6 +407,30 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_range(self, p, ctype):
+        """音频支持 Range（浏览器拖进度、循环播放会用到）"""
+        size = p.stat().st_size
+        m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
+        start, end = 0, size - 1
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else size - 1
+            else:
+                start = max(0, size - int(m.group(2)))
+            end = min(end, size - 1)
+        with open(p, "rb") as fp:
+            fp.seek(start)
+            data = fp.read(end - start + 1)
+        self.send_response(206 if m and (m.group(1) or m.group(2)) else 200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(len(data)))
+        if m and (m.group(1) or m.group(2)):
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
         self.end_headers()
         self.wfile.write(data)
 
@@ -402,10 +454,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         if url.path == "/vault-file":
             rel = unquote(parse_qs(url.query).get("p", [""])[0])
-            p = vault.safe_vault_file(Paths(find_vault()), rel)
+            vp = Paths(find_vault())
+            p = vault.safe_vault_file(vp, rel) or _music_file(vp, rel)
             if not p:
                 return self._send(404, {"error": "文件不存在"})
-            return self._send(200, p.read_bytes(), mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+            ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+            if p.suffix.lower() in appearance.AUDIO_EXT:
+                return self._send_range(p, ctype)
+            return self._send(200, p.read_bytes(), ctype)
         rel = url.path.lstrip("/") or "index.html"
         f = (WEB_DIR / rel).resolve()
         if WEB_DIR.resolve() not in f.parents or not f.is_file():
