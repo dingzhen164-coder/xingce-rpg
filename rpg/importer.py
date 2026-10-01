@@ -147,6 +147,11 @@ def split_options(text, scrambled):
     rx = OPT_FENBI if scrambled else OPT_BOOK
     marks = [(m.start(), m.end(), m.group(1).upper()) for m in rx.finditer(text)]
     first_a = next((mk for mk in marks if mk[2] == "A"), None)
+    if not scrambled:
+        # 练习册：题干里常有“A型血”“A领导”“特征A”，取【最后一个】后面还跟着 B、C、D 的 A 作为选项开头
+        full = [mk for mk in marks if mk[2] == "A" and {"B", "C", "D"} <= {x[2] for x in marks if x[0] > mk[0]}]
+        if full:
+            first_a = full[-1]
     if not first_a:
         return text.strip(), {}, ["没找到选项"]
     chosen, seen = [first_a], {"A"}
@@ -166,6 +171,8 @@ def split_options(text, scrambled):
         problems.append("缺选项 " + "".join(missing))
     if any(len(v) > 160 for v in opts.values()):
         problems.append("有选项太长，可能吞进了下一题")
+    if not scrambled and any(re.search(r"(?:^|\s)[A-D][\.．。:：、]\S", v) for v in opts.values()):
+        problems.append("选项里还夹着另一组选项标记，可能拆错了")
     return stem, opts, problems
 
 
@@ -191,6 +198,58 @@ def guess_board(section, stem, opts):
     if any(k in s for k in ARGUMENT_KW):
         return "论证逻辑"
     return ""
+
+
+# ---------------------------------------------------------------- OCR 符号修复：①②③、ⅠⅡⅢ
+CIRCLED = "①②③④⑤⑥⑦⑧⑨"
+ROMAN = {"I": "Ⅰ", "II": "Ⅱ", "III": "Ⅲ", "IV": "Ⅳ", "V": "Ⅴ", "VI": "Ⅵ"}
+# 只由序号和连接词组成的选项（“①③④”“仅Ⅰ和Ⅲ”“@②4”“I、II都推不出”）
+_SEQ_OPT = re.compile(r"^[\s①-⑨Ⅰ-Ⅵ\dIVHl@Q?？、，,和与及或仅只有都是不能推出得只均]*$")
+_ROMAN_RUN = re.compile(r"(?<![A-Za-z])(IV|VI|V|III|II|I)(?![A-Za-z])")
+
+
+def fix_symbols(stem, opts):
+    """OCR 常把 ① 认成 @ / Q / 1，④ 认成 4，Ⅰ Ⅱ Ⅲ 认成 I / II / III（甚至 H）。只在明确是序号的地方还原：
+    - 题干里已有 ①② 序列时，紧接着序列、出现在句首 / 标点后的数字（或 @、Q）还原成下一个圈号；
+    - 题干用 I / II / III 当陈述编号（后面跟标点或汉字）时还原成 Ⅰ Ⅱ Ⅲ；
+    - 选项只由序号和“和 / 仅 / 都”等组成时，按题干用的是圈号还是罗马数字整体还原。
+    返回 (题干, 选项, 问题)；还原后同一选项里序号重复（如 ②②）说明 OCR 丢了信息，交给待修核对"""
+    problems = []
+    uses_circled = bool(re.search("[①-⑨]", stem)) or any(re.search("[①-⑨]", v) for v in opts.values())
+    uses_roman = bool(re.search("[Ⅰ-Ⅵ]", stem) or re.search(r"(?<![A-Za-z])I{1,3}(?:[\.．。:：、]|(?=[\u4e00-\u9fff]))", stem)) \
+        or any(re.search(r"(?<![A-Za-z])I{1,3}(?![A-Za-z])", v) and _SEQ_OPT.match(v) for v in opts.values())
+    if uses_circled:
+        out, last, i = [], 0, 0
+        while i < len(stem):
+            ch = stem[i]
+            if ch in CIRCLED:
+                last = CIRCLED.index(ch) + 1
+            elif last and i and (stem[i - 1] in " \t\n。；;，,：:）)" or stem[i - 1] in CIRCLED) \
+                    and ((ch.isdigit() and int(ch) == last + 1) or (ch in "@Q" and last == 0)) \
+                    and i + 1 < len(stem) and re.match(r"[\u4e00-\u9fffA-Z“（(]", stem[i + 1]):
+                last += 1
+                ch = CIRCLED[last - 1]
+            out.append(ch)
+            i += 1
+        stem = "".join(out)
+        stem = re.sub(r"(^|[\s。；;：:])[@Q](?=[\u4e00-\u9fff])", lambda m: m.group(1) + "①", stem)
+    if uses_roman:
+        stem = re.sub(r"(?<![A-Za-z])(IV|VI|V|III|II|I)(?=[\.．。:：、\s]|[\u4e00-\u9fff])", lambda m: ROMAN[m.group(1)], stem)
+    new = {}
+    for k, v in opts.items():
+        if v and _SEQ_OPT.match(v) and len(v) <= 16:
+            if uses_circled and not uses_roman:
+                v = re.sub(r"[@Q]", "①", v)
+                v = re.sub(r"[1-9]", lambda m: CIRCLED[int(m.group(0)) - 1], v)
+            elif uses_roman:
+                v = v.replace("H", "II").replace("l", "I")
+                v = _ROMAN_RUN.sub(lambda m: ROMAN[m.group(1)], v)
+            v = re.sub(r"\s*[,，]\s*", "、", v)   # 序号之间统一用顿号
+            marks = re.findall("[①-⑨Ⅰ-Ⅵ]", v)
+            if len(marks) != len(set(marks)) or re.search(r"[?？@Q]", v):
+                problems.append("选项 %s 的序号可能被 OCR 认错（%s），请对照原书" % (k, v))
+        new[k] = v
+    return stem, new, problems
 
 
 def board_by_options(opts):
@@ -319,6 +378,8 @@ def parse_book(lines):
             end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
             stem, opts, problems = split_options(text[e:end], scrambled=False)
             stem = re.sub(r"\s*\n\s*", "", stem)
+            stem, opts, sym = fix_symbols(stem, opts)
+            problems += sym
             out.append({"num": n, "group": max(group, 1), "stem": stem, "options": opts, "answer": "",
                         "board": guess_board("", stem, opts), "problems": problems})
         for i in skipped:
@@ -787,6 +848,46 @@ def _fix_import(paths, body, dry):
     r = _summary(ready, fix, dup, "", name, "")
     r["fix"] = len(keep)
     return r
+
+
+# ---------------------------------------------------------------- 整理已有题库的格式
+OPT_LINE = re.compile(r"^\s*([A-D])\s*[\.．、。:：)）]\s*(.*)$")
+
+
+def normalize_bank(paths, body=None):
+    """整理所有题库文件：选项统一写成“A. 内容”，并对题干、选项做 OCR 符号修复（①②③ / ⅠⅡⅢ）。
+    只改 题干 / 选项 两节，编号、答案、解析、作答记录都不动。返回改了多少题、哪些题的序号仍需人工核对"""
+    changed, flagged, files = 0, [], 0
+    for f in sorted((paths.train / "题库").glob("*真题.md")):
+        text = f.read_text(encoding="utf-8-sig")
+        new_text, delta = text, 0
+        for b in reversed(parse_blocks(text)):
+            seg = text[b["start"]:b["end"]]
+            fl = b["fields"]
+            raw_opts = {}
+            for ln in (fl.get("选项") or "").splitlines():
+                m = OPT_LINE.match(ln)
+                if m:
+                    raw_opts[m.group(1)] = m.group(2).strip()
+            if set(raw_opts) != set("ABCD"):
+                continue
+            stem0 = fl.get("题干", "")
+            stem, opts, probs = fix_symbols(stem0, raw_opts)
+            if probs:
+                flagged.append(b["id"])
+            opt_text = "\n".join("%s. %s" % (k, opts[k]) for k in "ABCD")
+            new_seg = re.sub(r"(^###\s+选项\s*\n)(.*?)(?=^###|\Z)", lambda m: m.group(1) + opt_text + "\n",
+                             seg, count=1, flags=re.M | re.S)
+            if stem != stem0:
+                new_seg = new_seg.replace(stem0, stem, 1)
+            if new_seg != seg:
+                new_text = new_text[:b["start"]] + new_seg + new_text[b["end"]:]
+                delta += 1
+        if delta:
+            _write(f, new_text)
+            files += 1
+            changed += delta
+    return {"changed": changed, "files": files, "flagged": flagged[:30], "flagged_total": len(flagged)}
 
 
 # ---------------------------------------------------------------- 补答案

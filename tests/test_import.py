@@ -185,6 +185,25 @@ class ImportTest(unittest.TestCase):
         qs = importer._collect(self.p, {"kind": "text", "text": text, "prefix": "书", "no_source": True})[0]
         self.assertEqual([(q["id"], q["board"]) for q in qs], [("书-01-01", "论证逻辑"), ("书-01-02", "形式逻辑")])
 
+    def test_ocr_symbols_restored_and_bank_normalized(self):
+        stem, opts, probs = importer.fix_symbols(
+            "可推出以下哪项结论： I：甲。Ⅱ：乙。 III。丙。", {"A": "仅I", "B": "I和H", "C": "II, III", "D": "I、I和II都推不出"})
+        self.assertEqual(stem, "可推出以下哪项结论： Ⅰ：甲。Ⅱ：乙。 Ⅲ。丙。")
+        self.assertEqual(opts, {"A": "仅Ⅰ", "B": "Ⅰ和Ⅱ", "C": "Ⅱ、Ⅲ", "D": "Ⅰ、Ⅰ和Ⅱ都推不出"})
+        self.assertEqual(len(probs), 1)                                                   # Ⅰ、Ⅰ 重复 → 人工核对
+        stem, opts, probs = importer.fix_symbols("③乙 4丁 由此可以推出：", {"A": "@②4", "B": "②34", "C": "1号和2号", "D": "③"})
+        self.assertEqual((stem, opts), ("③乙 ④丁 由此可以推出：", {"A": "①②④", "B": "②③④", "C": "1号和2号", "D": "③"}))
+        stem, opts, probs = importer.split_options("某研究对A型血的人进行调查。以下哪项最能削弱：A。甲 B.乙 C．丙 D。丁", False)
+        self.assertEqual((stem[-7:], opts["A"]), ("哪项最能削弱：", "甲"))                 # 题干里的“A型”不当选项
+        f = self.p.train / "题库/形式逻辑真题.md"
+        f.write_text("\n## 题目 书-01-01\n### 知识点\n真假推理\n### 题干\n断言：I：甲。II：乙。\n### 选项\nA．仅I\nB、仅II\nC. I和II\nD：都不对\n"
+                     "### 答案\nC\n### 解析\n（待补）\n", encoding="utf-8")
+        r = importer.normalize_bank(self.p, {})
+        self.assertEqual(r["changed"], 1)
+        q = bank.read(self.p, "形式逻辑")[0][0]
+        self.assertEqual((q["stem"], q["options"], q["answer"]), ("断言：Ⅰ：甲。Ⅱ：乙。", {"A": "仅Ⅰ", "B": "仅Ⅱ", "C": "Ⅰ和Ⅱ", "D": "都不对"}, "C"))
+        self.assertIn("A. 仅Ⅰ\nB. 仅Ⅱ\nC. Ⅰ和Ⅱ\nD. 都不对", f.read_text(encoding="utf-8"))   # 选项标点统一
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

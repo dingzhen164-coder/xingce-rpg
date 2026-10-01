@@ -561,7 +561,9 @@ async function loadImport() {
           只补一套：前缀写到第几套（如“花生600题-03”），答案写 <code>1-5 ABCDA 6-10 …</code> 或 <code>1.A 2.B</code>。</p>
         <div class="row"><label>编号前缀 <input id="ansPrefix" placeholder="如 花生600题"></label><button id="ansGo">补答案</button></div>
         <textarea id="ansKey" rows="5" style="width:100%" placeholder="练习01 ADDBA CDCAB DBBCC BBADD&#10;练习02 DDACB DADAC DDBAA DABAB&#10;……"></textarea></div>
-      <div class="import-sec"><h4>⑥ 撤销一批导入</h4>
+      <div class="import-sec"><h4>⑥ 整理题库格式</h4>
+        <div class="row"><button id="normGo">整理全部题库</button><span class="small muted">选项统一写成“A. ”；把 OCR 认错的序号还原成 ①②③、ⅠⅡⅢ。只改题干和选项，编号、答案、作答记录不动</span></div></div>
+      <div class="import-sec"><h4>⑦ 撤销一批导入</h4>
         <div class="row"><label>编号前缀 <input id="rmPrefix" placeholder="如 花生600题"></label>
           <button class="ghost" id="rmGo">删除这批没做过的题</button><span class="small muted">导错了想重导时用；做过的题有作答记录，会保留</span></div></div>
       <div class="import-sec"><h4>⑤ 知识点</h4><div class="row"><span>“待分类”的题：${d.unsorted} 道</span><span class="spacer"></span>
@@ -591,6 +593,7 @@ function bindImport() {
       const r = await api(url, body);
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
       else if (url.endsWith('/install_pymupdf')) show(r.ok ? '<p>✅ 拆分组件装好了，现在可以拆 PDF。</p>' : '<p>⚠ 装完了但还是找不到组件，关掉程序重新打开试试。</p>');
+      else if (url.endsWith('/normalize')) show(`<p>整理了 <b>${r.changed}</b> 道题（${r.files} 个文件）。${r.flagged_total ? `有 ${r.flagged_total} 道题的序号 OCR 丢了信息，没法自动还原，请对照原书改：${r.flagged.map(esc).join('、')}${r.flagged_total > r.flagged.length ? ' …' : ''}` : ''}</p>`);
       else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
@@ -642,6 +645,7 @@ function bindImport() {
   $('#impPreview').onclick = (e) => { try { run(e.target, '/api/import/preview', textBody(), true); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#impCommit').onclick = (e) => { try { run(e.target, '/api/import/commit', textBody(), false); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#ansGo').onclick = (e) => run(e.target, '/api/import/answers', { prefix: $('#ansPrefix').value.trim(), key: $('#ansKey').value }, false);
+  $('#normGo').onclick = (e) => run(e.target, '/api/import/normalize', {}, false);
   $('#rmGo').onclick = (e) => {
     const pre = $('#rmPrefix').value.trim();
     if (!pre || !confirm(`删除编号以「${pre}-」开头、还没做过的所有题（题库和待修文件里都删）？`)) return;
