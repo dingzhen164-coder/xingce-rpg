@@ -301,3 +301,66 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .result-table tr.bad td { color: #c0392b; }
 .result-table tr.good td:nth-child(7) { color: #2e8b57; font-weight: bold; }
 .result-table tr.sum td { font-weight: bold; background: var(--panel2); }
+
+/* ===== 藏经阁：功法古籍 + 玉简 ===== */
+.tag.bad { color: var(--red); }
+.lib-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 4px 0 6px; }
+.lib-head h2 { margin: 0; font-family: var(--display); letter-spacing: .2em; }
+.lib-tabs { display: flex; gap: 6px; padding: 4px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
+.lib-tabs button { border-radius: 999px; background: transparent; border: 0; padding: 6px 16px; color: var(--muted); font-family: var(--display); }
+.lib-tabs button.on { background: var(--panel); color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset, 0 0 14px color-mix(in srgb, var(--gold) 35%, transparent); }
+.lib-tip { margin: 2px 0 10px; }
+.tome-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 34px 26px; padding: 18px 6px 30px; }
+.tome-slot { display: flex; flex-direction: column; align-items: center; }
+.tome-cap { margin-top: 18px; font-size: 12px; color: var(--muted); text-align: center; }
+@keyframes tome-float { 0%, 100% { transform: translateY(0) rotate(-1.2deg); } 50% { transform: translateY(-12px) rotate(1.2deg); } }
+@keyframes tome-glow { 0%, 100% { opacity: .35; transform: scaleX(.85); } 50% { opacity: .12; transform: scaleX(.6); } }
+/* 古籍：线装书，左侧书脊带装订线，封面贴竖排题签 */
+.tome { position: relative; width: 128px; height: 176px; cursor: pointer; animation: tome-float 6s ease-in-out infinite; animation-delay: calc(var(--d) * -1);
+  border-radius: 3px 8px 8px 3px;
+  background: radial-gradient(120% 90% at 30% 20%, hsl(var(--h) 38% 38%), hsl(var(--h) 42% 20%) 70%, hsl(var(--h) 45% 12%));
+  box-shadow: inset 12px 0 0 hsl(var(--h) 40% 12% / .85), inset -2px -2px 6px rgba(0,0,0,.35), 0 14px 26px rgba(0,0,0,.35);
+  transition: box-shadow .3s, filter .3s; }
+.tome::before { content: ""; position: absolute; left: 3px; top: 10px; bottom: 10px; width: 6px;
+  background: repeating-linear-gradient(to bottom, transparent 0 18px, hsl(45 60% 75% / .85) 18px 20px, transparent 20px 38px); }
+.tome::after { content: ""; position: absolute; left: 10%; right: 10%; bottom: -30px; height: 10px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0,0,0,.45), transparent); animation: tome-glow 6s ease-in-out infinite; animation-delay: calc(var(--d) * -1); }
+.tome:hover { filter: brightness(1.12); box-shadow: inset 12px 0 0 hsl(var(--h) 40% 12% / .85), 0 0 0 1px var(--gold), 0 0 30px color-mix(in srgb, var(--gold) 55%, transparent), 0 18px 30px rgba(0,0,0,.4); }
+.tome-cover { position: absolute; inset: 12px 12px 12px 24px; display: flex; flex-direction: column; align-items: center; }
+.tome-label { writing-mode: vertical-rl; font-family: var(--display); font-size: 19px; letter-spacing: .25em; color: #3a2a12;
+  background: linear-gradient(#f6ecd2, #e9d9b0); padding: 10px 5px; border: 1px solid #b89a5c; box-shadow: 0 0 0 3px rgba(246,236,210,.15); max-height: 118px; overflow: hidden; }
+.tome-seal { margin-top: auto; font-size: 11px; color: #f3dfa8; border: 1px solid rgba(243,223,168,.6); border-radius: 3px; padding: 0 5px; transform: rotate(-6deg); }
+.tome-open { animation: lib-unfold .35s ease-out; }
+@keyframes lib-unfold { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+/* 玉简：半透明青玉，竖排刻字，顶上一缕穗子 */
+.slip { position: relative; width: 92px; height: 186px; cursor: pointer; border-radius: 10px; animation: tome-float 7s ease-in-out infinite; animation-delay: calc(var(--d) * -1);
+  background: linear-gradient(160deg, rgba(196,240,220,.92), rgba(98,180,150,.85) 45%, rgba(40,120,98,.9));
+  box-shadow: inset 0 0 18px rgba(255,255,255,.45), inset 0 -8px 16px rgba(0,60,40,.35), 0 0 22px rgba(90,200,160,.35), 0 14px 24px rgba(0,0,0,.3);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; transition: box-shadow .3s, filter .3s; }
+.slip::before { content: ""; position: absolute; top: -26px; left: 50%; width: 2px; height: 26px; background: linear-gradient(#c0392b, #e74c3c); }
+.slip::after { content: ""; position: absolute; top: -32px; left: calc(50% - 5px); width: 10px; height: 10px; border-radius: 50%; background: #c0392b; box-shadow: 0 0 6px rgba(231,76,60,.6); }
+.slip:hover { filter: brightness(1.08); box-shadow: inset 0 0 18px rgba(255,255,255,.55), 0 0 0 1px var(--gold), 0 0 34px rgba(120,230,190,.6), 0 18px 28px rgba(0,0,0,.35); }
+.slip-label { writing-mode: vertical-rl; font-family: var(--display); font-size: 18px; letter-spacing: .3em; color: #0f3d30; text-shadow: 0 1px 0 rgba(255,255,255,.6); }
+.slip-count { font-size: 12px; color: #0f3d30; background: rgba(255,255,255,.55); border-radius: 999px; padding: 0 8px; }
+.yj-search input { flex: 1; min-width: 200px; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.toc-chip { cursor: pointer; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); font-size: 13px; }
+.toc-chip span { color: var(--faint); font-size: 11px; }
+.toc-chip.on, .toc-chip:hover { border-color: var(--gold); color: var(--gold); }
+.yj-row { border-top: 1px dashed var(--line); padding: 8px 4px; cursor: pointer; }
+.yj-row:hover { background: color-mix(in srgb, var(--gold) 6%, transparent); }
+.yj-text { margin: 2px 0; }
+.yj-detail { cursor: auto; margin-top: 8px; }
+.yj-opt { margin: 2px 0; }
+.yj-opt div { display: inline; }
+@media (prefers-reduced-motion: reduce) { .tome, .slip, .tome::after { animation: none; } }
+.tome-label, .slip-label, .slip-count, .tome-seal { flex-shrink: 0; white-space: nowrap; }
+.yj-search .row { flex-wrap: wrap; }
+.yj-search select, .yj-search button { width: auto; flex: 0 0 auto; }
+.yj-search input { width: auto; }
+/* 竖排题签给定高度：Chrome 在竖向 flex 里会把竖排文字压成一个字高 */
+.tome-label { height: 112px; max-height: none; box-sizing: border-box; text-align: center; font-size: 17px; letter-spacing: .15em; }
+.slip-label { height: 104px; text-align: center; font-size: 17px; letter-spacing: .2em; }
+.tome-label, .slip-label { writing-mode: horizontal-tb; letter-spacing: 0; line-height: 1.25; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.tome-label { width: 34px; padding: 6px 4px; }
+.tome-grid { padding-top: 44px; }

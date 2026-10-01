@@ -148,12 +148,15 @@ function recentList(ev) {
   return ev.map((e) => `<div class="row small"><span class="faint">${esc(e.t?.slice(5, 16).replace("T", " ") || e.d)}</span>
     <span>${esc(e.note)}</span><span class="spacer"></span>${e.xp ? `<b style="color:var(--gold)">+${e.xp}</b>` : ""}</div>`).join("");
 }
-function msgHtml(m) {
-  // 文字块里的 ![[库内路径]] 是夹在句子里的小图（公式），按行内显示
+// 消息里的网页块：文字（夹着的 ![[库内路径]] 是行内小图，如公式）、图片、成绩表
+function blocksHtml(list) {
   const inline = (h) => h.replace(/!\[\[([^\]]+)\]\]/g, (_, p) => `<img class="inline-img" src="/vault-file?p=${encodeURIComponent(p.replace(/&amp;/g, '&'))}">`);
   const table = (b) => `<div class="tbl-wrap"><table class="result-table"><thead><tr>${b.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
     b.rows.map(r => `<tr class="${r.includes('✗') ? 'bad' : r.includes('✓') ? 'good' : 'sum'}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
+  return (list || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
+}
+function msgHtml(m) {
+  const blocks = blocksHtml(m.blocks);
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
@@ -287,23 +290,25 @@ const views = {
   },
 
   async skeleton() {
+    const tabs = `<div class="lib-head"><h2>${esc(NAV('skeleton'))}</h2><div class="lib-tabs">
+      <button class="${LIB.tab === 'gongfa' ? 'on' : ''}" data-libtab="gongfa">📜 功法</button>
+      <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">💠 玉简 · 题库</button></div></div>`;
+    if (LIB.tab === 'yujian') return tabs + await yujianHtml();
     const sk = await api("/api/skeletons");
-    const sub = (it) => it.level === 0 && it.l1 ? ` · ${W("recite")} ${it.l1}/${sk.need_l1}` : it.level === 2 && it.l3 ? ` · ${W("apply")} ${it.l3}/${sk.need_l3}` : "";
-    return sk.boards.map((b) => {
-      const st = b.final ? '<span class="tag ok">已定稿</span>' : b.status === "草稿" ? '<span class="tag draft">草稿</span>' : '<span class="tag lock">无</span>';
-      const skill = b.hasSkill ? `<span class="small muted">skill：${esc(b.skill)}</span>` : `<span class="small" style="color:var(--red)">skill 未接入：${esc(b.skill || "（未配置）")}</span>`;
-      const rows = b.items.map((it) => {
-        const cls = it.rusty ? "rust" : "l" + it.level;
-        return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? "已过" : "待过"}</td>
-          <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? esc(W("rust")) : esc(it.levelName)}${sub(it)}${it.lapCheck ? ` · 待${esc(W("speedrun"))}` : ""}</span></td>
-          <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td>
-          <td>${b.final ? `${["recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
-      }).join("");
-      return `<div class="card"><div class="row"><h3 style="margin:0">📜 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
-        ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编撰" + esc(W("skeleton"))}</button>`}</div>
-        <div class="small faint">文件：${esc(b.file)}</div>
-        ${rows ? `<table style="margin-top:8px"><tr><th>${esc(W("item"))}（大项）</th><th>内容</th><th>掌握</th><th></th><th></th></tr>${rows}</table>` : ""}</div>`;
-    }).join("");
+    if (LIB.open) {
+      const b = sk.boards.find(x => x.board === LIB.open);
+      if (b) return tabs + `<div class="row"><button class="ghost" id="tomeBack">← 回到书架</button></div>` + skeletonCard(sk, b);
+      LIB.open = null;
+    }
+    // 书架：每部功法一卷漂浮的古籍，点开看大项
+    const hues = [28, 200, 340, 150, 260, 45, 180, 10, 300, 90, 220, 120];
+    return tabs + `<p class="small muted lib-tip">每部功法是一卷古籍，点开研读其中的大项（口诀、思路、举例与掌握程度）。</p><div class="tome-grid">${sk.boards.map((b, i) => {
+      const st = b.final ? '已定稿' : b.status === '草稿' ? '草稿' : '未编撰';
+      const got = b.items.filter(it => it.level > 0).length;
+      return `<div class="tome-slot"><div class="tome" data-tome="${esc(b.board)}" style="--d:${(i % 6) * 0.8}s;--h:${hues[i % hues.length]}">
+        <div class="tome-cover"><div class="tome-label">${vlabel(b.board)}</div><div class="tome-seal">${st}</div></div></div>
+        <div class="tome-cap">${b.items.length ? `${b.items.length} 大项 · 入门 ${got}` : esc(st)}</div></div>`;
+    }).join('')}</div>`;
   },
 
   async wrong() {
@@ -713,7 +718,92 @@ function bindImport() {
   if ($('#clsGo')) $('#clsGo').onclick = (e) => run(e.target, '/api/import/classify', { limit: 100 }, false);
 }
 
+// 竖排题签：一个字一行（不用 writing-mode，有些字体竖排会叠字）
+const vlabel = (t) => [...String(t)].map(esc).join('<br>');
+let LIB = { tab: 'gongfa', open: null, yj: { board: '', topic: '', q: '', status: '', page: 0 } };
+function skeletonCard(sk, b) {
+  const sub = (it) => it.level === 0 && it.l1 ? ` · ${W("recite")} ${it.l1}/${sk.need_l1}` : it.level === 2 && it.l3 ? ` · ${W("apply")} ${it.l3}/${sk.need_l3}` : "";
+  const st = b.final ? '<span class="tag ok">已定稿</span>' : b.status === "草稿" ? '<span class="tag draft">草稿</span>' : '<span class="tag lock">无</span>';
+  const skill = b.hasSkill ? `<span class="small muted">skill：${esc(b.skill)}</span>` : `<span class="small" style="color:var(--red)">skill 未接入：${esc(b.skill || "（未配置）")}</span>`;
+  const rows = b.items.map((it) => {
+    const cls = it.rusty ? "rust" : "l" + it.level;
+    return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? "已过" : "待过"}</td>
+      <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? esc(W("rust")) : esc(it.levelName)}${sub(it)}${it.lapCheck ? ` · 待${esc(W("speedrun"))}` : ""}</span></td>
+      <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td>
+      <td>${b.final ? `${["recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
+  }).join("");
+  return `<div class="card tome-open"><div class="row"><h3 style="margin:0">📜 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
+    ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编撰" + esc(W("skeleton"))}</button>`}</div>
+    <div class="small faint">文件：${esc(b.file)}</div>
+    ${rows ? `<table style="margin-top:8px"><tr><th>${esc(W("item"))}（大项）</th><th>内容</th><th>掌握</th><th></th><th></th></tr>${rows}</table>` : '<p class="muted small">这部功法还没有编撰，点右上角按钮开始。</p>'}</div>`;
+}
+// ---- 玉简：题库目录 + 搜题
+const YJ_STATUS = { '': '全部', new: '未做', done: '做对', wrong: '做错（心魔）', pending: '答案待补' };
+const YJ_TAG = { new: '<span class="tag">未做</span>', done: '<span class="tag ok">✓ 做对</span>', wrong: '<span class="tag bad">✗ 心魔</span>', pending: '<span class="tag lock">待补</span>' };
+async function yujianHtml() {
+  const c = await api('/api/library');
+  const y = LIB.yj;
+  const bar = `<div class="card yj-search"><div class="row">
+    <input id="yjQ" placeholder="搜题：关键词（空格分开都要有）、编号、试卷名…" value="${esc(y.q)}">
+    <select id="yjBoard"><option value="">全部板块</option>${c.boards.map(b => `<option ${b.board === y.board ? 'selected' : ''}>${esc(b.board)}</option>`).join('')}</select>
+    <select id="yjStatus">${Object.entries(YJ_STATUS).map(([k, v]) => `<option value="${k}" ${k === y.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <button class="primary" id="yjGo">搜索</button></div></div>`;
+  if (!(y.q || y.board || y.status)) {
+    return bar + `<p class="small muted lib-tip">共 ${c.total} 枚玉简。点一个板块翻目录，或直接在上面搜。</p><div class="tome-grid">${c.boards.map((b, i) => `
+      <div class="tome-slot"><div class="slip" data-slip="${esc(b.board)}" style="--d:${(i % 6) * 0.7}s">
+        <div class="slip-label">${vlabel(b.board)}</div><div class="slip-count">${b.total}</div></div>
+        <div class="tome-cap">做过 ${b.done + b.wrong} · 心魔 ${b.wrong}${b.pending ? ` · 待补 ${b.pending}` : ''}</div></div>`).join('')}</div>`;
+  }
+  const bd = c.boards.find(b => b.board === y.board);
+  const home = `<button class="ghost small" id="yjHome">← 回到玉简阁</button>`;
+  const toc = bd && bd.topics.length > 1 ? `<div class="card"><div class="row"><b>📖 ${esc(bd.board)} · 目录</b><span class="small muted">按知识点</span><span class="spacer"></span>${home}</div>
+    <div class="toc">${[{ name: '', count: bd.total }].concat(bd.topics).map(t => `<a class="toc-chip ${t.name === y.topic ? 'on' : ''}" data-topic="${esc(t.name)}">${esc(t.name || '全部')} <span>${t.count}</span></a>`).join('')}${bd.more_topics ? `<span class="small muted">…另有 ${bd.more_topics} 个小知识点，用搜索找</span>` : ''}</div></div>`
+    : `<div class="row">${home}</div>`;
+  return bar + toc + `<div id="yjList" class="card">搜寻中…</div>`;
+}
+async function yjList() {
+  const box = $('#yjList');
+  if (!box) return;
+  const y = LIB.yj;
+  try {
+    const r = await api('/api/library/search', { q: y.q, board: y.board, topic: y.topic, status: y.status, page: y.page });
+    const pager = r.pages > 1 ? `<div class="row"><button class="ghost small" id="yjPrev" ${r.page ? '' : 'disabled'}>上一页</button><span class="small muted">第 ${r.page + 1}/${r.pages} 页</span><button class="ghost small" id="yjNext" ${r.page + 1 < r.pages ? '' : 'disabled'}>下一页</button></div>` : '';
+    box.innerHTML = `<div class="row"><b>找到 ${r.total} 枚玉简</b>${y.topic ? `<span class="tag">${esc(y.topic)}</span>` : ''}<span class="spacer"></span><span class="small muted">点一枚展开</span></div>
+      ${r.rows.map(x => `<div class="yj-row" data-key="${esc(x.key)}"><div class="row"><span class="small faint">${esc(x.id)}</span><span class="small muted">${esc(x.board)} · ${esc(x.topic)}</span><span class="spacer"></span>${YJ_TAG[x.status] || ''}</div>
+        <div class="yj-text">${esc(x.text)}</div>${x.paper ? `<div class="small faint">${esc(x.paper)}</div>` : ''}<div class="yj-detail" hidden></div></div>`).join('') || '<p class="muted">没有符合的玉简。</p>'}${pager}`;
+    if ($('#yjPrev')) $('#yjPrev').onclick = () => { y.page--; yjList(); };
+    if ($('#yjNext')) $('#yjNext').onclick = () => { y.page++; yjList(); };
+    box.querySelectorAll('.yj-row').forEach(row => row.onclick = (e) => { if (!e.target.closest('.yj-detail')) yjOpen(row); });
+  } catch (e) { box.innerHTML = `<p>⚠ ${esc(e.message)}</p>`; }
+}
+async function yjOpen(row) {
+  const d = row.querySelector('.yj-detail');
+  if (!d.hidden) { d.hidden = true; return; }
+  d.hidden = false; d.innerHTML = '展开玉简…';
+  try {
+    const q = await api('/api/library/question', { key: row.dataset.key });
+    const hist = q.history.length ? q.history.map(h => `${esc(h.date || '')} 选 ${esc(h.answer || '')} ${h.ok ? '✓' : '✗'}${h.seconds ? ' · ' + clock(h.seconds) : ''}`).join('<br>') : '还没做过';
+    d.innerHTML = `<div class="msg sys">${blocksHtml(q.stem)}${q.options.map(o => `<div class="yj-opt"><b>${o.k}.</b> ${blocksHtml(o.blocks)}</div>`).join('')}</div>
+      ${q.papers.length ? `<div class="small faint">出处：${q.papers.map(esc).join('；')}</div>` : ''}
+      <button class="small yj-reveal">🔓 显现答案与解析</button>
+      <div class="yj-ans" hidden><div class="msg sys"><b>答案：${esc(q.answer)}</b> · 知识点：${esc(q.topic)}${blocksHtml(q.analysis)}</div><div class="small muted">我的作答：<br>${hist}</div></div>`;
+    d.querySelector('.yj-reveal').onclick = (e) => { e.target.hidden = true; d.querySelector('.yj-ans').hidden = false; };
+  } catch (e) { d.innerHTML = `⚠ ${esc(e.message)}`; }
+}
+function bindLibrary() {
+  document.querySelectorAll('[data-libtab]').forEach(b => b.onclick = () => { LIB.tab = b.dataset.libtab; render(); });
+  document.querySelectorAll('[data-tome]').forEach(t => t.onclick = () => { LIB.open = t.dataset.tome; render(); });
+  if ($('#tomeBack')) $('#tomeBack').onclick = () => { LIB.open = null; render(); };
+  const y = LIB.yj;
+  const go = () => { Object.assign(y, { q: $('#yjQ').value.trim(), board: $('#yjBoard').value, status: $('#yjStatus').value, topic: '', page: 0 }); render(); };
+  if ($('#yjGo')) { $('#yjGo').onclick = go; $('#yjQ').onkeydown = (e) => { if (e.key === 'Enter') go(); }; }
+  document.querySelectorAll('[data-slip]').forEach(t => t.onclick = () => { Object.assign(y, { board: t.dataset.slip, topic: '', page: 0 }); render(); });
+  document.querySelectorAll('[data-topic]').forEach(t => t.onclick = () => { y.topic = t.dataset.topic; y.page = 0; render(); });
+  if ($('#yjHome')) $('#yjHome').onclick = () => { Object.assign(y, { q: '', board: '', topic: '', status: '', page: 0 }); render(); };
+  yjList();
+}
 function bindSkeleton() {
+  bindLibrary();
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
     startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `📜 「${b.dataset.skel}」${W("skeleton")}` } })));
   document.querySelectorAll("[data-free]").forEach((a) => (a.onclick = () =>

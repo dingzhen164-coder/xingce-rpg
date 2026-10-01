@@ -49,7 +49,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, importer, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, importer, library, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -150,6 +150,24 @@ def session_action(body):
 def bank_view(body):
     with open_game(save=False) as g:
         return question_bank.summary(g)
+
+
+def library_catalog(body):
+    with open_game(save=False) as g:
+        return library.catalog(g)
+
+
+def library_search(body):
+    with open_game(save=False) as g:
+        return library.search(g, body)
+
+
+def library_question(body):
+    with open_game(save=False) as g:
+        try:
+            return library.detail(g, body.get("key", ""))
+        except question_bank.BankError as e:
+            raise ApiError(str(e))
 
 
 def _import_paths():
@@ -424,6 +442,9 @@ ROUTES = {
     ("POST", "/api/session/action"): session_action,
     ("GET", "/api/bank"): bank_view,
     ("POST", "/api/bank/count"): bank_count,
+    ("GET", "/api/library"): library_catalog,
+    ("POST", "/api/library/search"): library_search,
+    ("POST", "/api/library/question"): library_question,
     ("GET", "/api/import"): import_status,
     ("POST", "/api/import/preview"): import_preview,
     ("POST", "/api/import/commit"): import_commit,
