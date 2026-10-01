@@ -625,8 +625,8 @@ def _start_bank(g, task):
         raise TrainError(str(e))
     # 新入口也可以恢复同板块未完成的错题组，计时类型与实际模式一致。
     typ = 'bank_review' if run['mode'] == 'review' else 'bank'
-    s = new_session(typ, '%s · %s' % (g.T(typ), task['board']), task, board=task['board'], token=run['token'])
-    run.setdefault('reasoning', task['board'] == '论证逻辑')
+    s = new_session(typ, '%s · %s' % (g.T(typ), question_bank.label(task['board'])), task, board=task['board'], token=run['token'])
+    run.setdefault('reasoning', task['board'] == '论证逻辑')   # 整套试炼按套刷，统一用选项按钮
     r = _bank_show(g, s, run)
     r['messages'].insert(0, _msg('npc', g.T('bank_intro')))
     return r
@@ -646,7 +646,7 @@ def _bank_show(g, s, run, events=None):
         return _bank_resp(g, s, run, [_msg('sys', msg), _msg('npc', g.T('bank_good' if r['ok'] else 'bank_bad'))], events,
                           _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
                                    ('bank_pause', g.T('bank_pause'))))
-    msg = '%s · 第 %s/%s 关 · 编号 %s' % (run['board'], run['pos'] + 1, len(run['questions']), q['id'])
+    msg = '%s · 第 %s/%s 关 · 编号 %s' % (question_bank.label(run['board']), run['pos'] + 1, len(run['questions']), q['id'])
     blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
     if run.get('reasoning'):
         msg += '\n\n独立拆题：问法方向 → 结论（主体/结果）→ 论据 → 底层结构 → A/B/C/D的作用与排除理由。最后单独写一行【答案】B（填你的选择）。提交后才显示标准答案。'
@@ -702,16 +702,18 @@ def _bank_action(g, s, act):
             return _bank_show(g, s, run)
         group = question_bank.finish(g, run)
         # 错题复练不代替当日的新题实战；完成一组即完成任务，不要求全对。
-        if group['mode'] == 'new':
-            g.mark_done({'id': 'bank:' + s['board']}, True)
+        if group['mode'] == 'new':   # 整套试炼也算完成了套里各板块今天的实战功课
+            for b in group['boards'] if question_bank.is_set(s['board']) else [s['board']]:
+                g.mark_done({'id': 'bank:' + b}, True)
         events = []
         # 通关奖只对应本组首次作答的题目；旧组缺 first 标记不补发，复练不刷修为。
         if group['mode'] == 'new' and group['first_count']:
             base = g.rules.xp('实战通关') * group['first_count'] / group['total']
-            events = g._award(base, 'bank_clear', s['board'], ok=True,
-                              note='%s · %s 通关' % (g.T('bank'), s['board']))
+            main = max(group['boards'], key=lambda b: sum(q['board'] == b for q in run['questions']))
+            events = g._award(base, 'bank_clear', main if question_bank.is_set(s['board']) else s['board'], ok=True,
+                              note='%s · %s 通关' % (g.T('bank'), question_bank.label(s['board'])))
         text = '%s · %s完成：%s/%s 正确，正确率 %.1f%%。\n试炼品评：%s\n%s已保存，可到%s继续磨练。' % (
-            s['board'], g.T('bank_review' if group['mode'] == 'review' else 'bank'),
+            question_bank.label(s['board']), g.T('bank_review' if group['mode'] == 'review' else 'bank'),
             group['correct'], group['total'], 100 * group['correct'] / group['total'],
             g.T('bank_rank.' + str(group['rank'])), g.T('bank_wrong'), g.T('bank_review'))
         return _resp(s, [_msg('sys', text), _msg('npc', g.T('bank_close'))], events, finished=True)

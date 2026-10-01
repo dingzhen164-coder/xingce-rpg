@@ -269,6 +269,7 @@ const views = {
       <p class="small muted">在「训练/题库/板块名真题.md」添加${esc(W('bank_library'))}，或用上面的「📥 导入真题」批量入库（图放在「训练/题库/图片/板块名/」）。按文档顺序出题，题库不足一组时做剩余题；新题与错题正确率独立统计。</p>
       <label>每轮试炼 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label>
       <p class="small muted">首次作答获得${esc(W('xp'))}，新题组结算另有基础 ${d.bonus} ${esc(W('xp'))}（计入现有加成，旧组只按新记录比例发奖）。${esc(W('bank_review'))}计时，连续答对 ${d.streak_need} 次消除残影，不重复发奖。题量调整从下一轮生效。</p></div>
+      ${setsHtml(d.sets)}
       <div class="grid g2">${d.boards.map(b => `<div class="card bank-board"><div class="row"><h3>⚔ ${esc(b.board)} · ${esc(W('bank'))}</h3><span class="spacer"></span>${rootBadge(DASH.roots?.find(r => r.board === b.board))}</div>
       <p>${esc(W('bank_library'))} ${b.total} 道 · ${esc(W('bank_remaining'))} ${b.remaining} · ${esc(W('bank_wrong'))} ${b.wrong}</p>
       ${b.pending ? `<p class="small pending-note">另有 <b>${b.pending}</b> 道还没有答案，补上才会出题：上面「📥 导入真题 → ④ 补答案」填答案表</p>` : ''}
@@ -278,7 +279,7 @@ const views = {
       <div class="row"><button class="primary" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${esc(W(b.active ? 'bank_resume' : 'bank_start'))}</button>
       <button data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>${esc(W('bank_review'))}</button></div>
       ${b.wrong_items.length ? `<details><summary>${esc(W('bank_wrong'))}（错题）</summary>${b.wrong_items.map(q => `<p>编号 ${esc(q.id)} · ${esc(q.topic)} · 上次选 ${esc(q.last.answer)} · 共 ${q.tries} 次 · ${esc(q.last.date)}</p>`).join('')}</details>` : ''}</div>`).join('')}</div>
-      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span></div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
+      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span></div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
   },
 
   async skeleton() {
@@ -505,6 +506,20 @@ async function doAction(act) {
   catch (e) { T.busy = false; T.msgs.push({ who: "sys", text: "⚠ " + e.message }); }
   renderTrain();
 }
+// 整套试炼：练习册按“前缀-套-题”编号，一次刷完一整套（跨板块，如言语书一套里有片段阅读和逻辑填空）
+function setsHtml(books) {
+  if (!books?.length) return '';
+  const setName = (x) => `第${x.set}套`;
+  const btn = (book, x, cls) => `<button class="${cls}" data-bank="套:${esc(x.name)}" data-mode="new" data-title="${esc(book)} ${setName(x)}"
+      ${!x.active && x.done >= x.total ? 'disabled' : ''}>${x.active ? '▶ ' : x.done >= x.total ? '✓ ' : ''}${setName(x)} <span class="small">${x.done}/${x.total}</span></button>`;
+  return `<div class="card set-card"><h3>📚 整套试炼 <span class="small muted">一次刷完一整套，做完再看下一套；答案待补的题不出</span></h3>
+    ${books.map(b => {
+      const nx = b.sets.find(x => x.name === b.next);
+      return `<div class="set-book"><div class="row"><b>${esc(b.book)}</b><span class="small muted">共 ${b.sets.length} 套 · 已完成 ${b.finished} 套</span><span class="spacer"></span>
+        ${nx ? btn(b.book, nx, 'primary').replace(`${setName(nx)} <span`, `${nx.active ? '继续' : '开始'} ${setName(nx)} <span`) : '<span class="tag ok">全部完成</span>'}</div>
+        <details><summary class="small">选择其他套</summary><div class="set-grid">${b.sets.map(x => btn(b.book, x, 'ghost')).join('')}</div></details></div>`;
+    }).join('')}</div>`;
+}
 function bindBank() {
   const focusTower = () => {
     const box = $("#towerViewport"), floor = $(".tower-floor.current");
@@ -521,7 +536,7 @@ function bindBank() {
   $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
   document.querySelectorAll('[data-bank]').forEach(b => b.onclick = () => startTask({ task: {
     type: b.dataset.mode === 'review' ? 'bank_review' : 'bank', board: b.dataset.bank,
-    target: b.dataset.bank, title: `⚔ ${b.dataset.bank} · ${W(b.dataset.mode === 'review' ? 'bank_review' : 'bank')}`
+    target: b.dataset.bank, title: `⚔ ${b.dataset.title || b.dataset.bank} · ${W(b.dataset.mode === 'review' ? 'bank_review' : 'bank')}`
   } }));
 }
 // ------------------------------------------------------------ 导入真题（rpg/importer.py）

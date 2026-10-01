@@ -214,6 +214,34 @@ class BankTest(unittest.TestCase):
         self.assertEqual(bank.state(self.g)["runs"]["论证逻辑"]["phase"], "answer")
 
 
+    def test_whole_set_across_boards(self):
+        # 言语书一套 20 题分在两个板块；整套试炼按题号顺序一次做完，不受每轮 10 关限制
+        fill = self.paths.train / '题库/逻辑填空真题.md'
+        read = self.paths.train / '题库/片段阅读真题.md'
+        fill.write_text(''.join(question('懒猫-01-%02d' % n) for n in range(1, 21, 2)) + question('懒猫-02-01'), encoding='utf-8')
+        read.write_text(''.join(question('懒猫-01-%02d' % n) for n in range(2, 21, 2)), encoding='utf-8')
+        sets = bank.summary(self.g)['sets']
+        self.assertEqual([(b['book'], b['next'], len(b['sets'])) for b in sets], [('懒猫', '懒猫-01', 2)])
+        self.assertEqual(sets[0]['sets'][0]['total'], 20)
+        task = {'type': 'bank', 'board': '套:懒猫-01', 'title': '整套', 'target': '套:懒猫-01'}
+        r = trainer.start(self.g, task)
+        self.assertIn('懒猫 第01套 · 第 1/20 关 · 编号 懒猫-01-01', str(r))
+        sid = r['session']
+        for pos in range(20):
+            r = trainer.action(self.g, sid, 'bank_answer:%s:%s' % (pos, 'A' if pos else 'B'))
+            if pos == 1:
+                self.assertIn('片段阅读 第懒猫-01-02关', str(r))
+            r = trainer.action(self.g, sid, 'bank_next')
+        self.assertTrue(r['finished'])
+        self.assertIn('19/20', str(r))
+        d = bank.summary(self.g)
+        self.assertEqual(d['groups'][0]['label'], '懒猫 第01套')
+        self.assertEqual(d['groups'][0]['boards'], ['片段阅读', '逻辑填空'])
+        self.assertEqual(d['sets'][0]['next'], '懒猫-02')
+        self.assertEqual(d['sets'][0]['finished'], 1)
+        with self.assertRaises(trainer.TrainError):
+            trainer.start(self.g, task)
+
     def test_pending_answer_empty_analysis_and_images(self):
         f = self.paths.train / '题库/图形推理真题.md'
         img = self.paths.train / '题库/图片/图形推理/粉笔36季-077.png'

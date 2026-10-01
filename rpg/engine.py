@@ -1144,7 +1144,7 @@ class Game:
                 continue
             qs, errors = question_bank.read(self.paths, b)
             remaining = [q for q in qs if q['key'] not in data['records']]
-            completed = any(x['date'] == self.t and x['board'] == b and x['mode'] == 'new'
+            completed = any(x['date'] == self.t and b in (x['board'], *x.get('boards', ())) and x['mode'] == 'new'
                             for x in data['groups'])
             if (errors or not remaining) and b not in data['runs'] and not completed:
                 continue

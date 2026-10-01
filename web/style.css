@@ -224,6 +224,10 @@ select { font: inherit; color: var(--text); background: var(--panel2); border: 1
 .bank-counters span { border: 1px solid var(--gold); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .bank-board { border-top: 2px solid var(--gold); }
 .bank-board .row { flex-wrap: wrap; }
+.set-card .set-book { padding: 8px 0; border-top: 1px dashed var(--line, #8884); }
+.set-card .set-book:first-of-type { border-top: 0; }
+.set-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.set-grid button { min-width: 7em; }
 .battle-panel { border: 1px solid var(--gold); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 .battle-panel .bar { margin: 12px 0; }
 

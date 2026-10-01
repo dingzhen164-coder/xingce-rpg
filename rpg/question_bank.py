@@ -92,6 +92,62 @@ def state(g):
     return g.state.setdefault('bank', {'records': {}, 'runs': {}, 'groups': []})
 
 
+SET_PREFIX = '套:'
+SET_ID = re.compile(r'^(.+)-(\d{2,3})-(\d{2,3})$')
+
+
+def set_of(ident):
+    """练习册题号 前缀-套-题 → 套名“前缀-套”；模考（粉笔36季-001）、手写编号没有套"""
+    m = SET_ID.match(ident or '')
+    return '%s-%s' % (m.group(1), m.group(2)) if m else ''
+
+
+def is_set(slot):
+    return str(slot or '').startswith(SET_PREFIX)
+
+
+def label(slot):
+    """组名给人看：套:花生600题言语-03 → 花生600题言语 第03套"""
+    if not is_set(slot):
+        return slot
+    m = re.match(r'^(.+)-(\d+)$', slot[len(SET_PREFIX):])
+    return '%s 第%s套' % (m.group(1), m.group(2)) if m else slot[len(SET_PREFIX):]
+
+
+def _set_questions(g, name):
+    """一套题可能跨板块（言语书一套里既有片段阅读又有逻辑填空）：各板块题库里挑出这一套，按题号排"""
+    qs, errors = [], []
+    for board in boards(g):
+        got, err = read(g.paths, board)
+        mine = [q for q in got if set_of(q['id']) == name]
+        if mine:
+            errors += err
+        qs += mine
+    return sorted(qs, key=lambda q: int(SET_ID.match(q['id']).group(3))), errors
+
+
+def sets(g):
+    """整套试炼的目录：按书（前缀）分，每套多少题、做了几道、涉及哪些板块"""
+    data, books = state(g), {}
+    for board in boards(g):
+        for q in read(g.paths, board)[0]:
+            name = set_of(q['id'])
+            if not name:
+                continue
+            book, num = name.rsplit('-', 1)
+            x = books.setdefault(book, {}).setdefault(num, {'name': name, 'set': num, 'total': 0, 'done': 0, 'boards': {}})
+            x['total'] += 1
+            x['done'] += q['key'] in data['records']
+            x['boards'][board] = x['boards'].get(board, 0) + 1
+    out = []
+    for book, d in books.items():
+        items = [dict(d[k], active=(SET_PREFIX + d[k]['name']) in data['runs']) for k in sorted(d, key=int)]
+        nxt = next((x for x in items if x['active']), None) or next((x for x in items if x['done'] < x['total']), None)
+        out.append({'book': book, 'sets': items, 'next': nxt['name'] if nxt else '',
+                    'finished': sum(x['done'] == x['total'] for x in items)})
+    return out
+
+
 def count(g):
     n = g.rules.num('实战每组题数')
     return 15 if n == 15 else 10
@@ -115,15 +171,30 @@ def summary(g):
                        'wrong': len(wrong), 'errors': errors, 'active': bool(run),
                        'wrong_items': [{'id': r['question']['id'], 'topic': r['question']['topic'],
                                         'last': r['history'][-1], 'tries': len(r['history'])} for r in wrong]})
-    return {'boards': result, 'count': count(g), 'groups': [dict(x, rank=rank(g, x['correct'], x['total'])) for x in data['groups'][-20:][::-1]],
+    return {'boards': result, 'count': count(g),
+            'groups': [dict(x, rank=rank(g, x['correct'], x['total']), label=label(x['board'])) for x in data['groups'][-20:][::-1]],
             'streak_need': max(1, int(g.rules.num('回炉连续判对'))),
-            'bonus': g.rules.xp('实战通关'), 'tower': tower(g)}
+            'bonus': g.rules.xp('实战通关'), 'tower': tower(g), 'sets': sets(g)}
 
 
 def begin(g, board, mode):
+    data = state(g)
+    if is_set(board) and mode == 'new':
+        # 整套试炼：这一套还没做过的题一次做完，不受“每轮 10/15 关”限制
+        if board in data['runs']:
+            return data['runs'][board]
+        qs, errors = _set_questions(g, board[len(SET_PREFIX):])
+        if errors:
+            raise BankError('\n'.join(errors))
+        qs = [q for q in qs if q['key'] not in data['records']]
+        if not qs:
+            raise BankError('%s 已经全部做完（答案待补的题还不能出）' % label(board))
+        run = {'token': uuid.uuid4().hex, 'board': board, 'mode': 'new', 'questions': qs,
+               'pos': 0, 'results': [], 'phase': 'answer'}
+        data['runs'][board] = run
+        return run
     if board not in boards(g) or mode not in ('new', 'review'):
         raise BankError('板块或训练模式无效')
-    data = state(g)
     # 同板块最多一组，防止两个标签页重复抽题；已开始的组使用题目快照。
     slot = board
     if slot in data['runs']:
@@ -186,6 +257,7 @@ def finish(g, run):
              'method_total': sum(r.get('method_ok') is not None for r in run['results']),
              'method_correct': sum(r.get('method_ok') is True for r in run['results']),
              'ids': [q['id'] for q in run['questions']],
+             'boards': sorted({q['board'] for q in run['questions']}),
              'first_count': sum(bool(r.get('first')) for r in run['results']),
              'rank': rank(g, sum(r['ok'] for r in run['results']), len(run['results']))}
     state(g)['groups'].append(group)
