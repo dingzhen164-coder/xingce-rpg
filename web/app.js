@@ -492,7 +492,15 @@ async function loadImport() {
     const d = await api('/api/import');
     const opts = ['<option value="">自动识别</option>', ...d.boards.map(b => `<option>${esc(b)}</option>`)].join('');
     box.innerHTML = `
-      <div class="import-sec"><h4>① 模考（读 xingce-mokao-split 拆好的板块复盘，题干、答案、截图都准）</h4>
+      <div class="import-sec"><h4>① 模考（粉笔模考 PDF：自动拆分成板块复盘，再导入；题干、答案、截图都准）</h4>
+        <div class="row"><input type="file" id="pdfFile" accept=".pdf,application/pdf" style="flex:2">
+          <label style="flex:1">第几季 <input id="pdfSeason" type="number" min="1" placeholder="文件名有“第X季”就不用填"></label>
+          <button class="primary" id="pdfGo" ${d.splitter && d.pymupdf ? '' : 'disabled'}>拆分并导入</button></div>
+        ${!d.splitter ? '<p class="small">⚠ 没找到 xingce-mokao-split，先运行一次 skill 安装脚本。</p>' : ''}
+        ${d.splitter && !d.pymupdf ? '<p class="small">⚠ 拆 PDF 需要 pymupdf 组件（只装一次）。<button id="pymuGo">安装拆分组件</button></p>' : ''}
+        ${d.pdfs.filter(x => !x.split).map(x => `<div class="row"><span>📄 ${esc(x.file)}</span><span class="small muted">${x.season ? `第 ${x.season} 季 · 还没拆` : '文件名里没有“第X季”'}</span><span class="spacer"></span>
+          <button data-split="${esc(x.file)}" ${x.season && d.splitter && d.pymupdf ? '' : 'disabled'}>拆分并导入</button></div>`).join('')}
+        <p class="small muted">PDF 会存进 ${esc(d.pdf_dir)}，拆好的复盘在 FB模考试卷复盘/板块复盘/第N季/（和以前做复盘的一样）。下面是已经拆好的各季：</p>
         ${d.seasons.map(x => `<div class="row"><span>第 ${x.season} 季</span><span class="small muted">已导入 ${x.imported} 题</span><span class="spacer"></span>
           <button class="ghost" data-imp-season="${x.season}" data-dry="1">预览</button><button data-imp-season="${x.season}">导入</button></div>`).join('')
           || '<p class="small muted">还没有板块复盘。用 xingce-mokao-split 拆模考 PDF 后这里会出现。</p>'}</div>
@@ -525,7 +533,8 @@ async function loadImport() {
 
 function importReport(r, dry) {
   const boards = r.boards.map(([b, n]) => `${esc(b)} ${n}`).join('，') || '—';
-  return `<div class="card inner"><b>${dry ? '预览' : '已导入'}：${esc(r.name || '')}</b>${r.source ? ` <span class="tag">${esc(r.source)}</span>` : ''}
+  return `<div class="card inner"><b>${dry ? '预览' : '已导入'}：${esc(r.name || '')}</b>
+    ${r.split_log ? `<details class="fold"><summary>拆分记录</summary><div>${md(r.split_log)}</div></details>` : ''}${r.source ? ` <span class="tag">${esc(r.source)}</span>` : ''}
     ${r.note ? `<p class="small">${esc(r.note)}</p>` : ''}
     <p>${dry ? '可以入库' : '入库'} <b>${r.ready}</b> 题（${boards}）· 进待修 ${r.fix} 题 · 已有跳过 ${r.dup} 题</p>
     <p class="small muted">其中知识点待分类 ${r.unsorted} 题，答案待补 ${r.no_answer} 题（答案待补的题先不出）。${r.fix_file ? '待修文件：' + esc(r.fix_file) : ''}</p>
@@ -540,6 +549,7 @@ function bindImport() {
     try {
       const r = await api(url, body);
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
+      else if (url.endsWith('/install_pymupdf')) show(r.ok ? '<p>✅ 拆分组件装好了，现在可以拆 PDF。</p>' : '<p>⚠ 装完了但还是找不到组件，关掉程序重新打开试试。</p>');
       else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
@@ -555,6 +565,24 @@ function bindImport() {
   document.querySelectorAll('[data-imp-season]').forEach(b => b.onclick = () => run(b,
     b.dataset.dry ? '/api/import/preview' : '/api/import/commit', { kind: 'season', season: Number(b.dataset.impSeason) }, !!b.dataset.dry));
   document.querySelectorAll('[data-imp-fix]').forEach(b => b.onclick = () => run(b, '/api/import/commit', { kind: 'fix', file: b.dataset.impFix }, false));
+  const splitRun = (btn, file) => run(btn, '/api/import/split', { file }, false);
+  document.querySelectorAll('[data-split]').forEach(b => b.onclick = () => splitRun(b, b.dataset.split));
+  $('#pdfGo').onclick = async (e) => {
+    const f = $('#pdfFile').files[0];
+    if (!f) return show('<p>⚠ 先选一份模考 PDF</p>');
+    const btn = e.target; btn.disabled = true; btn.textContent = '上传中…';
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      const r = await api('/api/import/upload_pdf', { name: f.name, data: btoa(bin), season: Number($('#pdfSeason').value) || 0 });
+      btn.disabled = false; btn.textContent = '拆分并导入';
+      show('<p>已保存，正在拆分（大约半分钟）…</p>');
+      await splitRun(btn, r.file);
+    } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); btn.disabled = false; btn.textContent = '拆分并导入'; }
+  };
+  if ($('#pymuGo')) $('#pymuGo').onclick = (e) => {
+    if (confirm('将运行 pip install pymupdf 安装拆 PDF 用的组件（需要联网，只装一次），继续？')) run(e.target, '/api/import/install_pymupdf', {}, false);
+  };
   $('#impFile').onchange = async (e) => {
     const f = e.target.files[0]; IMPORT_TEXT = null;
     if (!f) return;

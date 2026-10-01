@@ -122,6 +122,28 @@ class ImportTest(unittest.TestCase):
         self.assertEqual([x["id"] for x in bank.read_all(self.p, "论证逻辑")[0]], ["花生-01-01"])
         self.assertFalse((self.p.train / "题库/_待修/花生.md").exists())
 
+    def test_upload_pdf_split_and_import(self):
+        import base64
+        sd = self.p.vault / "copilot/skills/xingce-mokao-split/scripts"
+        sd.mkdir(parents=True)
+        (sd / "split_mokao.py").write_text(            # 假拆分脚本：按真脚本的输出位置写板块复盘
+            "import re,sys\nfrom pathlib import Path\np=Path(sys.argv[1]);n=re.search(r'第(\\d+)季',p.stem).group(1)\n"
+            "o=p.parent.parent/'板块复盘'/('第%s季'%n);o.mkdir(parents=True,exist_ok=True)\n"
+            "(o/'02-常识判断.md').write_text('### 21. ✅\\n下列说法正确的是\\n- **A.** 甲\\n- **B.** 乙\\n- **C.** 丙\\n- **D.** 丁\\n"
+            "> 正确答案：**D**　我的答案：**D**\\n---\\n',encoding='utf-8')\n", encoding="utf-8")
+        data = base64.b64encode(b"%PDF-1.4 x").decode()
+        with self.assertRaises(importer.ImportError_):
+            importer.save_pdf(self.p, {"name": "模考.pdf", "data": data})              # 没有季数
+        with self.assertRaises(importer.ImportError_):
+            importer.save_pdf(self.p, {"name": "第37季.pdf", "data": base64.b64encode(b"hello").decode()})   # 不是 PDF
+        f = importer.save_pdf(self.p, {"name": "../模考.pdf", "data": data, "season": 37})["file"]
+        self.assertEqual(f, "第37季-模考.pdf")                                         # 不能写到别的目录
+        self.assertEqual(importer.status(self.p)["pdfs"][0], {"file": f, "season": 37, "split": False})
+        r = importer.split_pdf(self.p, {"file": f})
+        self.assertEqual(r["ready"], 1)
+        self.assertEqual(bank.read(self.p, "常识判断")[0][0]["id"], "粉笔37季-021")
+        self.assertTrue(importer.status(self.p)["pdfs"][0]["split"])
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

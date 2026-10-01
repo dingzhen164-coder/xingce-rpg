@@ -453,6 +453,108 @@ def place_images(paths, board, qid, stem, dry):
     return stem, missing
 
 
+# ---------------------------------------------------------------- 新模考 PDF：拆分（调用 xingce-mokao-split 的脚本）
+PDF_DIR = ("FB模考试卷复盘", "模考试卷")
+SEASON_RE = re.compile(r"第([一二三四五六七八九十百零\d]+)季")
+
+
+def pdf_dir(paths):
+    return paths.vault.joinpath(*PDF_DIR)
+
+
+def split_script(paths):
+    """xingce-mokao-split 的拆分脚本（安装脚本装在 copilot/skills 和 .opencode/skills）"""
+    for root in ("copilot/skills", ".opencode/skills"):
+        f = paths.vault / root / "xingce-mokao-split" / "scripts" / "split_mokao.py"
+        if f.is_file():
+            return f
+    return None
+
+
+def has_pymupdf():
+    import importlib.util
+    return bool(importlib.util.find_spec("pymupdf") or importlib.util.find_spec("fitz"))
+
+
+def pdf_list(paths):
+    """模考试卷文件夹里的 PDF，标出季数和是否已经拆过"""
+    d, done = pdf_dir(paths), {n for n, sd in vault.seasons(paths) if any(sd.glob("[0-9][0-9]-*.md"))}
+    out = []
+    if d.is_dir():
+        for f in sorted(d.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True):
+            m = SEASON_RE.search(f.stem)
+            n = _cn2int(m.group(1)) if m else None
+            out.append({"file": f.name, "season": n, "split": n in done})
+    return out
+
+
+def save_pdf(paths, body):
+    """网页选的 PDF 存进 FB模考试卷复盘/模考试卷/；文件名里没有“第X季”时用填写的季数补上（拆分和导入都靠它认季）"""
+    import base64
+    name = Path(str(body.get("name") or "")).name
+    if not name.lower().endswith(".pdf"):
+        raise ImportError_("请选择 PDF 文件")
+    if not SEASON_RE.search(name):
+        n = int(body.get("season") or 0)
+        if n <= 0:
+            raise ImportError_("文件名里没有“第X季”，请填写这是第几季")
+        name = "第%d季-%s" % (n, name)
+    try:
+        data = base64.b64decode(body.get("data") or "", validate=True)
+    except Exception:
+        raise ImportError_("文件读取失败，请重新选择")
+    if not data.startswith(b"%PDF"):
+        raise ImportError_("这不是 PDF 文件")
+    d = pdf_dir(paths)
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / name, "wb") as fp:
+        fp.write(data)
+    return {"file": name}
+
+
+def split_pdf(paths, body):
+    """运行 split_mokao.py 拆分一份模考 PDF，然后把那一季导入试炼塔。已拆过的板块文件脚本会跳过，不覆盖复盘笔记"""
+    import os
+    import subprocess
+    import sys
+    name = Path(str(body.get("file") or "")).name
+    f = pdf_dir(paths) / name
+    if not name or not f.is_file():
+        raise ImportError_("找不到这份 PDF")
+    m = SEASON_RE.search(f.stem)
+    if not m:
+        raise ImportError_("文件名里没有“第X季”，改一下文件名再拆")
+    script = split_script(paths)
+    if not script:
+        raise ImportError_("没找到 xingce-mokao-split（先运行 skill 安装脚本）")
+    if not has_pymupdf():
+        raise ImportError_("缺少 pymupdf：点下面的“安装拆分组件”，或在 PowerShell 运行 pip install pymupdf")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, str(script), str(f)], capture_output=True, timeout=600, env=env)
+    log = (r.stdout + r.stderr).decode("utf-8", errors="replace")
+    if r.returncode != 0:
+        raise ImportError_("拆分失败：\n" + log[-800:])
+    season = _cn2int(m.group(1))
+    if not any(d for n, d in vault.seasons(paths) if n == season):
+        raise ImportError_("拆分完成但没找到第%d季的板块复盘：\n%s" % (season, log[-800:]))
+    rep = commit(paths, {"kind": "season", "season": season})
+    rep["split_log"] = "\n".join(ln for ln in log.splitlines() if re.search(r"共解析|题|⚠|跳过", ln))[-1200:]
+    return rep
+
+
+def install_pymupdf(paths, body):
+    """用户在网页上点了“安装拆分组件”才运行：pip install pymupdf"""
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "pymupdf"], capture_output=True, timeout=600)
+    log = (r.stdout + r.stderr).decode("utf-8", errors="replace")
+    if r.returncode != 0:
+        raise ImportError_("安装失败：\n" + log[-800:])
+    import importlib
+    importlib.invalidate_caches()
+    return {"ok": has_pymupdf(), "log": log[-300:]}
+
+
 # ---------------------------------------------------------------- 对外：状态 / 预览 / 导入
 def status(paths):
     """导入页需要的信息：各季模考（题数、已导入数）、待修文件、待分类知识点数"""
@@ -472,7 +574,9 @@ def status(paths):
             bs = parse_blocks(f.read_text(encoding="utf-8-sig", errors="ignore"))
             fixes.append({"file": f.name, "total": len(bs), "ready": sum(not b["fields"].get("检查", "").strip() for b in bs)})
     unsorted = sum(len(_unsorted_blocks(f)) for f in bank.glob("*真题.md")) if bank.is_dir() else 0
-    return {"seasons": seasons[::-1], "fixes": fixes, "unsorted": unsorted, "ai": ai.available(), "boards": BOARDS}
+    return {"seasons": seasons[::-1], "fixes": fixes, "unsorted": unsorted, "ai": ai.available(), "boards": BOARDS,
+            "pdfs": pdf_list(paths), "splitter": bool(split_script(paths)), "pymupdf": has_pymupdf(),
+            "pdf_dir": "/".join(PDF_DIR) + "/"}
 
 
 def _collect(paths, body):
