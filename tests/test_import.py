@@ -227,6 +227,9 @@ class ImportTest(unittest.TestCase):
         self.assertEqual([(x["id"], x["board"]) for x in bank.read_all(self.p, "逻辑填空")[0]],
                          [("花生言语-01-01", "逻辑填空"), ("花生言语-01-02", "逻辑填空"), ("花生言语-01-03", "逻辑填空")])
 
+    def test_empty_option_line_does_not_swallow_next(self):
+        self.assertEqual(importer.parse_opts("A. 甲\nB. 乙\nC. \nD. 丁"), {"A": "甲", "B": "乙", "C": "", "D": "丁"})
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

@@ -59,7 +59,7 @@ def read_all(paths, board):
                 errors.append('题目 %s：重复的 %s 小节' % (ident, name))
             fields[name] = body[p.end():parts[j + 1].start() if j + 1 < len(parts) else len(body)].strip()
         options = {}
-        matches = list(re.finditer(r'^\s*([A-D])[.．、)）]\s*(.*)$', fields.get('选项', ''), re.M))
+        matches = list(re.finditer(r'^[ \t]*([A-D])[.．、)）][ \t]*(.*)$', fields.get('选项', ''), re.M))
         for j, m in enumerate(matches):
             key = m.group(1)
             if key in options:

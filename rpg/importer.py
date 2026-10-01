@@ -505,7 +505,8 @@ def parse_blocks(text):
 
 
 def parse_opts(s):
-    return {m.group(1): m.group(2).strip() for m in re.finditer(r"^\s*([A-D])[\.．、)）]\s*(.*)$", s or "", re.M)}
+    # [ \t]* 而不是 \s*：空选项（“C. ”）不能把下一行的 D 项吞进来
+    return {m.group(1): m.group(2).strip() for m in re.finditer(r"^[ \t]*([A-D])[\.．、)）][ \t]*(.*)$", s or "", re.M)}
 
 
 def bank_block(q):
