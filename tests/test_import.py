@@ -174,6 +174,17 @@ class ImportTest(unittest.TestCase):
         r = importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual((r["ready"], r["dup"]), (0, 5))                     # 真重复仍然跳过
 
+    def test_logic_book_board_by_options_and_digit_stems(self):
+        self.assertEqual(importer.board_by_options({"A": "栖霞镇", "B": "莲花镇", "C": "五溪镇", "D": "花石镇"}), "形式逻辑")
+        self.assertEqual(importer.board_by_options({"A": "甲", "B": "乙", "C": "丙", "D": "丁"}), "形式逻辑")
+        self.assertEqual(importer.board_by_options({
+            "A": "最新调查显示，智商相对较低的孩子大多数经常被家长打屁股", "B": "本身不听话且更容易惹祸的孩子更有可能受到父母的严厉惩罚",
+            "C": "研究报告称全球大约80%的父母都有以打屁股管教孩子的经历", "D": "被打屁股而困惑的孩子只懂得按家长要求去做而不会独立思考"}), "论证逻辑")
+        text = ("练习题01\n1.某研究认为甲导致乙。以下哪项如果为真，最能削弱上述结论：\nA。选项一 B.选项二 C．选项三 D。选项四\n"
+                "2：2008年以来，某市房价上涨。\nA。甲选红石村 B.乙选青山村 C．丙选绿水村 D。丁选黄叶村\n")   # 第 2 题题干以数字开头、问句没 OCR 出来
+        qs = importer._collect(self.p, {"kind": "text", "text": text, "prefix": "书", "no_source": True})[0]
+        self.assertEqual([(q["id"], q["board"]) for q in qs], [("书-01-01", "论证逻辑"), ("书-01-02", "形式逻辑")])
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)
