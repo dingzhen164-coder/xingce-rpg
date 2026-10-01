@@ -119,6 +119,36 @@ def _parse(path, board):
     return questions, errors
 
 
+TUTOR_FILE = '师傅解惑.md'
+_TUTOR_HEAD = re.compile(r'^## (\S+) · ', re.M)
+
+
+def tutor_notes(paths):
+    """试炼复盘里请师傅讲过的题：训练/题库/师傅解惑.md，{编号: 讲解}"""
+    f = paths.train / '题库' / TUTOR_FILE if paths.train else None
+    if not f or not f.is_file():
+        return {}
+    text = f.read_text(encoding='utf-8')
+    heads = list(_TUTOR_HEAD.finditer(text))
+    return {h.group(1): text[text.index('\n', h.start()) + 1:heads[i + 1].start() if i + 1 < len(heads) else len(text)].strip()
+            for i, h in enumerate(heads)}
+
+
+def save_tutor_note(paths, q, text, date):
+    """存一题的师傅讲解；同一题再讲一次就换成新的"""
+    notes = tutor_notes(paths)
+    notes.pop(q['id'], None)
+    f = paths.train / '题库' / TUTOR_FILE
+    old = f.read_text(encoding='utf-8') if f.is_file() else ''
+    # 保留原顺序，只换这一题
+    keep = [m for m in re.split(r'(?=^## \S+ · )', old, flags=re.M) if m.strip() and not m.startswith('## %s · ' % q['id'])]
+    if not keep or not keep[0].startswith('# '):
+        keep.insert(0, '# 师傅解惑\n\n> 试炼复盘里点「师傅解惑」的讲解，按题目编号存在这里；同一题再问会换成新的。\n\n')
+    keep.append('## %s · %s（%s）\n%s\n\n' % (q['id'], q['board'], date, text.strip()))
+    f.write_text(''.join(keep), encoding='utf-8', newline='\n')
+    return '训练/题库/' + TUTOR_FILE
+
+
 def state(g):
     return g.state.setdefault('bank', {'records': {}, 'runs': {}, 'groups': []})
 

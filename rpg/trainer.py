@@ -414,8 +414,13 @@ def _discuss_reply(g, s, text):
 
 def _discuss_action(g, s, act):
     if act == "ask_explain":
-        return _resp(s, [_msg("me", "🧙 师傅，这题给我讲透。")] + _discuss_ask(g, s, "请按 skill 的方法把这道题完整讲一遍"),
-                     input=_remember(s, _discuss_input()))
+        n = len(s["discuss"]["history"])
+        msgs = [_msg("me", "🧙 师傅，这题给我讲透。")] + _discuss_ask(g, s, "请按 skill 的方法把这道题完整讲一遍")
+        if s["type"] == "wrong" and len(s["discuss"]["history"]) > n:   # 讲成了：存进这题的复盘笔记，下次“复盘解析”能看到
+            where = vault.save_tutor_note(g.paths, s["key"], s["discuss"]["history"][-1]["content"], g.t)
+            if where:
+                msgs.append(_msg("sys", "📌 已存入复盘解析：%s 第 %s 题（再问一次会换成新的）" % (where, s["key"].split("|")[2])))
+        return _resp(s, msgs, input=_remember(s, _discuss_input()))
     if act == "ask_more":
         return _resp(s, [_msg("me", "🌀 师傅，再举一个例子。")] + _discuss_ask(
             g, s, "再给我出一道考这个大项的典型例题（四个选项），先让我看题，然后按步骤讲怎么用这个方法做出来"),
@@ -1047,6 +1052,8 @@ def _review_show(g, s, run, events=None, extra=None, head=False):
             msgs.append(_msg('npc', line))
     if str(i) in run.get('explain', {}):
         msgs.append(_msg('npc', run['explain'][str(i)]))
+    elif q['id'] in question_bank.tutor_notes(g.paths):      # 以前请师傅讲过
+        msgs.append(_msg('sys', question_bank.tutor_notes(g.paths)[q['id']], fold='🧙 上次的师傅解惑'))
     msgs += extra or []
     wrong_after = [k for k in range(i + 1, len(qs)) if not res[k]['ok']]
     btns = [('exam_explain:%s' % i, '🧙 师傅解惑' if str(i) not in run.get('explain', {}) else '🧙 再问师傅')]
@@ -1078,7 +1085,9 @@ def _review_action(g, s, run, act):
         if not ai.available():   # 没连 AI：说一句，不记成“讲过了”
             return _review_show(g, s, run, extra=[_msg('npc', (_say(g, '试炼·解惑没AI') or '为师今日闭关（没连上 AI）。先把解析读三遍。')
                                                        + '\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）')])
-        run.setdefault('explain', {})[str(i)] = _explain(g, qs[i], res[i])
+        run.setdefault('explain', {})[str(i)] = text = _explain(g, qs[i], res[i])
+        where = question_bank.save_tutor_note(g.paths, qs[i], text, g.t)
+        return _review_show(g, s, run, extra=[_msg('sys', '📌 已存入 %s（再问一次会换成新的）' % where)])
     elif act == 'exam_close':
         group = run['settled']
         table, total = _result_table(g, run)

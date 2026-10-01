@@ -92,4 +92,5 @@ def detail(g, key):
             'analysis': trainer._bank_blocks(g, board, q['analysis'] or '（暂无解析）'),
             'history': [{'date': h.get('date'), 'answer': h.get('answer'), 'ok': h.get('ok'), 'seconds': h.get('seconds')}
                         for h in rec.get('history', [])],
-            'status': _status(question_bank.state(g), q)}
+            'status': _status(question_bank.state(g), q),
+            'tutor': trainer._bank_blocks(g, board, question_bank.tutor_notes(g.paths).get(q['id'], '')) if question_bank.tutor_notes(g.paths).get(q['id']) else []}

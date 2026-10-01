@@ -866,7 +866,7 @@ async function yjOpen(row) {
     d.innerHTML = `<div class="msg sys">${blocksHtml(q.stem)}${q.options.map(o => `<div class="yj-opt"><b>${o.k}.</b> ${blocksHtml(o.blocks)}</div>`).join('')}</div>
       ${q.papers.length ? `<div class="small faint">出处：${q.papers.map(esc).join('；')}</div>` : ''}
       <button class="small yj-reveal">🔓 显现答案与解析</button>
-      <div class="yj-ans" hidden><div class="msg sys"><b>答案：${esc(q.answer)}</b> · 知识点：${esc(q.topic)}${blocksHtml(q.analysis)}</div><div class="small muted">我的作答：<br>${hist}</div></div>`;
+      <div class="yj-ans" hidden><div class="msg sys"><b>答案：${esc(q.answer)}</b> · 知识点：${esc(q.topic)}${blocksHtml(q.analysis)}</div>${q.tutor?.length ? `<div class="msg sys"><b>🧙 师傅解惑</b>${blocksHtml(q.tutor)}</div>` : ''}<div class="small muted">我的作答：<br>${hist}</div></div>`;
     d.querySelector('.yj-reveal').onclick = (e) => { e.target.hidden = true; d.querySelector('.yj-ans').hidden = false; };
   } catch (e) { d.innerHTML = `⚠ ${esc(e.message)}`; }
 }

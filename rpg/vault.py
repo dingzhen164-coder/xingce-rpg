@@ -158,7 +158,7 @@ def _clean_analysis(lines):
     for ln in lines:
         s = ln.strip()
         s = s[1:].strip() if s.startswith(">") else s
-        if not s or PLACEHOLDER_RE.match(s):
+        if not s or PLACEHOLDER_RE.match(s) or s.startswith("<!--"):
             continue
         out.append(s)
     return "\n".join(out)
@@ -239,6 +239,45 @@ def wrong_questions(paths, sources, last_n=0):
     for s in sources:
         out += [q for q in questions(paths, s, last_n) if q["icon"] in ("❌", "⚪")]
     return sorted(out, key=lambda q: (-q["season"], q["num"]))
+
+
+TUTOR_HEAD = "> **🧙 师傅解惑**"
+TUTOR_END = "> <!-- /师傅解惑 -->"
+
+
+def save_tutor_note(paths, key, text, date):
+    """把“师傅解惑”写进这道题的复盘笔记（> [!note] 复盘 里），下次“复盘解析”就能看到。
+    同一题再问一次就换成新的那段，不越堆越多；自己写的笔记不动。返回写进的文件（库内相对路径）"""
+    q = find_question(paths, key)
+    if not q:
+        return ""
+    f = board_file(Path(q["dir"]), q["source"])
+    lines = f.read_text(encoding="utf-8").split("\n")
+    start = next((i for i, ln in enumerate(lines) if HEAD_RE.match(ln) and int(HEAD_RE.match(ln).group(1)) == q["num"]), None)
+    if start is None:
+        return ""
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == "---" or HEAD_RE.match(lines[i])
+                or MAT_RE.match(lines[i])), len(lines))
+    block = [TUTOR_HEAD + "（%s）" % date] + ["> " + ln if ln.strip() else ">" for ln in text.strip().split("\n")] + [TUTOR_END]
+    seg = lines[start:end]
+    old = next((i for i, ln in enumerate(seg) if ln.startswith(TUTOR_HEAD)), None)
+    if old is not None:      # 换掉上一次的
+        close = next((i for i in range(old, len(seg)) if seg[i].strip() == TUTOR_END), len(seg) - 1)
+        seg[old:close + 1] = block
+    else:
+        note = next((i for i, ln in enumerate(seg) if ln.startswith(NOTE)), None)
+        if note is None:     # 这题还没有复盘笔记：在题目末尾新开一段
+            while seg and not seg[-1].strip():
+                seg.pop()
+            seg += ["", NOTE] + block + [""]
+        else:                # 接在已有笔记后面（笔记是连续的 > 行）
+            k = note + 1
+            while k < len(seg) and seg[k].startswith(">"):
+                k += 1
+            seg[k:k] = [">"] + block
+    lines[start:end] = seg
+    f.write_text("\n".join(lines), encoding="utf-8")
+    return str(f.relative_to(paths.vault)).replace("\\", "/")
 
 
 def find_question(paths, key):

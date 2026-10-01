@@ -288,6 +288,8 @@ class BankTest(unittest.TestCase):
             r = trainer.action(self.g, sid, 'exam_explain:2')
         self.assertIn('坑都写脸上了', str(r))
         self.assertIn('学员选了：C（答错）', sent['prompt'])
+        self.assertIn('已存入 训练/题库/师傅解惑.md', str(r))
+        self.assertEqual(bank.tutor_notes(self.paths), {'03': '选C？坑都写脸上了。'})
         self.assertIn('再问师傅', str(r))
         r = trainer.action(self.g, sid, 'exam_close')
         self.assertTrue(r['finished'])
