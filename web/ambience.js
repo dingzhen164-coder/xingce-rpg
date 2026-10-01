@@ -2,7 +2,7 @@
   外观与音乐（rpg/appearance.py 提供数据）：背景、语录、BGM。
   - 背景：BUILTIN_BG 是程序自带、用 SVG 现画的几张（跟随系统亮色 / 暗色）；也可以用 训练/外观/背景/ 里的图片。
   - 语录：训练/语录.md 一行一句；竖排淡淡地浮在页面右侧（窄屏时在底部）。
-  - BGM：默认关闭，顶栏 ♪ 打开。训练/外观/音乐/ 里有音频就循环播放；没有就用 WebAudio 现场合成古琴风的五声音阶氛围音。
+  - BGM：默认关闭，顶栏 ♪ 打开，循环播放 训练/外观/音乐/ 里的音频（程序不自带音乐）。
   对外：AMB.load()、AMB.apply(cur)、AMB.save(patch)、AMB.settingsHtml()、AMB.bindSettings()、AMB.builtinNames()。
 */
 const AMB = (() => {
@@ -146,56 +146,7 @@ const AMB = (() => {
 
   // ---------------------------------------------------------------- BGM
   const BGM = (() => {
-    let on = false, audio = null, list = [], idx = 0, synth = null, vol = 0.35;
-
-    // 古琴风合成：五声音阶（宫商角徵羽）拨弦 + 低音持续 + 混响；音符间隔随机，偶尔滑音
-    function makeSynth() {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AC();
-      const master = ctx.createGain(); master.gain.value = vol * 0.7; master.connect(ctx.destination);
-      const verb = ctx.createConvolver(); const wet = ctx.createGain(); wet.gain.value = 0.55;
-      const len = ctx.sampleRate * 4, ir = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
-      verb.buffer = ir; verb.connect(wet); wet.connect(master);
-      const dry = ctx.createGain(); dry.gain.value = 0.6; dry.connect(master);
-      // 低音持续（宫 + 徵），缓慢起伏
-      const drones = [65.41, 98.0].map((f) => {
-        const o = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
-        o.type = "sine"; o.frequency.value = f; g.gain.value = 0.035;
-        lfo.frequency.value = 0.05 + Math.random() * 0.05; lg.gain.value = 0.02; lfo.connect(lg); lg.connect(g.gain);
-        o.connect(g); g.connect(dry); g.connect(verb); o.start(); lfo.start();
-        return [o, lfo];
-      });
-      const scale = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];   // C 宫五声，两个八度
-      let pos = 4, timer = null;
-      function pluck(freq, t, gain = 0.22) {
-        const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
-        o.type = "triangle"; o2.type = "sine";
-        if (Math.random() < 0.25) { o.frequency.setValueAtTime(freq * 0.94, t); o.frequency.exponentialRampToValueAtTime(freq, t + 0.18); }
-        else o.frequency.setValueAtTime(freq, t);
-        o2.frequency.setValueAtTime(freq * 2, t);
-        const o2g = ctx.createGain(); o2g.gain.value = 0.18;
-        lp.type = "lowpass"; lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(600, t + 2.5);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 3 + Math.random() * 1.5);
-        o.connect(lp); o2.connect(o2g); o2g.connect(lp); lp.connect(g); g.connect(dry); g.connect(verb);
-        o.start(t); o2.start(t); o.stop(t + 5); o2.stop(t + 5);
-      }
-      function phrase() {
-        const t = ctx.currentTime + 0.05, n = 1 + Math.floor(Math.random() * 4);
-        for (let i = 0; i < n; i++) {
-          pos = Math.max(0, Math.min(scale.length - 1, pos + [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)]));
-          pluck(scale[pos], t + i * (0.35 + Math.random() * 0.45), 0.16 + Math.random() * 0.1);
-          if (Math.random() < 0.15) pluck(scale[pos] / 2, t + i * 0.4, 0.1);
-        }
-        timer = setTimeout(phrase, 2200 + Math.random() * 3800);
-      }
-      phrase();
-      return {
-        setVolume(v) { master.gain.setTargetAtTime(v * 0.7, ctx.currentTime, 0.2); },
-        stop() { clearTimeout(timer); master.gain.setTargetAtTime(0, ctx.currentTime, 0.3); setTimeout(() => { drones.forEach(([o, l]) => { o.stop(); l.stop(); }); ctx.close(); }, 1200); },
-      };
-    }
+    let on = false, audio = null, list = [], idx = 0, vol = 0.35;
 
     function playFile() {
       if (!list.length) return;
@@ -207,17 +158,18 @@ const AMB = (() => {
 
     function start() {
       const cur = DATA?.current || {};
-      vol = cur.volume ?? 0.35;
       const music = DATA?.music || [];
-      if (cur.track && cur.track !== "builtin" && music.includes(cur.track)) {
-        list = music; idx = music.indexOf(cur.track); playFile();
-      } else synth = makeSynth();
+      if (!music.length) {
+        alert(`还没有背景音乐：把 mp3 / ogg / m4a / wav 放进库里的「${DATA?.folders?.music || "训练/外观/音乐/"}」，刷新网页后再点 ♪。`);
+        return;
+      }
+      vol = cur.volume ?? 0.35;
+      list = music; idx = Math.max(0, music.indexOf(cur.track)); playFile();
       on = true; btn();
     }
     function stop() {
       on = false;
       if (audio) { audio.pause(); audio = null; }
-      if (synth) { synth.stop(); synth = null; }
       btn();
     }
     function btn() {
@@ -229,7 +181,7 @@ const AMB = (() => {
     return {
       toggle() { on ? stop() : start(); },
       restart() { if (on) { stop(); start(); } },
-      setVolume(v) { vol = v ?? vol; if (audio) audio.volume = vol; if (synth) synth.setVolume(vol); },
+      setVolume(v) { vol = v ?? vol; if (audio) audio.volume = vol; },
       get on() { return on; },
     };
   })();
@@ -253,11 +205,11 @@ const AMB = (() => {
         <label style="flex:2">固定显示哪一句 <select id="ambFixed">${DATA.quotes.map((q) => `<option ${q === c.fixed ? "selected" : ""}>${esc2(q)}</option>`).join("")}</select></label></div>
       <p class="small muted">语录在库里的 <b>${esc2(DATA.folders.quotes)}</b>，一行一句（“- ”开头），自己加、改、删，刷新生效。现在共 ${DATA.quotes.length} 句。</p>
       <hr class="soft">
-      <div class="row"><label style="flex:2">背景音乐 <select id="ambTrack"><option value="builtin" ${c.track === "builtin" ? "selected" : ""}>空山琴韵（程序现场合成，古琴风五声音阶）</option>
+      ${DATA.music.length ? `<div class="row"><label style="flex:2">背景音乐 <select id="ambTrack">
           ${DATA.music.map((p) => `<option value="${esc2(p)}" ${c.track === p ? "selected" : ""}>${esc2(p.split("/").pop())}（从这首开始循环播放全部）</option>`).join("")}</select></label>
         <label style="flex:1">音量 <input type="range" id="ambVol" min="0" max="1" step="0.05" value="${c.volume}"></label>
-        <button id="ambPlay">${BGM.on ? "■ 停止" : "▶ 试听 / 播放"}</button></div>
-      <p class="small muted">默认不播放；顶栏的 ♪ 随时开关。自己的音乐：放进 <b>${esc2(DATA.folders.music)}</b>（mp3 / ogg / m4a / wav），刷新本页后在上面选。</p></div>`;
+        <button id="ambPlay">${BGM.on ? "■ 停止" : "▶ 播放"}</button></div>` : `<p>背景音乐：还没有音乐。</p>`}
+      <p class="small muted">默认不播放；顶栏的 ♪ 随时开关。音乐放进 <b>${esc2(DATA.folders.music)}</b>（mp3 / ogg / m4a / wav），刷新本页后在上面选；删掉文件就不会再播。</p></div>`;
   }
 
   function bindSettings(onErr) {
@@ -271,11 +223,12 @@ const AMB = (() => {
     dim.onchange = () => guard(save({ dim: Number(dim.value) }));
     document.getElementById("ambQuote").onchange = (e) => { QUOTE = ""; guard(save({ quote: e.target.value })); };
     document.getElementById("ambFixed").onchange = (e) => guard(save({ fixed: e.target.value, quote: "fixed" }).then(() => { document.getElementById("ambQuote").value = "fixed"; }));
+    if (!document.getElementById("ambTrack")) return;   // 还没有音乐
     document.getElementById("ambTrack").onchange = (e) => guard(save({ track: e.target.value }).then(() => BGM.restart()));
     const vol = document.getElementById("ambVol");
     vol.oninput = () => BGM.setVolume(Number(vol.value));
     vol.onchange = () => guard(save({ volume: Number(vol.value) }));
-    document.getElementById("ambPlay").onclick = (e) => { BGM.toggle(); e.target.textContent = BGM.on ? "■ 停止" : "▶ 试听 / 播放"; };
+    document.getElementById("ambPlay").onclick = (e) => { BGM.toggle(); e.target.textContent = BGM.on ? "■ 停止" : "▶ 播放"; };
   }
 
   return { load, apply, save, settingsHtml, bindSettings, bgm: BGM, builtinNames: () => Object.keys(BUILTIN_BG) };

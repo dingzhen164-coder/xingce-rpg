@@ -24,7 +24,7 @@ class AppearanceTest(unittest.TestCase):
         self.assertEqual(qs[0], "山高万仞，只登一步")                     # 默认语录复制进库
         v = appearance.view(self.p, {}, dt.date(2026, 10, 1))
         self.assertIn(v["daily"], qs)
-        self.assertEqual(v["current"]["track"], "builtin")
+        self.assertEqual(v["current"]["track"], "")                      # 程序不自带音乐
         (self.p.train / "外观/背景/山.jpg").write_bytes(b"x")
         (self.p.train / "外观/音乐/琴.mp3").write_bytes(b"x")
         st = {}

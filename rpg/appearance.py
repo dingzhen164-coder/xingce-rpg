@@ -3,7 +3,7 @@
 
 - 背景：程序自带几张（网页用代码画，见 web/app.js 的 BUILTIN_BG），或用户放进 训练/外观/背景/ 的图片。
 - 语录：训练/语录.md，一行一句（“- ”开头），用户自己改；显示方式：每次随机 / 每日一句 / 固定一句 / 不显示。
-- BGM：默认关闭，顶栏 ♪ 按钮打开。训练/外观/音乐/ 里有音频就按顺序循环播放，没有就用网页现场合成的古琴风氛围音。
+- BGM：默认关闭，顶栏 ♪ 按钮打开，按顺序循环播放 训练/外观/音乐/ 里的音频（程序不自带音乐）。
 选择存在存档 state["appearance"] 里（两台电脑同步）；图片、音乐、语录都在库里，坚果云同步。
 """
 import datetime as dt
@@ -14,7 +14,7 @@ from .vault import IMAGE_EXT
 AUDIO_EXT = {".mp3", ".ogg", ".m4a", ".aac", ".wav", ".flac", ".opus"}
 BG_DIR = ("外观", "背景")
 MUSIC_DIR = ("外观", "音乐")
-DEFAULTS = {"bg": "builtin:水墨远山", "dim": 0.35, "quote": "daily", "fixed": "", "track": "builtin", "volume": 0.35}
+DEFAULTS = {"bg": "builtin:水墨远山", "dim": 0.35, "quote": "daily", "fixed": "", "track": "", "volume": 0.35}
 QUOTE_MODES = ("random", "daily", "fixed", "off")
 
 
@@ -54,8 +54,11 @@ def current(state):
 def view(paths, state, today=None):
     qs = quotes(paths)
     today = today or dt.date.today()
-    return {"current": current(state), "backgrounds": _files(paths, BG_DIR, IMAGE_EXT),
-            "music": _files(paths, MUSIC_DIR, AUDIO_EXT), "quotes": qs,
+    cur, music = current(state), _files(paths, MUSIC_DIR, AUDIO_EXT)
+    if cur["track"] not in music:          # 没选过 / 选的那首删了：从第一首开始
+        cur["track"] = music[0] if music else ""
+    return {"current": cur, "backgrounds": _files(paths, BG_DIR, IMAGE_EXT),
+            "music": music, "quotes": qs,
             "daily": qs[today.toordinal() % len(qs)] if qs else "",
             "folders": {"bg": "训练/外观/背景/", "music": "训练/外观/音乐/", "quotes": "训练/语录.md"}}
 
@@ -75,7 +78,7 @@ def update(paths, state, body):
     if body.get("fixed") is not None:
         a["fixed"] = str(body["fixed"])[:60]
     tr = body.get("track")
-    if tr is not None and (tr == "builtin" or tr in _files(paths, MUSIC_DIR, AUDIO_EXT)):
+    if tr is not None and tr in _files(paths, MUSIC_DIR, AUDIO_EXT):
         a["track"] = tr
     if body.get("volume") is not None:
         a["volume"] = max(0.0, min(1.0, float(body["volume"])))
