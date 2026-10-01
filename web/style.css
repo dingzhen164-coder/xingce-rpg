@@ -152,6 +152,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 60px; }
   border-radius: 14px 4px 14px 14px; padding: 8px 12px; white-space: pre-wrap; }
 .msg.sys { background: var(--panel2); border-left: 3px solid var(--accent2); border-radius: 8px; padding: 8px 12px; }
 .msg.sys img { display: block; max-width: 100%; border-radius: 8px; margin: 6px 0; background: #fff; }
+.msg.sys img.inline-img { display: inline-block; vertical-align: middle; margin: 0 2px; border-radius: 0; max-height: 2.6em; background: transparent; }
 details.fold { background: var(--panel2); border-radius: 8px; padding: 6px 12px; }
 details.fold summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .composer { border-top: 1px solid var(--line); padding-top: 10px; }

@@ -82,7 +82,7 @@ def _parse(path, board):
         ident = h.group(1).strip()
         body = text[h.end():heads[i + 1].start() if i + 1 < len(heads) else len(text)]
         fields = {}
-        parts = list(re.finditer(r'^###\s+(知识点|试卷|题干|选项|答案|解析)\s*$', body, re.M))
+        parts = list(re.finditer(r'^###\s+(知识点|试卷|模块|题号|题干|选项|答案|解析)\s*$', body, re.M))
         for j, p in enumerate(parts):
             name = p.group(1)
             if name in fields:
@@ -108,7 +108,11 @@ def _parse(path, board):
         questions.append({'key': board + '::' + ident, 'id': ident, 'board': board,
                           'topic': fields.get('知识点', ''), 'stem': fields.get('题干', ''),
                           'options': options, 'answer': '' if todo else answer, 'analysis': analysis,
-                          'source': str(path.name), 'pending': todo, 'paper': fields.get('试卷', '')})
+                          'source': str(path.name), 'pending': todo, 'module': fields.get('模块', ''),
+                          # 同一道题可能出现在几张卷子里（联考各省卷共用题），试卷、题号一行一个、一一对应
+                          'papers': [x.strip() for x in fields.get('试卷', '').splitlines() if x.strip()],
+                          'nums': [int(x) for x in fields.get('题号', '').split() if x.isdigit()]})
+        questions[-1]['paper'] = (questions[-1]['papers'] or [''])[0]
     for line in text.splitlines():
         if re.match(r'^##\s+题目(?:\s|$)', line) and not re.match(r'^##\s+题目\s+\S', line):
             errors.append('题目标题需要编号，例如：## 题目 001')
@@ -126,14 +130,13 @@ PAPER_BOOK = '历年真题'
 PAPER_ORDER = {'图形推理': 0, '定义判断': 1, '类比推理': 2, '形式逻辑': 3, '论证逻辑': 3, '常识判断': 4}
 
 
-def set_of(q):
-    """题目属于哪一套：有“### 试卷”的按试卷（历年真题），练习册按编号 前缀-套-题 → “前缀-套”；其他题没有套"""
-    if isinstance(q, dict):
-        if q.get('paper'):
-            return q['paper']
-        q = q.get('id')
-    m = SET_ID.match(q or '')
-    return '%s-%s' % (m.group(1), m.group(2)) if m else ''
+def sets_of(q):
+    """题目属于哪几套：有“### 试卷”的按卷子（一张卷子的一个模块为一套，一道题可能在几张卷子里）；
+    练习册按编号 前缀-套-题 → “前缀-套”；其他题没有套"""
+    if q.get('papers'):
+        return ['%s · %s' % (p, q['module']) if q.get('module') else p for p in q['papers']]
+    m = SET_ID.match(q.get('id') or '')
+    return ['%s-%s' % (m.group(1), m.group(2))] if m else []
 
 
 def is_set(slot):
@@ -149,8 +152,12 @@ def label(slot):
     return '%s 第%s套' % (m.group(1), m.group(2)) if m else name
 
 
-def _order(q):
-    if q.get('paper'):
+def _order(q, name=''):
+    if q.get('papers'):
+        names = sets_of(q)
+        i = names.index(name) if name in names else 0
+        if i < len(q.get('nums', [])):
+            return (0, q['nums'][i])
         n = re.findall(r'\d+', q['id'])
         return (PAPER_ORDER.get(q['board'], 9), int(n[-1]) if n else 0)
     return (0, int(SET_ID.match(q['id']).group(3)))
@@ -161,11 +168,11 @@ def _set_questions(g, name):
     qs, errors = [], []
     for board in boards(g):
         got, err = read(g.paths, board)
-        mine = [q for q in got if set_of(q) == name]
+        mine = [q for q in got if name in sets_of(q)]
         if mine:
             errors += err
         qs += mine
-    return sorted(qs, key=_order), errors
+    return sorted(qs, key=lambda q: _order(q, name)), errors
 
 
 def sets(g):
@@ -173,31 +180,30 @@ def sets(g):
     data, books = state(g), {}
     for board in boards(g):
         for q in read(g.paths, board)[0]:
-            name = set_of(q)
-            if not name:
-                continue
-            if q.get('paper'):
-                book, num = PAPER_BOOK, name
-            else:
-                book, num = name.rsplit('-', 1)
-            x = books.setdefault(book, {}).setdefault(num, {'name': name, 'set': num, 'total': 0, 'done': 0, 'boards': {}})
-            x['total'] += 1
-            x['done'] += q['key'] in data['records']
-            x['boards'][board] = x['boards'].get(board, 0) + 1
+            book = PAPER_BOOK + ('·' + q['module'] if q.get('module') else '') if q.get('papers') else None
+            for name in sets_of(q):
+                num = name if book else name.rsplit('-', 1)[1]
+                x = books.setdefault(book or name.rsplit('-', 1)[0], {}).setdefault(
+                    num, {'name': name, 'set': num, 'total': 0, 'done': 0, 'boards': {}})
+                x['total'] += 1
+                x['done'] += q['key'] in data['records']
+                x['boards'][board] = x['boards'].get(board, 0) + 1
     out = []
     for book, d in books.items():
-        if book == PAPER_BOOK:
+        paper = book.startswith(PAPER_BOOK)
+        if paper:
             keys = sorted(d, key=lambda k: (-int((re.match(r'\d{4}', k) or [0])[0]), k))
         else:
             keys = sorted(d, key=int)
         items = [dict(d[k], active=(SET_PREFIX + d[k]['name']) in data['runs']) for k in keys]
         for x in items:
-            if book == PAPER_BOOK:
+            if paper:
                 x['year'] = (re.match(r'\d{4}', x['name']) or [''])[0]
         nxt = next((x for x in items if x['active']), None) or next((x for x in items if x['done'] < x['total']), None)
-        out.append({'book': book, 'paper': book == PAPER_BOOK, 'sets': items, 'next': nxt['name'] if nxt else '',
+        out.append({'book': book, 'paper': paper, 'sets': items, 'next': nxt['name'] if nxt else '',
                     'finished': sum(x['done'] == x['total'] for x in items)})
-    return sorted(out, key=lambda b: not b['paper'])
+    modules = ['政治理论', '常识判断', '言语理解与表达', '数量关系', '判断推理', '资料分析']
+    return sorted(out, key=lambda b: (not b['paper'], next((i for i, m in enumerate(modules) if m in b['book']), 9)))
 
 
 def count(g):

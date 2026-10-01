@@ -149,7 +149,9 @@ function recentList(ev) {
     <span>${esc(e.note)}</span><span class="spacer"></span>${e.xp ? `<b style="color:var(--gold)">+${e.xp}</b>` : ""}</div>`).join("");
 }
 function msgHtml(m) {
-  const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : `<div>${md(b.v)}</div>`).join("");
+  // 文字块里的 ![[库内路径]] 是夹在句子里的小图（公式），按行内显示
+  const inline = (h) => h.replace(/!\[\[([^\]]+)\]\]/g, (_, p) => `<img class="inline-img" src="/vault-file?p=${encodeURIComponent(p.replace(/&amp;/g, '&'))}">`);
+  const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : `<div>${inline(md(b.v))}</div>`).join("");
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
@@ -510,7 +512,7 @@ async function doAction(act) {
 function setsHtml(books) {
   if (!books?.length) return '';
   // 练习册：第NN套；历年真题：卷子名去掉“《行测》…”这类尾巴
-  const short = (x) => x.year !== undefined ? x.name.replace(/公务员录用考试|录用公务员考试|《行测》|试卷|题|（网友回忆版）/g, '').slice(0, 30) : `第${x.set}套`;
+  const short = (x) => x.year !== undefined ? x.name.replace(/ · [^·]*$/, '').replace(/公务员录用考试|录用公务员考试|《行测》|行政职业能力测验|试卷|试题|题|（网友回忆版）|（精选）/g, '').slice(0, 30) : `第${x.set}套`;
   const btn = (book, x, cls, verb = '') => `<button class="${cls}" data-bank="套:${esc(x.name)}" data-mode="new" data-title="${esc(x.year !== undefined ? x.name : book + ' 第' + x.set + '套')}"
       title="${esc(x.name)}" ${!x.active && x.done >= x.total ? 'disabled' : ''}>${x.active ? '▶ ' : x.done >= x.total ? '✓ ' : ''}${verb}${esc(short(x))} <span class="small">${x.done}/${x.total}</span></button>`;
   const grid = (b) => {
@@ -521,7 +523,7 @@ function setsHtml(books) {
   return `<div class="card set-card"><h3>📚 整套试炼 <span class="small muted">一次刷完一整套，做完再看下一套；答案待补的题不出</span></h3>
     ${books.map(b => {
       const nx = b.sets.find(x => x.name === b.next);
-      return `<div class="set-book"><div class="row"><b>${esc(b.book)}</b><span class="small muted">共 ${b.sets.length} ${b.paper ? '张卷子（只含判断推理，新卷在前）' : '套'} · 已完成 ${b.finished}</span><span class="spacer"></span>
+      return `<div class="set-book"><div class="row"><b>${esc(b.book)}</b><span class="small muted">共 ${b.sets.length} ${b.paper ? '张卷子（新卷在前）' : '套'} · 已完成 ${b.finished}</span><span class="spacer"></span>
         ${nx ? btn(b.book, nx, 'primary', nx.active ? '继续 ' : '开始 ') : '<span class="tag ok">全部完成</span>'}</div>
         <details><summary class="small">选择其他${b.paper ? '卷子' : '套'}</summary>${grid(b)}</details></div>`;
     }).join('')}</div>`;

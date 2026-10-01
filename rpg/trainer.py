@@ -660,22 +660,37 @@ def _bank_show(g, s, run, events=None):
 
 
 def _bank_blocks(g, board, text):
-    """题干 + 选项 → 网页块；![[训练/题库/图片/…png]] 变成图片（库内路径，找不到时按文件名在 题库/图片/<板块>/ 里找）"""
-    blocks, pos = [], 0
-    for m in vault.IMG_RE.finditer(text):
-        if text[pos:m.start()].strip():
-            blocks.append({"t": "text", "v": text[pos:m.start()].strip()})
-        name = (m.group(1) or m.group(2) or "").strip()
-        rel = None
+    """题干 + 选项 → 网页块；![[训练/题库/图片/…png]] 变成图片（库内路径，找不到时按文件名在 题库/图片/<板块>/ 里找）。
+    单独一行的图是图片块；夹在句子里的（数量关系解析里的公式图）留在文字里，网页上按行内小图显示"""
+    def resolve(name):
         if g.paths.vault:
             for c in (name, "训练/题库/" + name, "训练/题库/图片/%s/%s" % (board, Path(name).name)):
                 if vault.safe_vault_file(g.paths, c):
-                    rel = c
-                    break
-        blocks.append({"t": "img", "v": rel} if rel else {"t": "text", "v": "（缺图：%s，请把图片放到 训练/题库/图片/%s/）" % (name, board)})
+                    return c
+        return None
+
+    blocks, buf, pos = [], "", 0
+
+    def flush():
+        nonlocal buf
+        if buf.strip():
+            blocks.append({"t": "text", "v": buf.strip()})
+        buf = ""
+    for m in vault.IMG_RE.finditer(text):
+        name = (m.group(1) or m.group(2) or "").strip()
+        rel = resolve(name)
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        line_end = text.find("\n", m.end())
+        line = text[line_start:m.start()] + text[m.end():len(text) if line_end < 0 else line_end]
+        buf += text[pos:m.start()]
         pos = m.end()
-    if text[pos:].strip():
-        blocks.append({"t": "text", "v": text[pos:].strip()})
+        if line.strip() and rel:          # 行内小图（公式）
+            buf += "![[%s]]" % rel
+            continue
+        flush()
+        blocks.append({"t": "img", "v": rel} if rel else {"t": "text", "v": "（缺图：%s，请把图片放到 训练/题库/图片/%s/）" % (name, board)})
+    buf += text[pos:]
+    flush()
     return blocks
 
 

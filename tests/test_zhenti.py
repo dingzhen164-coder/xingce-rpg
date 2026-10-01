@@ -92,7 +92,7 @@ class ZhentiTest(unittest.TestCase):
             self.assertIn(k, q['analysis'])
         self.assertNotIn('同类特征', q['analysis'])
         books = bank.summary(g)['sets']
-        self.assertEqual((books[0]['book'], books[0]['sets'][0]['total']), ('历年真题', 5))
+        self.assertEqual((books[0]['book'], books[0]['sets'][0]['total']), ('历年真题·判断推理', 5))
         # 卷子里的顺序：图形 → 逻辑（按题号） → 科学推理；题干里不出现知识点和解析
         r = trainer.start(g, {'type': 'bank', 'board': '套:' + books[0]['next'], 'title': '卷', 'target': ''})
         self.assertIn('编号 真题-20', str(r))
@@ -102,6 +102,103 @@ class ZhentiTest(unittest.TestCase):
         self.assertEqual(order, ['真题-20', '真题-10', '真题-11', '真题-30', '真题-40'])
         r = trainer.action(g, r['session'], 'bank_answer:0:B')
         self.assertIn('官方20', str(r))
+
+
+RAW = """---
+类型: "真题"
+试卷: "%(paper)s"
+年份: "2020"
+模块: "言语理解与表达"
+---
+
+# 卷
+
+## 第 %(n1)d 题　<sub>qid 501 · 逻辑填空</sub>
+
+<p>他一直在        中前行。</p>
+填入画横线部分最恰当的一项是：
+
+- **A**. 逆境
+- **B**. 竞争
+- **C**. 矛盾　✅
+- **D**. 挑战
+
+**答案**：C
+
+**官方解析**
+
+解析501，公式<img src="../90-图片/公式图/f.png" />如此。
+
+---
+
+## 材料 1
+
+<p>一段材料。</p>
+
+### 第 %(n2)d 题　<sub>qid 502 · 片段阅读</sub>
+
+这段文字意在说明：
+
+- **A**. 甲　✅
+- **B**. 乙
+- **C**. 丙
+- **D**. 丁
+
+**答案**：A
+
+**官方解析**
+
+解析502
+
+---
+
+## 第 9 题　<sub>qid 503 · 片段阅读</sub>
+
+多选题
+
+- **A**. 甲　✅
+- **B**. 乙　✅
+- **C**. 丙
+- **D**. 丁
+
+**答案**：AB
+
+**官方解析**
+
+无
+"""
+
+
+class RawTest(unittest.TestCase):
+    def test_raw_shared_questions_and_blanks(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / 'raw'
+            (src / '03-言语理解与表达').mkdir(parents=True)
+            (src / '90-图片/公式图').mkdir(parents=True)
+            (src / '90-图片/公式图/f.png').write_bytes(b'png')
+            for name, n1, n2 in (('2020年安徽省公务员录用考试《行测》试题（网友回忆版）', 1, 2),
+                                 ('2020年山西省公务员录用考试《行测》试题（网友回忆版）', 7, 3)):
+                (src / '03-言语理解与表达' / (name + '.md')).write_text(RAW % dict(paper=name, n1=n1, n2=n2), encoding='utf-8')
+            out = Path(d) / 'vault'
+            (out / 'copilot/skills').mkdir(parents=True)
+            r = zhenti.convert_raw(src, out / '训练')
+            self.assertEqual((r['total'], r['skipped']), (2, {'多选题': 2, '几张卷子共用': 2}))
+            self.assertTrue((out / '训练/题库/图片/真题库/公式图/f.png').is_file())
+            p = paths.Paths(out)
+            q = bank.read(p, '逻辑填空')[0][0]
+            self.assertIn('（2020年安徽省等2卷）他一直在____中前行。', q['stem'])
+            self.assertIn('解析501，公式![[训练/题库/图片/真题库/公式图/f.png]]如此。', q['analysis'])
+            self.assertEqual((q['nums'], len(q['papers'])), ([1, 7], 2))
+            self.assertIn('一段材料。', bank.read(p, '片段阅读')[0][0]['stem'])
+            g = engine.Game(p, config.Rules(), config.Persona(), config.Lines(),
+                            store.new_state(dt.date(2026, 10, 1)), dt.date(2026, 10, 1))
+            books = bank.summary(g)['sets']
+            self.assertEqual([(b['book'], len(b['sets'])) for b in books], [('历年真题·言语理解与表达', 2)])
+            # 山西卷里材料题是第 3 题、填空是第 7 题：按这张卷子的题号排
+            name = next(x['name'] for x in books[0]['sets'] if '山西' in x['name'])
+            self.assertEqual([x['id'] for x in bank._set_questions(g, name)[0]], ['真题-502', '真题-501'])
+            # 行内公式图留在文字里，网页上按小图显示
+            self.assertEqual([b['t'] for b in trainer._bank_blocks(g, '逻辑填空', q['analysis'])], ['text'])
 
 
 if __name__ == '__main__':

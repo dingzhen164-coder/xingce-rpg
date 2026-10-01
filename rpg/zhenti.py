@@ -46,6 +46,8 @@ def to_text(s, base, images):
         rel = os.path.normpath(os.path.join(base, m.group(1))).replace('\\', '/')
         rel = rel.split('90-图片/', 1)[-1]
         images.add(rel)
+        if rel.startswith('公式图/'):   # 公式图夹在句子里，留在原位
+            return '![[%s/%s]]' % (IMG_DIR, rel)
         return '\n![[%s/%s]]\n' % (IMG_DIR, rel)
     s = re.sub(r'<img\b[^>]*?src="([^"]+)"[^>]*>', img, s)
     s = re.sub(r'!\[[^\]]*\]\(([^)]+)\)', img, s)
@@ -59,6 +61,7 @@ def to_text(s, base, images):
 def short_source(paper):
     """2021年江苏省公务员录用考试《行测》题（B类）（网友回忆版） → 2021年江苏省（B类）"""
     head, _, tail = paper.partition('《')
+    head = re.sub(r'\s*(?:行政职业能力测验|行测|综合知识).*$', '', head)
     head = re.sub(r'(?:公务员|人员)?(?:录用|招录|招考)?(?:公务员)?考试$', '', head) or head
     extra = ''.join(x[1:-1] for x in re.findall(r'（[^）]*）', tail.partition('》')[2])
                     if not re.search(r'回忆|精选|完整|真题', x))
@@ -113,8 +116,11 @@ def block(q):
     # 小节标题行（### / ## 开头）会打乱题库格式，正文里出现就降成普通文字
     clean = lambda s: re.sub(r'^(#+)\s', lambda m: '＃' * len(m.group(1)) + ' ', s, flags=re.M)
     src = short_source(q['paper'])
-    return ('## 题目 真题-%s\n### 知识点\n%s\n### 试卷\n%s\n### 题干\n%s%s\n### 选项\n%s\n### 答案\n%s\n### 解析\n%s\n\n'
-            % (q['qid'], q['topic'], q['paper'], '（%s）' % src if src else '', clean(q['stem']),
+    if src and q.get('also'):
+        src += '等%d卷' % (len(q['also']) + 1)
+    return ('## 题目 真题-%s\n### 知识点\n%s\n### 试卷\n%s\n### 模块\n%s\n%s### 题干\n%s%s\n### 选项\n%s\n### 答案\n%s\n### 解析\n%s\n\n'
+            % (q['qid'], q['topic'], '\n'.join([q['paper']] + [p for p, _ in q.get('also', [])]), q.get('module', '判断推理'),
+               '### 题号\n%s\n' % ' '.join(str(n) for n in [q['num']] + [n for _, n in q.get('also', [])]) if q.get('num') else '', '（%s）' % src if src else '', clean(q['stem']),
                '\n'.join('%s. %s' % (k, q['options'][k]) for k in 'ABCD'), q['answer'] or '（待补）', clean(q['analysis'])))
 
 
@@ -149,6 +155,108 @@ def convert(src, out):
             'pending': sum(not q['answer'] for q in qs), 'papers': len({q['paper'] for q in qs})}
 
 
+# ---------------------------------------------------------------- 原题副本（ERRRC/xingcezhenti）
+# 每张卷子每个模块一个文件，题目按考试顺序：## 第 N 题　<sub>qid X · 题型</sub>；有材料的是 ## 材料 N 下面挂 ### 第 N 题。
+RAW_MODULES = {'01-政治理论': '政治理论', '02-常识判断': '常识判断', '03-言语理解与表达': '言语理解与表达', '04-数量关系': '数量关系'}
+RAW_BOARD = {'政治理论': '政治理论', '常识判断': '常识判断', '数量关系': '数量关系'}
+VERBAL_BOARD = {'逻辑填空': '逻辑填空', '片段阅读': '片段阅读', '语句表达': '片段阅读'}
+BLANK = re.compile(r'(?<=\S)[ \u3000\u00a0]{3,}(?=\S)')   # 句子中间一串空格 = 原卷的填空横线
+
+
+def parse_raw(path, module):
+    t = path.read_text(encoding='utf-8')
+    meta = dict(re.findall(r'^(\S+): "(.*)"$', t.split('\n---', 1)[0], re.M))
+    base = str(path.parent)
+    out, material = [], ''
+    parts = re.split(r'^(#{2,3} (?:材料 \d+|第 \d+ 题.*))$', t, flags=re.M)
+    for head, body in zip(parts[1::2], parts[2::2]):
+        if head.startswith('## 材料'):
+            material = body.split('\n---')[0]
+            continue
+        if head.startswith('## '):
+            material = ''
+        m = re.match(r'#{2,3} 第 (\d+) 题.*?qid (\d+)\s*·\s*([^<]*)</sub>', head)
+        if not m:
+            continue
+        images = set()
+        body = body.split('\n---\n')[0]
+        stem, _, rest = body.partition('\n- **A**')
+        rest = '- **A**' + rest
+        opts, answer = {}, ''
+        for o in re.finditer(r'^- \*\*([A-H])\*\*[.．]\s*(.*)$', rest, re.M):
+            v = o.group(2)
+            if '✅' in v:
+                answer += o.group(1)
+            opts[o.group(1)] = to_text(v.replace('✅', ''), base, images).replace('\n', ' ').strip()
+        a = re.search(r'^\*\*答案\*\*：\s*(.*)$', rest, re.M)
+        answer = a.group(1).strip() if a else answer
+        ana = rest.split('**官方解析**', 1)[1] if '**官方解析**' in rest else ''
+        text = to_text(stem, base, images)
+        if material.strip():
+            text = to_text(material, base, images) + '\n\n' + text
+        kind = m.group(3).strip()
+        board = VERBAL_BOARD.get(kind, '片段阅读') if module == '言语理解与表达' else RAW_BOARD[module]
+        out.append({'qid': m.group(2), 'num': int(m.group(1)), 'paper': meta.get('试卷', ''), 'year': meta.get('年份', ''),
+                    'module': module, 'board': board, 'topic': kind or module, 'stem': BLANK.sub('____', text),
+                    'options': opts, 'answer': answer, 'analysis': to_text(ana, base, images), 'images': images})
+    return out
+
+
+def convert_raw(src, out, skip_ids=()):
+    """原题副本 → 训练/题库/<板块>真题-<年份>.md（按年份拆，单个文件不至于太大），图片原样拷到 题库/图片/真题库/"""
+    import shutil
+    src, out = Path(src), Path(out)
+    seen, qs, skipped, by_id = set(skip_ids), [], Counter(), {}
+    for folder, module in RAW_MODULES.items():
+        for f in sorted((src / folder).glob('*.md')):
+            if f.name == 'README.md':
+                continue
+            for q in parse_raw(f, module):
+                if q['qid'] in by_id:      # 联考各省卷共用的题：记到第一次出现的那道题上，几张卷子都能刷到它
+                    by_id[q['qid']].setdefault('also', []).append((q['paper'], q['num']))
+                    skipped['几张卷子共用'] += 1
+                    continue
+                if q['qid'] in seen:
+                    skipped['判断推理已有'] += 1
+                    continue
+                if set(q['options']) != set('ABCD') or not all(q['options'].values()) or not q['stem']:
+                    skipped['不是四个选项'] += 1
+                    continue
+                if q['answer'] in ('（缺）', ''):
+                    q['answer'] = ''
+                elif not re.fullmatch(r'[A-D]', q['answer']):
+                    skipped['多选题'] += 1
+                    continue
+                by_id[q['qid']] = q
+                qs.append(q)
+    qs.sort(key=lambda q: (-int(q['year'] or 0), q['paper'], q['module'], q['num']))
+    folder = out / '题库'
+    folder.mkdir(parents=True, exist_ok=True)
+    by = Counter()
+    for board, year in sorted({(q['board'], q['year']) for q in qs}):
+        mine = [q for q in qs if q['board'] == board and q['year'] == year]
+        by[board] += len(mine)
+        head = ('# %s · %s年真题\n\n> 由 rpg/zhenti.py 从 ERRRC/xingcezhenti 原题副本转换，共 %d 题。重新转换会整份覆盖。\n\n'
+                % (board, year, len(mine)))
+        (folder / ('%s真题-%s.md' % (board, year))).write_text(head + ''.join(block(q) for q in mine), encoding='utf-8', newline='\n')
+    images = sorted({i for q in qs for i in q['images']})
+    missing = 0
+    for i in images:
+        dst = folder / '图片' / '真题库' / i
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if (src / '90-图片' / i).is_file():
+            shutil.copyfile(src / '90-图片' / i, dst)
+        else:
+            missing += 1
+    return {'total': len(qs), 'boards': dict(by), 'skipped': dict(skipped), 'images': len(images), 'missing_images': missing,
+            'pending': sum(not q['answer'] for q in qs), 'papers': len({q['paper'] for q in qs})}
+
+
 if __name__ == '__main__':
-    r = convert(sys.argv[1], sys.argv[2])
-    print(r)
+    if sys.argv[1:2] == ['--raw']:   # python -m rpg.zhenti --raw <xingcezhenti 目录> <输出目录> [已有题库目录：跳过重复编号]
+        skip = set()
+        for f in Path(sys.argv[4]).glob('*真题*.md') if len(sys.argv) > 4 else []:
+            skip |= set(re.findall(r'^## 题目 真题-(\d+)', f.read_text(encoding='utf-8'), re.M))
+        print(convert_raw(sys.argv[2], sys.argv[3], skip))
+    else:
+        print(convert(sys.argv[1], sys.argv[2]))
