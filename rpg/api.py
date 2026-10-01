@@ -27,6 +27,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/import/classify      {"limit"}  DeepSeek 补“待分类”的知识点
     POST /api/import/remove        {"prefix"}  撤销一批导入（只删没做过的题）
     POST /api/import/normalize     整理题库格式：选项统一“A. ”，修复 OCR 认错的 ①② / ⅠⅡ
+    POST /api/import/rename        {"old", "new", "boards"?}  改编号前缀（题库 + 作答记录一起改）
     POST /api/import/upload_pdf    {"name", "data"(base64), "season"?}  新模考 PDF 存进 FB模考试卷复盘/模考试卷/
     POST /api/import/split         {"file"}  运行 xingce-mokao-split 拆分并导入那一季
     POST /api/import/install_pymupdf  用户点按钮才运行 pip install pymupdf
@@ -193,6 +194,17 @@ def import_split(body):
 
 def import_install(body):
     return _import_call(importer.install_pymupdf, body)
+
+
+def import_rename(body):
+    """改编号前缀：题库文件和存档里的作答记录一起改，所以要拿存档"""
+    with open_game() as g:
+        if not g.paths.vault:
+            raise ApiError("请先在设置中指定行测库路径")
+        try:
+            return importer.rename_prefix(g.paths, body, g.state)
+        except importer.ImportError_ as e:
+            raise ApiError(str(e))
 
 
 def import_normalize(body):
@@ -419,6 +431,7 @@ ROUTES = {
     ("POST", "/api/import/classify"): import_classify,
     ("POST", "/api/import/remove"): import_remove,
     ("POST", "/api/import/normalize"): import_normalize,
+    ("POST", "/api/import/rename"): import_rename,
     ("POST", "/api/import/upload_pdf"): import_upload_pdf,
     ("POST", "/api/import/split"): import_split,
     ("POST", "/api/import/install_pymupdf"): import_install,

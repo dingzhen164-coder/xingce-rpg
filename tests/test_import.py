@@ -204,6 +204,29 @@ class ImportTest(unittest.TestCase):
         self.assertEqual((q["stem"], q["options"], q["answer"]), ("断言：Ⅰ：甲。Ⅱ：乙。", {"A": "仅Ⅰ", "B": "仅Ⅱ", "C": "Ⅰ和Ⅱ", "D": "都不对"}, "C"))
         self.assertIn("A. 仅Ⅰ\nB. 仅Ⅱ\nC. Ⅰ和Ⅱ\nD. 都不对", f.read_text(encoding="utf-8"))   # 选项标点统一
 
+    def test_prefix_clash_rename_and_verbal_book(self):
+        q = lambda n, kind: ("%d.某研究认为甲导致乙（样本%d）。以下哪项如果为真，最能削弱上述结论：\nA。选项一 B.选项二 C．选项三 D。选项四\n" % (n, n)
+                             if kind == "逻辑" else "%d.科学研究需要____的态度（第%d题）。依次填入画横线部分最恰当的一项是：\nA．严谨 B．推敲 C．斟酌 D．周密\n" % (n, n))
+        logic = "练习题01\n" + q(1, "逻辑") + q(2, "逻辑") + q(3, "逻辑")
+        verbal = "练习题01\n" + q(1, "言语") + q(2, "言语") + q(3, "言语")
+        importer.commit(self.p, {"kind": "text", "text": logic, "prefix": "花生", "no_source": True})
+        with self.assertRaises(importer.ImportError_):     # 同前缀导另一本书：拒绝，不写入
+            importer.commit(self.p, {"kind": "text", "text": verbal, "prefix": "花生", "no_source": True})
+        self.assertEqual(bank.read_all(self.p, "逻辑填空")[0], [])
+        state = {"bank": {"records": {"论证逻辑::花生-01-01": {"question": {"id": "花生-01-01", "board": "论证逻辑", "key": "论证逻辑::花生-01-01"},
+                                                              "history": [{"ok": True}], "wrong": False, "streak": 1}},
+                          "runs": {}, "groups": [{"board": "论证逻辑", "ids": ["花生-01-01"]}]}}
+        r = importer.rename_prefix(self.p, {"old": "花生", "new": "花生逻辑", "boards": ["论证逻辑"]}, state)
+        self.assertEqual((r["renamed"], r["records"]), (3, 1))
+        self.assertEqual([x["id"] for x in bank.read_all(self.p, "论证逻辑")[0]][:1], ["花生逻辑-01-01"])
+        self.assertIn("论证逻辑::花生逻辑-01-01", state["bank"]["records"])                 # 作答记录跟着改
+        self.assertEqual(state["bank"]["groups"][0]["ids"], ["花生逻辑-01-01"])
+        with self.assertRaises(importer.ImportError_):
+            importer.rename_prefix(self.p, {"old": "x", "new": "花生逻辑"}, state)          # 新前缀已被占用
+        r = importer.commit(self.p, {"kind": "text", "text": verbal, "prefix": "花生言语", "no_source": True})
+        self.assertEqual([(x["id"], x["board"]) for x in bank.read_all(self.p, "逻辑填空")[0]],
+                         [("花生言语-01-01", "逻辑填空"), ("花生言语-01-02", "逻辑填空"), ("花生言语-01-03", "逻辑填空")])
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

@@ -176,6 +176,34 @@ def split_options(text, scrambled):
     return stem, opts, problems
 
 
+VERBAL_FILL = re.compile(r"依次填入|填入(画)?横线|横线(处|部分)")
+VERBAL_READ = re.compile(r"这段文字|这段话|文段|意在|旨在|主要说明|主要介绍|重新排列|语序正确|排序正确|最恰当的标题|"
+                         r"作为标题|接下来最可能|下文最可能|语句填入|填入文中")
+SEQ_ONLY = re.compile(r"^[\s①-⑨\d、，,]+$")
+
+
+def verbal_board(stem, opts):
+    """言语理解：逻辑填空（选词填空）还是片段阅读（主旨、意图、标题、排序、语句填入）；认不出返回空"""
+    if VERBAL_FILL.search(stem):
+        short = opts and all(len(re.sub(r"[\s\W_]+", "", v)) <= 12 for v in opts.values())
+        return "逻辑填空" if "依次填入" in stem or short else "片段阅读"
+    if VERBAL_READ.search(stem):
+        return "片段阅读"
+    return ""
+
+
+def verbal_by_options(opts):
+    """言语类练习册里问法认不出时：选项是一串序号（①③②④）→ 语句排序（片段阅读）；选项都是短词 → 逻辑填空；否则片段阅读"""
+    vals = [v for v in opts.values() if v]
+    if len(vals) < 4:
+        return ""
+    if all(SEQ_ONLY.match(v) for v in vals):
+        return "片段阅读"
+    if all(len(re.sub(r"[\s\W_]+", "", v)) <= 10 for v in vals):
+        return "逻辑填空"
+    return "片段阅读"
+
+
 def guess_board(section, stem, opts):
     s = stem
     if section in ("政治理论", "常识判断", "数量关系", "资料分析"):
@@ -185,6 +213,10 @@ def guess_board(section, stem, opts):
             return "片段阅读"
         short = opts and all(len(v) <= 12 for v in opts.values())
         return "逻辑填空" if "依次填入" in s or ("横线" in s and short) else "片段阅读"
+    if not section:   # 练习册不知道大题：先按言语的问法认
+        v = verbal_board(s, opts)
+        if v:
+            return v
     figure_opts = not opts or all(re.sub(r"[\s\W_]+", "", v).upper() in ("", "A", "B", "C", "D") for v in opts.values())
     # 有判断推理大题时题干关键词就够；练习册（不知道大题）还要求选项本身是图，免得“组合而成”之类的词误判
     if (any(k in s for k in FIGURE_KW) and (section or figure_opts)) or (opts and figure_opts):
@@ -483,14 +515,21 @@ def fix_block(q):
 
 def existing(bank):
     """所有题库已有的 编号 和 题干指纹（跨板块查重）"""
-    ids, stems = set(), set()
+    ids, stems = {}, set()   # ids: 编号 → 题干指纹（判断“同编号是不是同一道题”用）
     for f in bank.glob("*真题.md"):
         for b in parse_blocks(f.read_text(encoding="utf-8-sig", errors="ignore")):
-            ids.add(b["id"])
             k = norm_stem(b["fields"].get("题干", ""), parse_opts(b["fields"].get("选项")))
+            ids[b["id"]] = k
             if len(k) >= 12:
                 stems.add(k)
     return ids, stems
+
+
+def same_question(a, b):
+    """两个题干指纹是不是同一道题（允许 OCR 修复、来源括号等小改动）"""
+    import difflib
+    a, b = re.sub(r"[①-⑨Ⅰ-Ⅵ\dIVHl@Q]", "", a)[:120], re.sub(r"[①-⑨Ⅰ-Ⅵ\dIVHl@Q]", "", b)[:120]
+    return not a or not b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
 
 
 def with_source(stem, source):
@@ -709,6 +748,10 @@ def _collect(paths, body):
             for q in qs:   # 逻辑类练习册：问法认不出（或题干没 OCR 出问句）时按选项样子判断
                 if not q["board"]:
                     q["board"] = board_by_options(q["options"])
+        elif not fenbi and known and (known["逻辑填空"] + known["片段阅读"]) * 2 > sum(known.values()):
+            for q in qs:   # 言语类练习册：同理，按选项样子判断逻辑填空 / 片段阅读
+                if not q["board"]:
+                    q["board"] = verbal_by_options(q["options"])
     else:
         raise ImportError_("未知的导入方式")
     for q in qs:
@@ -727,8 +770,13 @@ def _route(paths, qs, dry):
     ids, stems = existing(paths.train / "题库")
     seen = set()
     ready, fix, dup = [], [], []
+    clash = []
     for q in qs:
         stem = with_source(q["stem"], q["source"])
+        key = norm_stem(stem, q["options"])
+        if q["id"] in ids and not same_question(key, ids[q["id"]]):
+            clash.append(q["id"])   # 编号一样但题目不同：前缀和另一本书撞了
+            continue
         if q["board"] in BOARDS:
             stem, missing = place_images(paths, q["board"], q["id"], stem, dry)
             if missing:
@@ -747,7 +795,10 @@ def _route(paths, qs, dry):
         ready.append(q)
         if len(key) >= 12:
             stems.add(key)
-    return ready, fix, dup
+    if len(clash) >= 3 or (clash and len(clash) * 5 >= len(qs)):
+        raise ImportError_("编号前缀和已导入的另一批题撞了：%s 等 %d 道题编号相同但题目不同。"
+                           "请换一个前缀（比如在书名后加“言语”“逻辑”）再导入；什么都没有写入。" % ("、".join(clash[:3]), len(clash)))
+    return ready, fix + [dict(q, problems=["编号和已有的另一道题相同，请改编号"]) for q in qs if q["id"] in clash], dup
 
 
 def _summary(ready, fix, dup, note, name, source):
@@ -949,6 +1000,61 @@ def fill_answers(paths, body):
         if changed:
             _write(f, text)
     return {"filled": n, "key": len(key)}
+
+
+def rename_prefix(paths, body, state):
+    """改编号前缀：<旧>-xx → <新>-xx，只改勾选的板块（不勾就是全部）。题库文件、待修文件、存档里的作答记录一起改，
+    做过的题历史不丢。新前缀已被别的题用过时拒绝"""
+    old = (body.get("old") or "").strip().rstrip("-")
+    new = (body.get("new") or "").strip().rstrip("-")
+    boards = [b for b in (body.get("boards") or []) if b in BOARDS] or BOARDS
+    if len(old) < 2 or len(new) < 2 or old == new or re.search(r"[\s/\\]", new):
+        raise ImportError_("请填旧前缀和新前缀（不能相同、不能有空格）")
+    bank = paths.train / "题库"
+    ids, _ = existing(bank)
+    if any(i.startswith(new + "-") for i in ids):
+        raise ImportError_("新前缀“%s”已经有题在用了，换一个" % new)
+    mapping, files = {}, 0
+    for board in boards:
+        f = bank / (board + "真题.md")
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding="utf-8-sig")
+        n = re.sub(r"(?m)^(##\s+题目\s+)%s-" % re.escape(old), lambda m: m.group(1) + new + "-", text)
+        if n != text:
+            for b in parse_blocks(text):
+                if b["id"].startswith(old + "-"):
+                    mapping["%s::%s" % (board, b["id"])] = (board, new + b["id"][len(old):])
+            n = n.replace("/%s-" % old, "/%s-" % new)       # 图片文件名跟着改（下面同步改文件）
+            _write(f, n)
+            files += 1
+    img_root = bank / "图片"
+    if img_root.is_dir():
+        for p in sorted(img_root.rglob(old + "-*")):
+            if p.parent.name in boards:
+                p.rename(p.with_name(new + p.name[len(old):]))
+    data = state.setdefault("bank", {"records": {}, "runs": {}, "groups": []})
+    for k in list(data["records"]):   # 题库里已删、但做过的题：记录也一起改，保持一致
+        board, _, qid = k.partition("::")
+        if board in boards and qid.startswith(old + "-") and k not in mapping:
+            mapping[k] = (board, new + qid[len(old):])
+    moved = 0
+    for k, (board, nid) in mapping.items():
+        rec = data["records"].pop(k, None)
+        if rec is not None:
+            rec["question"] = dict(rec["question"], id=nid, key="%s::%s" % (board, nid))
+            data["records"]["%s::%s" % (board, nid)] = rec
+            moved += 1
+    old_ids = {k.split("::", 1)[1]: v[1] for k, v in mapping.items()}
+    for run in data.get("runs", {}).values():
+        for q in run.get("questions", []):
+            if q.get("board") in boards and q.get("id") in old_ids:
+                q["key"] = "%s::%s" % (q["board"], old_ids[q["id"]])
+                q["id"] = old_ids[q["id"]]
+    for g in data.get("groups", []):
+        if g.get("board") in boards:
+            g["ids"] = [old_ids.get(i, i) for i in g.get("ids", [])]
+    return {"renamed": len(mapping), "records": moved, "files": files}
 
 
 def remove(paths, body, done_keys=()):
