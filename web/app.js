@@ -526,6 +526,7 @@ function bindBank() {
 }
 // ------------------------------------------------------------ 导入真题（rpg/importer.py）
 let IMPORT_TEXT = null;   // 选中的 txt 内容（只在浏览器里读，导入时发给本机程序）
+let IMPORT_PDF = null;    // 选中的 PDF（base64），由本机程序抽文字
 let IMPORT_KEEP = '';     // 导入后整页重画时保留的结果报告
 async function loadImport() {
   const box = $('#importBody');
@@ -545,8 +546,8 @@ async function loadImport() {
         ${d.seasons.map(x => `<div class="row"><span>第 ${x.season} 季</span><span class="small muted">已导入 ${x.imported} 题</span><span class="spacer"></span>
           <button class="ghost" data-imp-season="${x.season}" data-dry="1">预览</button><button data-imp-season="${x.season}">导入</button></div>`).join('')
           || '<p class="small muted">还没有板块复盘。用 xingce-mokao-split 拆模考 PDF 后这里会出现。</p>'}</div>
-      <div class="import-sec"><h4>② txt（练习册、试卷的 OCR 文字）</h4>
-        <div class="row"><input type="file" id="impFile" accept=".txt,.md,text/plain"><span class="small muted" id="impFileInfo"></span></div>
+      <div class="import-sec"><h4>② txt / PDF（练习册、试卷；有文字层的 PDF 能保留填空横线）</h4>
+        <div class="row"><input type="file" id="impFile" accept=".txt,.md,.pdf,text/plain,application/pdf"><span class="small muted" id="impFileInfo"></span></div>
         <div class="row"><label>来源 <input id="impSource" placeholder="自动识别，如 2025年国考"></label>
           <label><input type="checkbox" id="impNoSource"> 没有来源</label>
           <label>编号前缀 <input id="impPrefix" placeholder="如 四海逻辑600"></label>
@@ -641,18 +642,25 @@ function bindImport() {
     if (confirm('将运行 pip install pymupdf 安装拆 PDF 用的组件（需要联网，只装一次），继续？')) run(e.target, '/api/import/install_pymupdf', {}, false);
   };
   $('#impFile').onchange = async (e) => {
-    const f = e.target.files[0]; IMPORT_TEXT = null;
+    const f = e.target.files[0]; IMPORT_TEXT = null; IMPORT_PDF = null;
     if (!f) return;
     const buf = await f.arrayBuffer();
+    if (!$('#impPrefix').value) $('#impPrefix').placeholder = f.name.replace(/\.[^.]+$/, '').slice(0, 12) + '（不填就按来源/文件名）';
+    if (/\.pdf$/i.test(f.name)) {
+      const u8 = new Uint8Array(buf);
+      let bin = ''; for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      IMPORT_PDF = btoa(bin);
+      $('#impFileInfo').textContent = `${f.name} · PDF ${Math.round(f.size / 1024)} KB`;
+      return;
+    }
     try { IMPORT_TEXT = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
     catch { IMPORT_TEXT = new TextDecoder('gb18030').decode(buf); }   // 有些 OCR 软件存成 GBK
     IMPORT_TEXT = IMPORT_TEXT.replace(/^\uFEFF/, '');
     $('#impFileInfo').textContent = `${f.name} · ${IMPORT_TEXT.length} 字`;
-    if (!$('#impPrefix').value) $('#impPrefix').placeholder = f.name.replace(/\.[^.]+$/, '').slice(0, 12) + '（不填就按来源/文件名）';
   };
   const textBody = () => {
-    if (!IMPORT_TEXT) throw new Error('先选一个 txt 文件');
-    return { kind: 'text', text: IMPORT_TEXT, name: $('#impFile').files[0]?.name || '', source: $('#impSource').value.trim(),
+    if (!IMPORT_TEXT && !IMPORT_PDF) throw new Error('先选一个 txt 或 PDF 文件');
+    return { ...(IMPORT_PDF ? { kind: 'pdf', data: IMPORT_PDF } : { kind: 'text', text: IMPORT_TEXT }), name: $('#impFile').files[0]?.name || '', source: $('#impSource').value.trim(),
              no_source: $('#impNoSource').checked, prefix: $('#impPrefix').value.trim(), board: $('#impBoard').value, ai: !!$('#impAI')?.checked,
              start_set: Number($('#impStart').value) || 0 };
   };

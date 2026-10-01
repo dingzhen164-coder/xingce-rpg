@@ -176,14 +176,18 @@ def split_options(text, scrambled):
     return stem, opts, problems
 
 
-VERBAL_FILL = re.compile(r"依次填入|填入(画)?横线|横线(处|部分)")
-VERBAL_READ = re.compile(r"这段文字|这段话|文段|意在|旨在|主要说明|主要介绍|重新排列|语序正确|排序正确|最恰当的标题|"
-                         r"作为标题|接下来最可能|下文最可能|语句填入|填入文中")
+LOGIC_STRONG = re.compile(r"如果为真|若为真|削弱|加强|质疑|反驳|前提|假设|一定为真|一定为假|真话|假话|推理结构|论证方式")
+# 言语问法要按完整短语认：“同意在本周末”里也有“意在”，“依次填入图形中”是逻辑题
+VERBAL_FILL = re.compile(r"填入(?:文中|上文)?(?:画|划)横线|横线(?:处|部分)|依次填入.{0,4}最恰当")
+VERBAL_READ = re.compile(r"这段文字|这段话|文段|上述文字|(?:意在|旨在|主要)(?:说明|强调|表明|告诉|指出|阐述|揭示|突出|介绍|讲|论述|讨论)|"
+                         r"重新排列|语序正确|排序正确|标题|接下来最可能|下文最可能|语句填入|填入文中")
 SEQ_ONLY = re.compile(r"^[\s①-⑨\d、，,]+$")
 
 
 def verbal_board(stem, opts):
     """言语理解：逻辑填空（选词填空）还是片段阅读（主旨、意图、标题、排序、语句填入）；认不出返回空"""
+    if "____" in stem and opts:   # PDF 导入时插回的填空横线：选项是词 → 逻辑填空，是整句 → 片段阅读（语句填空）
+        return "逻辑填空" if all(len(re.sub(r"[\s\W_]+", "", v)) <= 12 for v in opts.values()) else "片段阅读"
     if VERBAL_FILL.search(stem):
         short = opts and all(len(re.sub(r"[\s\W_]+", "", v)) <= 12 for v in opts.values())
         return "逻辑填空" if "依次填入" in stem or short else "片段阅读"
@@ -213,7 +217,7 @@ def guess_board(section, stem, opts):
             return "片段阅读"
         short = opts and all(len(v) <= 12 for v in opts.values())
         return "逻辑填空" if "依次填入" in s or ("横线" in s and short) else "片段阅读"
-    if not section:   # 练习册不知道大题：先按言语的问法认
+    if not section and not LOGIC_STRONG.search(re.split(r"[。！？”]", s.rstrip())[-1]):   # 练习册不知道大题：问句不是明显的逻辑问法时，先按言语的问法认
         v = verbal_board(s, opts)
         if v:
             return v
@@ -351,8 +355,9 @@ def parse_fenbi(lines):
 START_RE = re.compile(r"(?:(?<=[\s。？?！!”）)])|^)([1-9]\d{0,2})(?:\s*[\.．。:：、，,]\s*(?=\S)|\s*(?=[\u4e00-\u9fff“\"（(《A-Z]))")
 
 
-# 练习册每套开头的标记行：“练习题03”“05 练习题”“页07 练习题”“o1 练习题”（OCR 常把序号挪到前面或丢掉）
-SET_RE = re.compile(r"^[#＃\w页\s]{0,5}练习题?\s*\d{0,3}$")
+# 练习册每套开头的标记行：“练习题03”“05 练习题”“页07 练习题”“o1 练习题”（OCR 常把序号挪到前面或丢掉），
+# 以及“拔高刷题十一”“专项练习三”这类中文数字的写法
+SET_RE = re.compile(r"^[#＃\w页\s]{0,5}(?:练习题?|刷题|专项练习|模拟题?|套题|测试题?)\s*(?:\d{1,3}|[一二三四五六七八九十百零]{1,4})?\s*套?$")
 
 
 def _starts(text):
@@ -390,8 +395,8 @@ def parse_book(lines, start_set=0):
             segs.append(cur)
             nums.append(mark)
             cur = []
-            d = re.findall(r"\d+", ln)
-            mark = int(d[-1]) if d else None   # 标记里写的套号（“练习题16”）；分上下册时下册从 16 开始
+            d = re.findall(r"\d+|[一二三四五六七八九十百零]+(?=\s*套?$)", ln)
+            mark = _cn2int(d[-1]) if d else None   # 标记里写的套号（“练习题16”“刷题十一”）；分上下册时下册从 16 开始
         else:
             cur.append(ln)
     segs.append(cur)
@@ -723,8 +728,9 @@ def _collect(paths, body):
             raise ImportError_("找不到第 %s 季的板块复盘" % n)
         qs = parse_review(d)
         source, prefix, name = "粉笔第%d季模考" % n, "粉笔%d季" % n, "粉笔第%d季模考" % n
-    elif kind == "text":
-        lines = clean_lines(body.get("text", ""))
+    elif kind in ("text", "pdf"):
+        text = pdf_to_text(body.get("data") or "") if kind == "pdf" else body.get("text", "")
+        lines = clean_lines(text)
         if not lines:
             raise ImportError_("文件是空的")
         source, prefix, season = detect_source(lines)
@@ -762,6 +768,9 @@ def _collect(paths, body):
             for q in qs:   # 言语类练习册：同理，按选项样子判断逻辑填空 / 片段阅读
                 if not q["board"]:
                     q["board"] = verbal_by_options(q["options"])
+                # 言语书里被“支持 / 推出 / 结论”这类字带偏成逻辑的：没有明确逻辑问法就还是言语
+                elif q["board"] in ("论证逻辑", "形式逻辑") and not LOGIC_STRONG.search(re.split(r"[。！？”]", q["stem"].rstrip())[-1]):
+                    q["board"] = verbal_board(q["stem"], q["options"]) or "片段阅读"
     else:
         raise ImportError_("未知的导入方式")
     for q in qs:
@@ -773,6 +782,77 @@ def _collect(paths, body):
         if len(q["stem"]) < 8 and q["board"] not in IMAGE_BOARDS | {"类比推理"}:
             q["problems"].append("题干太短，可能拆错了")
     return qs, source, name, note
+
+
+def pdf_to_text(data_b64):
+    """有文字层的 PDF（WPS / Word 导出、或 OCR 软件生成的“可搜索 PDF”）→ 一行一行的文字，交给 txt 同一套拆题流程。
+    比先转 txt 多保住两样东西：
+    - 填空的横线：PDF 里是画出来的细线，不是文字，转 txt 会丢；这里按坐标插回题干，写成 ____（横线下面本来有字的是“画线句”，不算空）；
+    - 双空题选项之间的空隙：“遏止 恩威并施”，转 txt 会粘成“遏止恩威并施”。"""
+    import base64
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            raise ImportError_("读 PDF 需要 pymupdf 组件：在「① 模考」点“安装拆分组件”，或在 PowerShell 运行 pip install pymupdf")
+    try:
+        doc = fitz.open(stream=base64.b64decode(data_b64), filetype="pdf")
+    except Exception:
+        raise ImportError_("PDF 打不开，请确认文件没有损坏")
+    out, chars_total = [], 0
+    for page in doc:
+        items = []   # (x0, y0, x1, y1, 文字)
+        raw = page.get_text("rawdict")
+        for b in raw.get("blocks", []):
+            for ln in b.get("lines", []):
+                cs = [c for s in ln.get("spans", []) for c in s.get("chars", [])]
+                run, last = [], None
+                for c in cs:
+                    x0, y0, x1, y1 = c["bbox"]
+                    w = max(1.0, x1 - x0)
+                    if last is not None and (x0 - last[2] > w * 0.35 or c["c"].isspace()):
+                        if run:
+                            items.append(run)
+                        run = []
+                    if not c["c"].isspace():
+                        run.append((x0, y0, x1, y1, c["c"]))
+                    last = (x0, y0, x1, y1)
+                if run:
+                    items.append(run)
+        words = [(r[0][0], min(c[1] for c in r), r[-1][2], max(c[3] for c in r), "".join(c[4] for c in r)) for r in items]
+        chars_total += sum(len(w[4]) for w in words)
+        # 填空横线：又细又不太长的水平线；横线正上方有字的是“画横线的句子”（下划线），不是空
+        for dr in page.get_drawings():
+            r = dr["rect"]
+            if r.height > 1.5 or not 8 < r.width < 200:
+                continue
+            under = [w for w in words if abs(w[3] - r.y0) < 4 and min(w[2], r.x1) - max(w[0], r.x0) > r.width * 0.3]
+            if not under:
+                words.append((r.x0, r.y0 - 10, r.x1, r.y0, "____"))
+        words.sort(key=lambda w: ((w[1] + w[3]) / 2, w[0]))
+        rows = []
+        for w in words:
+            mid = (w[1] + w[3]) / 2
+            for row in rows:
+                if abs(row["mid"] - mid) < 6:
+                    row["ws"].append(w)
+                    break
+            else:
+                rows.append({"mid": mid, "ws": [w]})
+        for row in sorted(rows, key=lambda r: r["mid"]):
+            ws = sorted(row["ws"], key=lambda w: w[0])
+            txt, prev = "", None
+            for w in ws:
+                if prev is not None and w[0] - prev[2] > 2 and "____" not in (w[4], prev[4]):
+                    txt += " "
+                txt += w[4]
+                prev = w
+            out.append(txt)
+    if chars_total < 50:
+        raise ImportError_("这份 PDF 没有文字层（是扫描图片）。先用 OCR 软件转成“可搜索 PDF”或 txt 再导入")
+    return "\n".join(out)
 
 
 def _route(paths, qs, dry):

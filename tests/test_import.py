@@ -244,6 +244,36 @@ class ImportTest(unittest.TestCase):
         self.assertEqual((r["done"], r["left"]), (2, 0))
         self.assertEqual({q["topic"] for q in bank.read(self.p, "资料分析")[0]}, {"现期量"})
 
+    def test_text_pdf_keeps_blanks(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("没装 pymupdf")
+        import base64
+        doc = pymupdf.open(); pg = doc.new_page()
+        y = 60
+        for ln in ["拔高刷题十一", "1．这项改革", "依次填入画横线部分最恰当的一项是：", "A．遏止  恩威并施", "B．遏制  宽严相济",
+                   "C．阻止  软硬兼施", "D．制止  刚柔并济",
+                   "拔高刷题十二", "1．这段文字意在说明：", "A．甲", "B．乙", "C．丙", "D．丁"]:
+            pg.insert_text((50, y), ln, fontname="china-s", fontsize=11); y += 20
+        pg.draw_line((112, 81), (170, 81), width=0.6)                     # 第 2 行“这项改革”后面画一道横线 = 空
+        data = base64.b64encode(doc.tobytes()).decode()
+        r = importer.commit(self.p, {"kind": "pdf", "data": data, "name": "言语.pdf", "no_source": True, "prefix": "言语刷题"})
+        self.assertEqual(r["ready"], 2, r)
+        q = bank.read_all(self.p, "逻辑填空")[0][0]
+        self.assertEqual(q["id"], "言语刷题-11-01")
+        self.assertIn("____", q["stem"])
+        self.assertIn("遏止 恩威并施", q["options"]["A"])
+        self.assertEqual(bank.read_all(self.p, "片段阅读")[0][0]["id"], "言语刷题-12-01")
+        with self.assertRaises(importer.ImportError_):                     # 扫描件：没有文字层
+            importer.preview(self.p, {"kind": "pdf", "data": base64.b64encode(_blank_pdf()).decode(), "name": "x.pdf"})
+
+
+def _blank_pdf():
+    import pymupdf
+    d = pymupdf.open(); d.new_page()
+    return d.tobytes()
+
 
 if __name__ == "__main__":
     unittest.main()
