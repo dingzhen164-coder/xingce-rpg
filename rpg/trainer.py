@@ -703,6 +703,8 @@ def _bank_action(g, s, act):
     if not run or run['token'] != s['token']:
         raise TrainError('本组已经结束，请重新进入实战')
     if act in ('bank_pause', 'skip'):
+        if run.get('exam') and run['phase'] != 'review':
+            _tick(run)      # 暂离不计时
         return _resp(s, [_msg('sys', '试炼进度已保存，下次进入这个板块续闯。')], finished=True)
     if run.get('exam'):
         return _exam_action(g, s, run, act)
@@ -752,6 +754,67 @@ def _settle(g, s, run, keep=False):
 SIDE_SKILLS = {'常识判断': 'xingce-changshi'}   # 副线板块没有骨架设置，按名字找 skill
 
 
+IDLE_CAP = 600   # 一道题一次最多记 10 分钟：中途走开、关了网页没点暂离，不把几个小时算进去
+
+
+def _tick(run):
+    """把当前这道题从显示到现在的时间记到它头上（翻回来改答案的时间也算这道题）"""
+    shown = run.get('shown')
+    if shown:
+        times = run.setdefault('times', {})
+        times[str(shown[0])] = times.get(str(shown[0]), 0) + max(0, min(time.time() - shown[1], IDLE_CAP))
+    run['shown'] = None
+
+
+def _clock(sec):
+    sec = int(round(sec or 0))
+    return '%d:%02d' % (sec // 60, sec % 60) if sec < 3600 else '%d:%02d:%02d' % (sec // 3600, sec // 60 % 60, sec % 60)
+
+
+def _result_table(g, run):
+    """交卷后的成绩表：每道题的答案、对错、用时，最后一行合计；跨板块的再按板块汇总"""
+    qs, res = run['questions'], run['results']
+    rows = [[str(i + 1), q['id'], q['board'], q['topic'][:16], r['answer'], q['answer'], '✓' if r['ok'] else '✗',
+             _clock(r.get('seconds'))] for i, (q, r) in enumerate(zip(qs, res))]
+    total = sum(r.get('seconds', 0) for r in res)
+    ok = sum(r['ok'] for r in res)
+    rows.append(['合计', '', '', '', '', '', '%d/%d' % (ok, len(res)), _clock(total)])
+    blocks = [{'t': 'table', 'head': ['题', '编号', '板块', '知识点', '我选', '答案', '对错', '用时'], 'rows': rows}]
+    boards = list(dict.fromkeys(q['board'] for q in qs))
+    if len(boards) > 1:
+        brows = []
+        for b in boards:
+            idx = [i for i, q in enumerate(qs) if q['board'] == b]
+            sec = sum(res[i].get('seconds', 0) for i in idx)
+            brows.append([b, str(len(idx)), '%d/%d' % (sum(res[i]['ok'] for i in idx), len(idx)), _clock(sec), _clock(sec / len(idx))])
+        blocks.append({'t': 'table', 'head': ['板块', '题数', '对', '用时', '平均每题'], 'rows': brows})
+    return blocks, total
+
+
+def _save_table(g, run, total):
+    """成绩表另存一份到 训练/试炼记录/<日期>.md（追加），在 Obsidian 里也能翻"""
+    if not g.paths.train:
+        return
+    qs, res, group = run['questions'], run['results'], run['settled']
+    lines = ['', '## %s · %s · 正确率 %.1f%%（%d/%d）· 用时 %s' % (
+        time.strftime('%H:%M'), question_bank.label(run['board']), 100 * group['correct'] / group['total'],
+        group['correct'], group['total'], _clock(total)), '',
+        '| 题 | 编号 | 板块 | 知识点 | 我选 | 答案 | 对错 | 用时 |', '|---|---|---|---|---|---|---|---|']
+    for i, (q, r) in enumerate(zip(qs, res)):
+        lines.append('| %d | %s | %s | %s | %s | %s | %s | %s |' % (
+            i + 1, q['id'], q['board'], q['topic'][:16].replace('|', '/'), r['answer'], q['answer'],
+            '✓' if r['ok'] else '✗', _clock(r.get('seconds'))))
+    folder = g.paths.train / '试炼记录'
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        f = folder / ('%s.md' % g.t)
+        head = '' if f.exists() else '# 试炼记录 · %s\n' % g.t
+        with f.open('a', encoding='utf-8', newline='\n') as fh:
+            fh.write(head + '\n'.join(lines) + '\n')
+    except OSError:
+        pass
+
+
 def _say(g, scene, **vals):
     return g.lines.pick(scene, 称呼=g.persona['称呼'], 导师名=g.persona['导师名'], **vals)
 
@@ -763,6 +826,7 @@ def _exam_show(g, s, run, events=None, extra=None):
     picks = run.setdefault('picks', {})
     pos = run['pos']
     q = qs[pos]
+    run['shown'] = [pos, time.time()]
     left = [str(i + 1) for i in range(len(qs)) if str(i) not in picks]
     msg = '%s · 第 %s/%s 题 · 编号 %s' % (question_bank.label(run['board']), pos + 1, len(qs), q['id'])
     blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
@@ -785,6 +849,7 @@ def _exam_action(g, s, run, act):
     qs, picks = run['questions'], run.setdefault('picks', {})
     if run['phase'] == 'review':
         return _review_action(g, s, run, act)
+    _tick(run)
     if act.startswith('exam_pick:'):
         _, pos, k = act.split(':')
         if pos != str(run['pos']) or k not in 'ABCD':
@@ -812,7 +877,11 @@ def _exam_action(g, s, run, act):
                 events += question_bank.record(g, run, picks[str(i)])
             except question_bank.BankError as e:
                 raise TrainError(str(e))
+        for i, r in enumerate(run['results']):
+            r['seconds'] = round(run.get('times', {}).get(str(i), 0))
         group, ev = _settle(g, s, run, keep=True)
+        group['seconds'] = sum(r['seconds'] for r in run['results'])
+        _save_table(g, run, group['seconds'])
         # 一题一条“+5 修为”会刷屏，合成一条
         xp = sum(e['v'] for e in events + ev if e.get('kind') == 'xp')
         events = ([{'kind': 'xp', 'v': xp, 'msg': '%s · %s 交卷' % (g.T('bank'), question_bank.label(s['board']))}] if xp else []) + \
@@ -835,12 +904,13 @@ def _review_show(g, s, run, events=None, extra=None, head=False):
     msgs = []
     if head:
         rate = 100 * group['correct'] / group['total']
-        msgs.append(_msg('sys', '交卷！%s · 正确率 %.1f%%（%s/%s）\n试炼品评：%s\n答题卡：%s\n\n下面逐题复盘，看不懂的点「师傅解惑」。' % (
-            question_bank.label(run['board']), rate, group['correct'], group['total'], g.T('bank_rank.' + str(group['rank'])),
-            ' '.join('%d%s' % (k + 1, '✓' if x['ok'] else '✗') for k, x in enumerate(res)))))
+        table, total = _result_table(g, run)
+        msgs.append(_msg('sys', '交卷！%s · 正确率 %.1f%%（%s/%s）· 用时 %s（平均每题 %s）\n试炼品评：%s\n\n下面逐题复盘，看不懂的点「师傅解惑」。' % (
+            question_bank.label(run['board']), rate, group['correct'], group['total'], _clock(total), _clock(total / len(res)),
+            g.T('bank_rank.' + str(group['rank']))), table))
         msgs.append(_msg('npc', _say(g, _rank_scene(group), 正确率='%.0f%%' % rate, 对题数=group['correct'],
                                      总题数=group['total'], 错题数=group['total'] - group['correct']) or g.T('bank_close')))
-    msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错'),
+    msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s · 用时 %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错', _clock(r.get('seconds'))),
                      _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))))
     msgs.append(_msg('sys', '你的答案：%s · 正确答案：%s\n知识点：%s\n\n解析：' % (r['answer'], q['answer'], q['topic']),
                      _bank_blocks(g, q['board'], q['analysis'] or '（这题没有解析，点「师傅解惑」让师傅讲）')))
@@ -884,10 +954,11 @@ def _review_action(g, s, run, act):
         run.setdefault('explain', {})[str(i)] = _explain(g, qs[i], res[i])
     elif act == 'exam_close':
         group = run['settled']
+        table, total = _result_table(g, run)
         question_bank.close(g, run)
-        text = '%s 复盘结束：%s/%s 正确。%s已保存，可到%s继续磨练。' % (
-            question_bank.label(run['board']), group['correct'], group['total'], g.T('bank_wrong'), g.T('bank_review'))
-        return _resp(s, [_msg('sys', text), _msg('npc', _say(g, '试炼·复盘结束') or g.T('bank_close'))], finished=True)
+        text = '%s 复盘结束：%s/%s 正确，用时 %s。成绩表也存进了 训练/试炼记录/%s.md。%s已保存，可到%s继续磨练。' % (
+            question_bank.label(run['board']), group['correct'], group['total'], _clock(total), g.t, g.T('bank_wrong'), g.T('bank_review'))
+        return _resp(s, [_msg('sys', text, table), _msg('npc', _say(g, '试炼·复盘结束') or g.T('bank_close'))], finished=True)
     else:
         raise TrainError('这一步请使用当前题目的按钮')
     return _review_show(g, s, run)
@@ -912,6 +983,9 @@ def _bank_resp(g, s, run, messages, events, inp):
                    'answered': len(run.get('picks', {})) if exam else len(run['results']),
                    'correct': None if exam else sum(x['ok'] for x in run['results']),
                    'mode': run['mode'], 'phase': run['phase'], 'tower': question_bank.tower(g)}
+    if exam:   # 计时：网页按这两个数接着走秒（时间以程序记录为准）
+        times = run.get('times', {})
+        r['battle']['timer'] = {'total': round(sum(times.values())), 'question': round(times.get(str(run['pos']), 0))}
     return r
 
 

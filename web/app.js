@@ -151,7 +151,9 @@ function recentList(ev) {
 function msgHtml(m) {
   // 文字块里的 ![[库内路径]] 是夹在句子里的小图（公式），按行内显示
   const inline = (h) => h.replace(/!\[\[([^\]]+)\]\]/g, (_, p) => `<img class="inline-img" src="/vault-file?p=${encodeURIComponent(p.replace(/&amp;/g, '&'))}">`);
-  const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : `<div>${inline(md(b.v))}</div>`).join("");
+  const table = (b) => `<div class="tbl-wrap"><table class="result-table"><thead><tr>${b.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
+    b.rows.map(r => `<tr class="${r.includes('✗') ? 'bad' : r.includes('✓') ? 'good' : 'sum'}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const blocks = (m.blocks || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
@@ -281,7 +283,7 @@ const views = {
       <div class="row"><button class="primary" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${esc(W(b.active ? 'bank_resume' : 'bank_start'))}</button>
       <button data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>${esc(W('bank_review'))}</button></div>
       ${b.wrong_items.length ? `<details><summary>${esc(W('bank_wrong'))}（错题）</summary>${b.wrong_items.map(q => `<p>编号 ${esc(q.id)} · ${esc(q.topic)} · 上次选 ${esc(q.last.answer)} · 共 ${q.tries} 次 · ${esc(q.last.date)}</p>`).join('')}</details>` : ''}</div>`).join('')}</div>
-      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span></div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
+      <div class="card"><h3>📜 ${esc(W('bank_history'))}</h3>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${rate(x.correct, x.total)}</span>${x.seconds ? `<span class="small muted">⏱ ${clock(x.seconds)}</span>` : ''}</div>`).join('') || '尚未留下试炼战绩，选一门功法开始吧。'}</div>`;
   },
 
   async skeleton() {
@@ -481,6 +483,7 @@ function renderTrain() {
   bindTrain();
   const box = $("#msgs"); if (box) box.scrollTop = T.top ? 0 : box.scrollHeight;
   if (T.top) window.scrollTo(0, 0);
+  startTimer();
   const ta = $("#answer"); if (ta) ta.focus();
 }
 function bindTrain() {
@@ -791,11 +794,26 @@ render();
 
 
 // 试炼进度与破关数，不显示任何未提交题目的答案。
+const clock = (s) => { s = Math.max(0, Math.round(s)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+// 答题计时：程序记的是准数，网页在两次操作之间自己走秒
+let TIMER = null;
+function startTimer() {
+  clearInterval(TIMER);
+  const t = T.battle?.timer;
+  if (!t || T.finished) return;
+  const t0 = Date.now();
+  TIMER = setInterval(() => {
+    const q = $('#tQ'), a = $('#tT');
+    if (!q || !a) return clearInterval(TIMER);
+    const d = (Date.now() - t0) / 1000;
+    q.textContent = clock(t.question + d); a.textContent = clock(t.total + d);
+  }, 1000);
+}
 function battlePanel() {
   const b = T.battle;
   if (!b) return '';
   return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>${b.phase === 'review' ? '复盘 ' : ''}第 ${b.position}/${b.total} 关</span></div>
-    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.correct === null
+    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.timer ? `<span>⏱ 本题 <b id="tQ">${clock(b.timer.question)}</b> · 总 <b id="tT">${clock(b.timer.total)}</b></span>` : ''}${b.correct === null
       ? '<span>交卷后揭晓对错</span>' : `<span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span>`}</div></div>`;
 }
 

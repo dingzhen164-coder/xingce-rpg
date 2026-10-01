@@ -266,7 +266,8 @@ class BankTest(unittest.TestCase):
         self.assertIn('答题卡：1·A 2·A 3·C', str(r))
         r = trainer.action(self.g, sid, 'exam_submit')
         self.assertIn('正确率 66.7%（2/3）', str(r))
-        self.assertIn('1✓ 2✓ 3✗', str(r))
+        table = r['messages'][0]['blocks'][0]
+        self.assertEqual([row[6] for row in table['rows']], ['✓', '✓', '✗', '2/3'])
         self.assertIn('秘密解析', str(r))
         # 暂离后再进来还在复盘
         trainer.action(self.g, sid, 'bank_pause')
@@ -292,6 +293,38 @@ class BankTest(unittest.TestCase):
         self.assertTrue(r['finished'])
         self.assertNotIn('类比推理', bank.state(self.g)['runs'])
         self.assertEqual(bank.summary(self.g)['groups'][0]['correct'], 2)
+
+    def test_exam_timing_table_and_log(self):
+        f = self.paths.train / '题库/类比推理真题.md'
+        f.write_text(''.join(question(x) for x in ('01', '02')), encoding='utf-8')
+        task = {'type': 'bank', 'board': '类比推理', 'title': '实战', 'target': '类比推理', 'id': 'bank:类比推理'}
+        now = [1000.0]
+        with patch.object(trainer.time, 'time', side_effect=lambda: now[0]):
+            r = trainer.start(self.g, task)
+            sid = r['session']
+            now[0] += 30
+            r = trainer.action(self.g, sid, 'exam_pick:0:A')        # 第 1 题 30 秒
+            self.assertEqual(r['battle']['timer'], {'total': 30, 'question': 0})
+            now[0] += 45
+            trainer.action(self.g, sid, 'bank_pause')                # 第 2 题看了 45 秒后暂离
+            now[0] += 5000                                            # 暂离期间不计时
+            r = trainer.start(self.g, task)
+            sid = r['session']
+            now[0] += 20
+            trainer.action(self.g, sid, 'exam_prev')                 # 第 2 题再 20 秒，回第 1 题
+            now[0] += 2000                                            # 走开太久：一次最多记 10 分钟
+            trainer.action(self.g, sid, 'exam_pick:0:B')
+            now[0] += 10
+            trainer.action(self.g, sid, 'exam_pick:1:A')
+            r = trainer.action(self.g, sid, 'exam_submit')
+        rows = r['messages'][0]['blocks'][0]['rows']
+        self.assertEqual([row[7] for row in rows], ['10:30', '1:15', '11:45'])
+        self.assertIn('用时 11:45', r['messages'][0]['text'])
+        self.assertEqual(bank.summary(self.g)['groups'][0]['seconds'], 705)
+        log = (self.paths.train / '试炼记录' / (self.g.t + '.md')).read_text(encoding='utf-8')
+        self.assertIn('| 1 | 01 | 类比推理 | 削弱 | B | A | ✗ | 10:30 |', log)
+        r = trainer.action(self.g, sid, 'exam_close')
+        self.assertEqual(r['messages'][0]['blocks'][0]['rows'][-1][7], '11:45')
 
     def test_pending_answer_empty_analysis_and_images(self):
         f = self.paths.train / '题库/图形推理真题.md'

@@ -293,3 +293,11 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .lec-row { display: flex; gap: 10px; align-items: center; font-size: 14px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
 .import-result p { white-space: pre-line; }
 .import-result:not(:empty) { border-top: 2px solid var(--gold); margin-top: 12px; padding-top: 8px; }
+/* 交卷成绩表 */
+.tbl-wrap { overflow-x: auto; margin: 8px 0; }
+.result-table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--panel); }
+.result-table th, .result-table td { border: 1px solid var(--line); padding: 4px 8px; text-align: center; white-space: nowrap; }
+.result-table th { background: var(--panel2); }
+.result-table tr.bad td { color: #c0392b; }
+.result-table tr.good td:nth-child(7) { color: #2e8b57; font-weight: bold; }
+.result-table tr.sum td { font-weight: bold; background: var(--panel2); }
