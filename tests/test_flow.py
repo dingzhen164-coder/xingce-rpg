@@ -90,6 +90,8 @@ def fake_chat(messages, json_mode=False, **kw):
         names = [l.split(". ", 1)[1] for l in text.split("需要判断的名称清单（按顺序）：")[1].split("\n\n")[0].splitlines() if ". " in l]
         answer = text.split("学员的默写：\n")[1].split("\n\n")[0]
         return json.dumps({"清单": [name in answer for name in names], "答到": [True] * n, "错误说法": [], "点评": "不错"})
+    if "传授" in text and "弟子还没学过" in text:
+        return "为师来讲：" + ("有例题" if "例题1：" in text else "无例题")
     if "陪学员复盘" in sys_text:
         return "师傅：先看问法。" + text[:12]
     if "费曼学习法" in sys_text:
@@ -169,6 +171,15 @@ class FlowTest(unittest.TestCase):
         t = {"board": "论证逻辑", "target": iid, "title": "x"}
         r = self.run_task(dict(t, type="recite"), answer="否定论点，先找论点和论据")   # 缺口诀“拆桥”
         self.assertTrue(any("背诵口诀失败" in m["text"] for m in r["messages"]))
+        # 传授：师傅先讲，再追问 / 再举一例，结束后不改掌握程度
+        r = api.session_start({"task": dict(t, type="teach")})
+        self.assertIn("为师来讲", str(r["messages"]))
+        self.assertEqual([b["id"] for b in r["input"]["buttons"]], ["ask_more", "discuss_end"])
+        r = api.session_action({"session": r["session"], "action": "ask_more"})
+        self.assertIn("再举一个例子", str(r["messages"]))
+        r = api.session_action({"session": r["session"], "action": "discuss_end"})
+        self.assertTrue(r["finished"])
+        self.assertEqual(self.state()["items"].get(iid, {}).get("level", 0), 0)
         self.run_task(dict(t, type="recite"))
         self.run_task(dict(t, type="recite"))
         self.assertEqual(self.state()["items"][iid]["level"], 1)

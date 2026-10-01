@@ -28,7 +28,7 @@ from . import question_bank, ai, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
 FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
-STUDY_TYPES = ("recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
+STUDY_TYPES = ("teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
 REVIEW_GRACE = 180  # 秒
 
 
@@ -152,6 +152,8 @@ def start(g, task):
         raise TrainError(f"{g.T('qi')}预警：还需调息 {g.resting()} 分钟。去喝口水、走两步，回来再修炼。")
     if typ in ("bank", "bank_review"):
         return _start_bank(g, task)
+    if typ == "teach":
+        return _start_teach(g, task)
     if typ in ("recite", "review", "speedrun"):
         it = _item(g, task["target"])
         s = new_session(typ, task["title"], task, iid=it["id"], board=task["board"])
@@ -372,7 +374,10 @@ def _example(g, s, text):
 
 
 # ---------------------------------------------------------------- 题后复盘：继续问师傅（按板块 skill 回答）
-def _discuss_input():
+def _discuss_input(teach=False):
+    if teach:
+        return {"mode": "text", "placeholder": "哪里没听懂？直接问师傅，Ctrl+Enter 发送",
+                "buttons": [{"id": "ask_more", "label": "🌀 再举一例"}, {"id": "discuss_end", "label": "结束传授"}]}
     return {"mode": "text", "placeholder": "还有哪里不懂？直接问师傅（会参照这个板块的 skill），Ctrl+Enter 发送",
             "buttons": [{"id": "ask_explain", "label": "🧙 师傅解惑"}, {"id": "discuss_end", "label": "结束复盘"}]}
 
@@ -404,16 +409,75 @@ def _discuss_ask(g, s, text):
 
 
 def _discuss_reply(g, s, text):
-    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input()))
+    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input(s["type"] == "teach")))
 
 
 def _discuss_action(g, s, act):
     if act == "ask_explain":
         return _resp(s, [_msg("me", "🧙 师傅，这题给我讲透。")] + _discuss_ask(g, s, "请按 skill 的方法把这道题完整讲一遍"),
                      input=_remember(s, _discuss_input()))
+    if act == "ask_more":
+        return _resp(s, [_msg("me", "🌀 师傅，再举一个例子。")] + _discuss_ask(
+            g, s, "再给我出一道考这个大项的典型例题（四个选项），先让我看题，然后按步骤讲怎么用这个方法做出来"),
+            input=_remember(s, _discuss_input(True)))
     if act in ("discuss_end", "skip"):
         return _resp(s, [_msg("npc", _say(g, "试炼·复盘结束") or "复盘完了就去下一项。")], finished=True)
     raise TrainError("这一步请打字追问，或点「师傅解惑」/「结束复盘」")
+
+
+# ---------------------------------------------------------------- 传授：师傅先把这一项讲清楚，再配真题例题
+_GENERIC = re.compile(r"完整|清单|上位|总览|概述|十三[美丑]|选项|题型|方法|技巧|\d+")
+
+
+def _teach_examples(g, board, it, n=2):
+    """从这个板块的题库里挑和大项最贴近的真题：知识点/题干里命中大项名里的关键词越多越靠前"""
+    # 名字里的词和真题考点的说法常不一样（“由果推因削弱” vs “削弱论证-因果倒置”），按两字片段比
+    parts = [w for w in re.split(r"[·・\s/、（）()\-—：:]+", _GENERIC.sub(" ", it["name"])) if len(w) >= 2]
+    parts += [t.split("：")[0].strip("【】 ") for t in it.get("terms", [])[:6] if 2 <= len(t.split("：")[0]) <= 8]
+    grams = {w[i:i + 2] for w in parts for i in range(len(w) - 1)} - {"题目", "选项", "正确", "错误"}
+    if not grams:
+        return []
+    scored = []
+    for q in question_bank.read(g.paths, board)[0]:
+        score = 3 * sum(w in q["topic"] for w in grams) + sum(w in q["stem"][:300] for w in grams)
+        if score:
+            scored.append((-score, len(q["stem"]), q["id"], q))
+    return [x[3] for x in sorted(scored)[:n]]
+
+
+def _plain(text):
+    return vault.IMG_RE.sub("［图］", text or "")
+
+
+def _start_teach(g, task):
+    it = _item(g, task["target"])
+    board = task["board"]
+    s = new_session("teach", task["title"], task, iid=it["id"], board=board)
+    examples = _teach_examples(g, board, it)
+    content = "\n".join(["【口诀】" + v for v in it.get("verses", [])] + ["【术语】" + t for t in it.get("terms", [])]
+                        + ["【思路】" + t for t in it.get("thoughts", [])] + ["【举例】" + t for t in it.get("examples", [])])
+    if ai.available():
+        try:
+            lecture = ai.chat(prompts.teach(g.persona, board, it, content, _skill_digest(g, board),
+                                            [dict(q, stem=_plain(q["stem"]), analysis=_plain(q["analysis"])[:600]) for q in examples]),
+                              temperature=0.6, max_tokens=2200)
+        except ai.AIError as e:
+            raise TrainError("师傅没来上课：%s" % e)
+    else:   # 没连 AI：把骨架里这一项原样摊开讲，例题照样给
+        lecture = ("（没连 AI，为师先把功法原文摊给你看。）\n\n「%s」这一项要掌握：\n%s"
+                   % (it["name"], content or "（骨架里这一项还没有内容）"))
+    msgs = [_msg("npc", lecture)]
+    for k, q in enumerate(examples, 1):
+        msgs.append(_msg("sys", "📜 例题 %d（真题 · %s）" % (k, q["id"]),
+                         _bank_blocks(g, board, q["stem"] + "\n\n" + "\n".join("%s. %s" % (o, v) for o, v in q["options"].items()))))
+        msgs.append(_msg("sys", "答案：%s\n%s" % (q["answer"], _plain(q["analysis"]) or "（无解析）"), fold="例题 %d 答案与解析（先自己做再展开）" % k))
+    if not examples:
+        msgs.append(_msg("sys", "题库里没找到贴近这一项的真题，点「🌀 再举一例」让师傅现编一道。"))
+    s["discuss"] = {"kind": "传授", "title": it["name"], "board": board, "history": [],
+                    "question": "大项「%s」的内容：\n%s" % (it["name"], content),
+                    "mine": "（弟子在听课）", "reference": "\n\n".join(_plain(q["stem"])[:300] + " 答案 " + q["answer"] for q in examples)}
+    msgs.append(_msg("sys", "听完可以直接追问，或点「🌀 再举一例」。讲明白了再去背诵口诀、论道。"))
+    return _resp(s, msgs, input=_remember(s, _discuss_input(True)))
 
 
 # ---------------------------------------------------------------- 试剑（应用）

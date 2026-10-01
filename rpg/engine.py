@@ -62,7 +62,7 @@ class Game:
         return self.T("levels").split(",")
 
     def label(self, typ):
-        return {"recite": self.T("recite"), "feynman": self.T("feynman"), "example": self.T("example"), "apply": self.T("apply"),
+        return {"teach": self.T("teach"), "recite": self.T("recite"), "feynman": self.T("feynman"), "example": self.T("example"), "apply": self.T("apply"),
                 "review": self.T("review"), "speedrun": self.T("speedrun"), "wrong": self.T("kill"),
                 "skeleton": "编撰" + self.T("skeleton"), "tribulation": self.T("tribulation"),
                 "heal": self.T("heal")}.get(typ, typ)

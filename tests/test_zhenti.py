@@ -51,6 +51,7 @@ qid: "%(qid)s"
 
 ### 给定材料
 （无）
+%(doubt)s
 '''
 
 
@@ -67,7 +68,8 @@ class ZhentiTest(unittest.TestCase):
                 ('科学推理', '40', '科学推理 / 力学', '')]:
             (root / kind).mkdir(parents=True, exist_ok=True)
             (root / kind / ('%s 题.md' % qid)).write_text(
-                NOTE % dict(qid=qid, paper=paper, year='2021', point=point, img=img), encoding='utf-8')
+                NOTE % dict(qid=qid, paper=paper, year='2021', point=point, img=img,
+                            doubt='\n> [!warning] 疑点（待复核）\n> 解析少一句' if qid == '30' else ''), encoding='utf-8')
         self.out = Path(self.tmp.name) / 'vault'
         (self.out / 'copilot/skills').mkdir(parents=True)
 
@@ -91,6 +93,10 @@ class ZhentiTest(unittest.TestCase):
         for k in ('【官方解析】\n官方10', '【推理链】\n第1步', '【最快解法】\n⚡ 快10', '【易错点】', '【母题抽象】\n🧩 母题10'):
             self.assertIn(k, q['analysis'])
         self.assertNotIn('同类特征', q['analysis'])
+        q30 = next(x for x in bank.read(p, '形式逻辑')[0] if x['id'] == '真题-30')
+        self.assertNotIn('疑点', q30['stem'])                       # 疑点是对解析的复核，不当材料
+        self.assertIn('【疑点】\n疑点（待复核）\n解析少一句', q30['analysis'])
+        self.assertNotIn('（无）', q30['stem'])
         books = bank.summary(g)['sets']
         self.assertEqual((books[0]['book'], books[0]['sets'][0]['total']), ('历年真题·判断推理', 5))
         # 卷子里的顺序：图形 → 逻辑（按题号） → 科学推理；题干里不出现知识点和解析

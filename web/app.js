@@ -246,7 +246,11 @@ const views = {
 
   async train() {
     const tasks = DASH?.plan?.tasks || [];
-    if (!T.session && !T.msgs.length) return await hubHtml();
+    const idle = () => !T.session && !T.msgs.length && !T.busy;
+    if (idle()) {
+      const hub = await hubHtml();
+      if (idle()) return hub;   // 殿里的数据还没载完就点了功课：以功课对话框为准，不能被殿覆盖
+    }
     const inp = T.input;
     let composer = "";
     if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在判定</div>`;
@@ -467,7 +471,7 @@ async function renderTrain() {
   const ta = $("#answer"); if (ta) ta.focus();
 }
 function bindTrain() {
-  if (!T.session && !T.msgs.length) return bindHub();
+  if (!T.session && !T.msgs.length && !T.busy) return bindHub();
   bindTaskClicks($("#view"));
   const send = $("#send");
   if (send) {
@@ -560,7 +564,7 @@ async function xiulianHtml() {
     <button data-xlpill="${esc(b.board)}" ${b.final ? '' : 'disabled'}>⚗ 开炉炼丹</button>
     ${b.final ? '' : `<button data-skel="${esc(b.board)}">${b.status === '草稿' ? '审阅 / 定稿功法' : '编撰功法'}</button>`}</div>`;
   if (!b.final) return rec + seals + `<div class="card art-hall">${head}<p class="muted">「${esc(b.board)}」的功法还没定稿：先编撰、定稿，才能逐项修炼。斩心魔可以先做。</p></div>`;
-  const acts = [['recite', '📿'], ['feynman', '🗣'], ['example', '🌀'], ['apply', '🗡']];
+  const acts = [['teach', '📖'], ['recite', '📿'], ['feynman', '🗣'], ['example', '🌀'], ['apply', '🗡']];
   const cards = b.items.map(it => {
     const due = it.next && it.next <= today;
     return `<div class="art-card ${due ? 'due' : ''} lv${it.level}">
@@ -806,7 +810,7 @@ function skeletonCard(sk, b) {
     return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? "已过" : "待过"}</td>
       <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? esc(W("rust")) : esc(it.levelName)}${sub(it)}${it.lapCheck ? ` · 待${esc(W("speedrun"))}` : ""}</span></td>
       <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td>
-      <td>${b.final ? `${["recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
+      <td>${b.final ? `${["teach", "recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
   }).join("");
   return `<div class="card tome-open"><div class="row"><h3 style="margin:0">📜 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
     ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编撰" + esc(W("skeleton"))}</button>`}</div>
@@ -927,7 +931,7 @@ function bindSettings() {
 // 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
 // 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
 const BEAT = 30;
-const STUDY = ["recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
+const STUDY = ["teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
 let lastActive = Date.now();
 let T_TYPE = "";
 ["mousemove", "keydown", "click", "scroll", "input"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));

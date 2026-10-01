@@ -93,6 +93,10 @@ def parse(path):
             opts[m.group(1)] = to_text(v.replace('✅', ''), base, images).replace('\n', ' ').strip()
     stem = to_text(section(qpart, '题干'), base, images)
     material = section(qpart, '给定材料')
+    # 给定材料后面常跟着一段 > [!warning] 疑点（官方解析可能有误…）：那是对解析的复核意见，放进解析，不当材料
+    doubt = '\n'.join(re.sub(r'^>\s?', '', ln) for ln in material.splitlines() if ln.startswith('>'))
+    doubt = re.sub(r'^\[!\w+\]\s*', '', doubt).strip()
+    material = '\n'.join(ln for ln in material.splitlines() if not ln.startswith('>')).strip()
     if material and material != '（无）':
         stem = to_text(material, base, images) + '\n\n' + stem
     parts = [('官方解析', to_text(section(qpart, '官方解析'), base, images))]
@@ -103,6 +107,7 @@ def parse(path):
     parts.append(('最快解法', m.group(1).strip() if m else ''))
     parts.append(('易错点', section(note, '易错点', '##')))
     parts.append(('母题抽象', re.sub(r'^>\s*', '', section(note, '母题抽象', '##'), flags=re.M).strip()))
+    parts.append(('疑点', doubt))
     analysis = '\n\n'.join('【%s】\n%s' % (k, to_text(v, base, images) if k != '官方解析' else v) for k, v in parts if v)
     point = meta.get('考点', '')
     kind = path.parent.name
