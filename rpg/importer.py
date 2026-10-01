@@ -110,7 +110,7 @@ def clean_lines(text):
                      r"|公考资料|V[:：]\s*\w{6,}|SIHAIGONGKAO|微信|关注公众号", ln):
             continue
         if count.get(ln, 0) >= 4 and not re.match(r"^[A-D][\.．。:：、]", ln) \
-                and not re.search(r"填入问号处|正确答案|^[A-D]$", ln):
+                and not re.search(r"填入问号处|正确答案|^[A-D]$", ln) and not SET_RE.match(ln):
             continue
         out.append(ln)
     return out
@@ -240,9 +240,12 @@ def parse_fenbi(lines):
 START_RE = re.compile(r"(?:(?<=[\s。？?！!”）)])|^)([1-9]\d{0,2})\s*[\.．。:：、，,]?\s*(?=[一-鿿“\"（(A-Z])")
 
 
-def parse_book(lines):
-    """练习册：题号连续（每套练习从 1 重新开始），四个选项出完才可能开始下一题；允许漏认一个题号"""
-    text = "\n".join(lines)
+# 练习册每套开头的标记行：“练习题03”“05 练习题”“页07 练习题”“o1 练习题”（OCR 常把序号挪到前面或丢掉）
+SET_RE = re.compile(r"^[#＃\w页\s]{0,5}练习题?\s*\d{0,3}$")
+
+
+def _starts(text):
+    """一段文字里的题目起点：题号连续，四个选项出完才可能开始下一题；允许漏认一个题号"""
     cands = [(m.start(), m.end(), int(m.group(1))) for m in START_RE.finditer(text)]
     starts, last, skipped = [], 0, []
 
@@ -256,25 +259,53 @@ def parse_book(lines):
                 starts[-1] = c  # 两个“1”之间没有选项：前一个是目录里的数字
             continue
         if not starts:
-            if n == 1:
+            if n in (1, 2):  # 第 1 题题号没认出来时从 2 开始
                 starts.append(c)
-                last = 1
+                last = n
         elif n == 1 or last < n <= last + 2:
             if n == last + 2:
                 skipped.append(len(starts) - 1)
             starts.append(c)
             last = n
+    return starts, skipped
+
+
+def parse_book(lines):
+    """练习册：有“练习题NN”标记就按标记分套（第几套 = 第几个有题的标记段，和答案表的“练习NN”对得上）；
+    没有标记就按“题号回到 1”分套。每套里题号连续，选项按 A→B→C→D"""
+    segs, cur = [], []
+    for ln in lines:
+        if SET_RE.match(ln) and len(ln) <= 12:
+            segs.append(cur)
+            cur = []
+        else:
+            cur.append(ln)
+    segs.append(cur)
+    texts = ["\n".join(x) for x in segs]
+    by_marker = sum(bool(_starts(t)[0]) for t in texts) >= 2
+    if not by_marker:
+        texts = ["\n".join(lines)]
     out, group = [], 0
-    for i, (s, e, n) in enumerate(starts):
-        if n == 1:
+    for text in texts:
+        starts, skipped = _starts(text)
+        if not starts:
+            continue  # 目录、封面
+        if by_marker:
             group += 1
-        end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
-        stem, opts, problems = split_options(text[e:end], scrambled=False)
-        stem = re.sub(r"\s*\n\s*", "", stem)
-        out.append({"num": n, "group": group, "stem": stem, "options": opts, "answer": "",
-                    "board": guess_board("", stem, opts), "problems": problems})
-    for i in skipped:
-        out[i]["problems"].append("下一题（第 %d 题）的题号没认出来，可能并在这道题的选项里" % (out[i]["num"] + 1))
+        first = len(out)
+        for i, (s, e, n) in enumerate(starts):
+            if not by_marker and n == 1:
+                group += 1
+            end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
+            stem, opts, problems = split_options(text[e:end], scrambled=False)
+            stem = re.sub(r"\s*\n\s*", "", stem)
+            out.append({"num": n, "group": max(group, 1), "stem": stem, "options": opts, "answer": "",
+                        "board": guess_board("", stem, opts), "problems": problems})
+        for i in skipped:
+            q = out[first + i]
+            q["problems"].append("下一题（第 %d 题）的题号没认出来，可能并在这道题的选项里" % (q["num"] + 1))
+        if by_marker and starts[0][2] == 2:
+            out[first]["problems"].append("这一套的第 1 题题号没认出来，可能并在别处，请核对")
     return out
 
 
@@ -629,24 +660,40 @@ def parse_key(s):
     return {i + 1: x for i, x in enumerate(re.sub(r"[^A-Da-d]", "", s).upper())}
 
 
+def parse_table(s):
+    """整本答案表：每行“练习01 ADDBA CDCAB DBBCC BBADD”（练习/第N套 + 一串字母） → {"01-01": "A", ...}"""
+    key = {}
+    for m in re.finditer(r"(?:练习题?|第)\s*0*(\d{1,3})\s*套?[^A-Da-d\n]*([A-Da-d][A-Da-d\s]*)", s):
+        for i, x in enumerate(re.sub(r"\s", "", m.group(2)).upper()):
+            key["%02d-%02d" % (int(m.group(1)), i + 1)] = x
+    return key
+
+
 def fill_answers(paths, body):
-    """给编号 <前缀>-<题号> 的题补答案（只改“（待补）”的，已有答案的不动）"""
+    """给编号 <前缀>-<题号> 的题补答案（只改“（待补）”的，已有答案的不动）。
+    答案表里有“练习01 …”这样的行时，前缀填书的前缀（如 花生600题），一次补全本"""
     prefix = (body.get("prefix") or "").strip().rstrip("-")
-    key = parse_key(body.get("key") or "")
+    text = body.get("key") or ""
+    table = parse_table(text)
+    if table:
+        key = {"%s-%s" % (prefix, k): v for k, v in table.items()}
+    else:
+        key = {"%s-%s" % (prefix, n): v for n, v in parse_key(text).items()}
     if not prefix or not key:
-        raise ImportError_("请填编号前缀（如 四海逻辑600-03）和答案表（如 1-5 ABCDA）")
+        raise ImportError_("请填编号前缀（如 四海逻辑600-03）和答案表（如 1-5 ABCDA，或整本：每行 练习01 ADDBA CDCAB …）")
     n = 0
     for f in sorted((paths.train / "题库").glob("*真题.md")):
         text = f.read_text(encoding="utf-8-sig")
         changed = False
         for b in reversed(parse_blocks(text)):
-            tail = b["id"][len(prefix) + 1:] if b["id"].startswith(prefix + "-") else ""
-            if not tail.isdigit() or int(tail) not in key:
+            m = re.match(r"^(.*-)0*(\d+)$", b["id"])
+            k = b["id"] if b["id"] in key else (m and "%s%s" % (m.group(1), int(m.group(2))))
+            if not k or k not in key:
                 continue
             if re.fullmatch(r"[A-D]", b["fields"].get("答案", "").strip()):
                 continue
             seg = text[b["start"]:b["end"]]
-            new = re.sub(r"(^###\s+答案\s*\n)(.*?)(?=^###|\Z)", lambda m: m.group(1) + key[int(tail)] + "\n",
+            new = re.sub(r"(^###\s+答案\s*\n)(.*?)(?=^###|\Z)", lambda mm: mm.group(1) + key[k] + "\n",
                          seg, count=1, flags=re.M | re.S)
             if new != seg:
                 text = text[:b["start"]] + new + text[b["end"]:]
@@ -655,6 +702,38 @@ def fill_answers(paths, body):
         if changed:
             _write(f, text)
     return {"filled": n, "key": len(key)}
+
+
+def remove(paths, body, done_keys=()):
+    """撤销一批导入：删除编号以 <前缀>- 开头、还没做过的题（题库和待修文件里都删）；做过的题保留（有作答记录）"""
+    prefix = (body.get("prefix") or "").strip().rstrip("-")
+    if len(prefix) < 2:
+        raise ImportError_("请填要撤销的编号前缀（如 花生600题）")
+    bank = paths.train / "题库"
+    removed = kept = 0
+    files = list(bank.glob("*真题.md")) + list((bank / FIX_DIR).glob("*.md"))
+    for f in files:
+        board = f.name[:-len("真题.md")] if f.name.endswith("真题.md") else ""
+        text = f.read_text(encoding="utf-8-sig")
+        blocks = parse_blocks(text)
+        drop = []
+        for b in blocks:
+            if not b["id"].startswith(prefix + "-"):
+                continue
+            if board and "%s::%s" % (board, b["id"]) in done_keys:
+                kept += 1
+                continue
+            drop.append(b)
+        if not drop:
+            continue
+        for b in reversed(drop):
+            text = text[:b["start"]] + text[b["end"]:]
+        removed += len(drop)
+        if f.parent.name == FIX_DIR and not parse_blocks(text):
+            f.unlink()
+        else:
+            _write(f, text.rstrip("\n") + "\n")
+    return {"removed": removed, "kept": kept}
 
 
 # ---------------------------------------------------------------- AI 补分类（DeepSeek，只发题干开头）

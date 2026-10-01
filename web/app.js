@@ -506,8 +506,13 @@ async function loadImport() {
         ${d.fixes.map(x => `<div class="row"><span>训练/题库/_待修/${esc(x.file)}</span><span class="small muted">${x.total} 题，已改好 ${x.ready}</span><span class="spacer"></span>
           <button data-imp-fix="${esc(x.file)}">重新导入</button></div>`).join('') || '<p class="small muted">没有待修的题。</p>'}</div>
       <div class="import-sec"><h4>④ 补答案（练习册答案在另一本时）</h4>
-        <div class="row"><label>编号前缀 <input id="ansPrefix" placeholder="如 四海逻辑600-03（第 3 套）"></label>
-          <input id="ansKey" placeholder="1-5 ABCDA 6-10 BCDAB 或 1.A 2.B" style="flex:1;min-width:220px"><button id="ansGo">补答案</button></div></div>
+        <p class="small muted">整本一次补：前缀填导入时的编号前缀（如“花生600题”），答案每行一套：<code>练习01 ADDBA CDCAB DBBCC BBADD</code>。
+          只补一套：前缀写到第几套（如“花生600题-03”），答案写 <code>1-5 ABCDA 6-10 …</code> 或 <code>1.A 2.B</code>。</p>
+        <div class="row"><label>编号前缀 <input id="ansPrefix" placeholder="如 花生600题"></label><button id="ansGo">补答案</button></div>
+        <textarea id="ansKey" rows="5" style="width:100%" placeholder="练习01 ADDBA CDCAB DBBCC BBADD&#10;练习02 DDACB DADAC DDBAA DABAB&#10;……"></textarea></div>
+      <div class="import-sec"><h4>⑥ 撤销一批导入</h4>
+        <div class="row"><label>编号前缀 <input id="rmPrefix" placeholder="如 花生600题"></label>
+          <button class="ghost" id="rmGo">删除这批没做过的题</button><span class="small muted">导错了想重导时用；做过的题有作答记录，会保留</span></div></div>
       <div class="import-sec"><h4>⑤ 知识点</h4><div class="row"><span>“待分类”的题：${d.unsorted} 道</span><span class="spacer"></span>
         ${d.ai ? `<button id="clsGo" ${d.unsorted ? '' : 'disabled'}>AI 补 100 题</button>` : '<span class="small muted">在设置里填 DeepSeek key 后可以让 AI 补；不补也能正常做题</span>'}</div></div>
       <div id="importResult">${IMPORT_KEEP}</div>`;
@@ -533,6 +538,7 @@ function bindImport() {
     try {
       const r = await api(url, body);
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
+      else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
       if (!dry) {   // 入库后整页重画：下面各板块的题数要跟着变
@@ -565,6 +571,11 @@ function bindImport() {
   $('#impPreview').onclick = (e) => { try { run(e.target, '/api/import/preview', textBody(), true); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#impCommit').onclick = (e) => { try { run(e.target, '/api/import/commit', textBody(), false); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#ansGo').onclick = (e) => run(e.target, '/api/import/answers', { prefix: $('#ansPrefix').value.trim(), key: $('#ansKey').value }, false);
+  $('#rmGo').onclick = (e) => {
+    const pre = $('#rmPrefix').value.trim();
+    if (!pre || !confirm(`删除编号以「${pre}-」开头、还没做过的所有题（题库和待修文件里都删）？`)) return;
+    run(e.target, '/api/import/remove', { prefix: pre }, false);
+  };
   if ($('#clsGo')) $('#clsGo').onclick = (e) => run(e.target, '/api/import/classify', { limit: 100 }, false);
 }
 

@@ -105,6 +105,23 @@ class ImportTest(unittest.TestCase):
         self.assertEqual([q["answer"] for q in bank.read(self.p, "论证逻辑")[0]], ["B", "B"])
         self.assertEqual(bank.pending(self.p, "论证逻辑"), 0)
 
+    def test_set_markers_answer_table_and_remove(self):
+        q = lambda n: "%d.某研究认为甲导致乙（样本%s）。以下哪项如果为真，最能削弱上述结论：\nA。选项一 B.选项二\nC．选项三 D。选项四\n" % (n, "一二三"[n - 1])
+        text = ("目录\n001 练习题01\n007 02 练习题\n"                       # 目录里的“练习题”不算一套
+                "#01 练习题\n" + q(1) + q(2) +
+                "页02 练习题\n" + q(2).replace("甲", "丙") + q(3).replace("甲", "丁"))   # 第 2 套第 1 题题号没认出
+        r = importer.commit(self.p, {"kind": "text", "text": text, "prefix": "花生", "no_source": True})
+        ids = [x["id"] for x in bank.read_all(self.p, "论证逻辑")[0]]
+        self.assertEqual(ids, ["花生-01-01", "花生-01-02", "花生-02-03"])          # 按标记分套，套号不错位
+        self.assertEqual(r["fix"], 1)                                             # 第 2 套从 2 开始 → 待修核对
+        r = importer.fill_answers(self.p, {"prefix": "花生", "key": "练习01 AB\n练习02 CDB"})
+        self.assertEqual(r["filled"], 3)
+        self.assertEqual([x["answer"] for x in bank.read_all(self.p, "论证逻辑")[0]], ["A", "B", "B"])
+        r = importer.remove(self.p, {"prefix": "花生"}, {"论证逻辑::花生-01-01"})
+        self.assertEqual((r["removed"], r["kept"]), (3, 1))                       # 做过的保留，待修里的也删
+        self.assertEqual([x["id"] for x in bank.read_all(self.p, "论证逻辑")[0]], ["花生-01-01"])
+        self.assertFalse((self.p.train / "题库/_待修/花生.md").exists())
+
     def test_ai_classify_only_touches_unsorted_topics(self):
         importer.commit(self.p, {"kind": "season", "season": 36})
         self.assertEqual(importer.status(self.p)["unsorted"], 2)

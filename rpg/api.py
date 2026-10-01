@@ -25,6 +25,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/import/commit        同上 + {"ai": bool}  入库；拆不干净的写进 训练/题库/_待修/
     POST /api/import/answers       {"prefix", "key"}  按答案表补答案
     POST /api/import/classify      {"limit"}  DeepSeek 补“待分类”的知识点
+    POST /api/import/remove        {"prefix"}  撤销一批导入（只删没做过的题）
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
@@ -170,6 +171,12 @@ def import_commit(body):
 
 def import_answers(body):
     return _import_call(importer.fill_answers, body)
+
+
+def import_remove(body):
+    with open_game(save=False) as g:   # 做过的题有作答记录，不删
+        done = set(question_bank.state(g)["records"])
+    return _import_call(lambda p, b: importer.remove(p, b, done), body)
 
 
 def import_classify(body):
@@ -348,6 +355,7 @@ ROUTES = {
     ("POST", "/api/import/commit"): import_commit,
     ("POST", "/api/import/answers"): import_answers,
     ("POST", "/api/import/classify"): import_classify,
+    ("POST", "/api/import/remove"): import_remove,
     ("GET", "/api/skeletons"): skeletons,
     ("GET", "/api/wrong"): wrong,
     ("POST", "/api/heartbeat"): heartbeat,
