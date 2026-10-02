@@ -275,3 +275,30 @@ class TolerantNoteTest(unittest.TestCase):
             self.assertIn('### 知识点\n成语辨析-搭配', text)
             self.assertIn('【推理链】\n第1步：x\n\n【母题抽象】\n搭配优先', text)
             self.assertIn('官方999\n', text)
+
+
+class CalloutNoteTest(unittest.TestCase):
+    def test_answer_callout_format(self):
+        """言语那批：蒸馏内容在 > [!success]- 点击查看答案与解析 折叠框里"""
+        note = Path(__file__).with_name('fixtures') / '1746638 逻辑填空-成语辨析.md'
+        with tempfile.TemporaryDirectory() as d:
+            train = Path(d) / '训练'
+            (train / '题库').mkdir(parents=True)
+            (train / '题库/逻辑填空真题-2016.md').write_text(
+                '\n## 题目 真题-1746638\n### 知识点\n逻辑填空\n### 题干\n题\n### 选项\nA. 一丝不苟\nB. 不遗余力\nC. 分毫不差\nD. 滴水不漏\n'
+                '### 答案\nC\n### 解析\n官方解析原文\n【文段出处】《赢在执行》\n', encoding='utf-8')
+            src = Path(d) / 'vault/10-真题/言语理解与表达/逻辑填空/逻辑填空-成语辨析'
+            src.mkdir(parents=True)
+            (src / note.name).write_text(note.read_text(encoding='utf-8'), encoding='utf-8')
+            r = zhenti.merge_distilled(train, Path(d) / 'vault')
+            self.assertEqual((r['notes'], r['merged'], r['skipped_no_parts']), (1, 1, 0))
+            text = (train / '题库/逻辑填空真题-2016.md').read_text(encoding='utf-8')
+            heads = [ln for ln in text.splitlines() if ln.startswith('【') and ln.endswith('】')]
+            self.assertEqual(heads, ['【细化】', '【问法模型】', '【推理链】', '【最快解法】', '【易错点】',
+                                     '【适用边界（什么时候不要用）】', '【易混考点辨析】', '【母题抽象】'])
+            self.assertIn('官方解析原文\n【文段出处】《赢在执行》\n\n【细化】', text)
+            for bad in ('正确答案', '相关题', '典型提问', '同类特征', '文段指出执行力'):
+                self.assertNotIn(bad, text)
+            self.assertIn('### 知识点\n逻辑填空-成语辨析', text)
+            zhenti.merge_distilled(train, Path(d) / 'vault')                       # 再合并：不重复
+            self.assertEqual((train / '题库/逻辑填空真题-2016.md').read_text(encoding='utf-8'), text)

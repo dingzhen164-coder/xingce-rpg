@@ -164,12 +164,53 @@ def convert(src, out):
 
 
 # ---------------------------------------------------------------- 给已入库的题补上蒸馏解析
-DISTILLED = re.compile(r'^【(?:问法模型|推理链|最快解法|易错点|母题抽象|疑点)】', re.M)
+# 蒸馏部分从第一行“整行就是【蒸馏小节名】”开始；官方解析里也可能有【备注】这类整行标题，所以只认蒸馏用过的名字
+DISTILLED_NAMES = {'细化', '问法模型', '推理链', '最快解法', '易错点', '母题抽象', '疑点', '易混考点辨析', '适用边界（什么时候不要用）'}
+
+
+def _distilled_start(body, extra):
+    names = DISTILLED_NAMES | set(re.findall(r'^【([^】\n]+)】$', extra, re.M))
+    for m in re.finditer(r'^【([^】\n]{1,24})】[ \t]*$', body, re.M):
+        if m.group(1) in names:
+            return m.start()
+    return None
 _COARSE = {'逻辑填空', '片段阅读', '语句表达', '数学运算', '人文常识', '科技常识', '法律常识', '地理国情', '经济常识',
            '新思想', '时事政治', '马克思主义', '毛中特', '待分类'}
 
 
-_SKIP_SEC = re.compile(r'相关|同类|链接|题干|选项|官方解析|给定材料|^答案|参考答案|材料|考点$|出处|来源|标签|tags', re.I)
+_SKIP_SEC = re.compile(r'相关|同类|链接|题干|选项|官方解析|给定材料|^答案|正确答案|参考答案|材料|考点$|出处|来源|标签|tags|典型提问', re.I)
+
+
+def _callout_sections(t):
+    """言语那批把蒸馏内容放在 “> [!success]- 点击查看答案与解析” 折叠框里：
+    **标签**：内容（一行）、单独一行的 **标签** 下面跟几行内容、开头的“细化：…”都认。返回 [(位置, 名称, 内容)]"""
+    lines = t.splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(r'^>\s*\[!\w+\][-+]?.*解析', ln)), None)
+    if start is None:
+        return []
+    box = []
+    for ln in lines[start + 1:]:
+        if not ln.startswith('>'):
+            break
+        box.append(re.sub(r'^>\s?', '', ln))
+    out, cur = [], None
+    for i, ln in enumerate(box):
+        inline = re.match(r'^\*\*([^*]{1,20}?)\*\*\s*[:：]\s*(.+)$', ln)
+        head = re.match(r'^\*\*([^*]{1,30}?)\*\*\s*$', ln)
+        plain = re.match(r'^([\u4e00-\u9fff]{2,4})\s*[:：]\s*(.+)$', ln) if cur is None else None
+        if inline or plain:
+            m = inline or plain
+            out.append([100000 + i, m.group(1).strip(), m.group(2)])
+            cur = None
+        elif head and re.search(r'[:：]', head.group(1)):   # **正确答案：C** 这种自成一条，不是小节标题
+            out.append([100000 + i, head.group(1).strip(), ''])
+            cur = None
+        elif head:
+            cur = [100000 + i, head.group(1).strip(), '']
+            out.append(cur)
+        elif cur is not None:
+            cur[2] += ln + '\n'
+    return [tuple(x) for x in out]
 
 
 def parse_note(path):
@@ -193,6 +234,7 @@ def parse_note(path):
         found.append((m.start(), m.group(1).strip(), m.group(2)))
     for m in re.finditer(r'^#{2,3}\s+(.+?)\s*\n(.*?)(?=^#{1,3}\s|\Z)', note, re.M | re.S):
         found.append((m.start(), m.group(1).strip(), re.split(r'\n\s*\*\*[^*\n]{1,12}\*\*\s*[:：]', m.group(2))[0]))
+    found += _callout_sections(t)
     if not point:
         m = re.search(r'^考点\s*[:：]\s*(.+)$', note, re.M)
         point = unlink(m.group(1)) if m else ''
@@ -264,8 +306,8 @@ def merge_distilled(train, folder, dry=False):
             if not m:
                 continue
             body = m.group(1).rstrip('\n')
-            d = DISTILLED.search(body)
-            official = (body[:d.start()] if d else body).rstrip()
+            d = _distilled_start(body, q['extra'])
+            official = (body[:d] if d is not None else body).rstrip()
             extra = re.sub(r'^(#+)\s', lambda x: '＃' * len(x.group(1)) + ' ', q['extra'], flags=re.M)
             new_body = (official + '\n\n' if official else '') + extra
             nb = block[:m.start(1)] + new_body + '\n\n' + block[m.end(1):].lstrip('\n')
