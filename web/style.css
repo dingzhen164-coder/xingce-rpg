@@ -448,3 +448,19 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .chat .composer textarea { max-height: 32vh; }
 /* 左边荐课也跟着屏幕走 */
 .train > .card:first-child { position: sticky; top: 90px; align-self: start; max-height: calc(100vh - 110px); overflow-y: auto; }
+/* 草稿：页面定住，透明画布盖在上面 */
+html.drawing, html.drawing body { overflow: hidden; touch-action: none; }
+.draw-btn { margin-left: 6px; }
+.draw-btn.on { color: var(--red); border-color: var(--red); box-shadow: 0 0 10px color-mix(in srgb, var(--red) 40%, transparent); }
+.draw-layer { position: fixed; inset: 0; z-index: 9000; display: none; background: rgba(40, 30, 20, .06); }
+.draw-layer.on { display: block; }
+.draw-layer canvas { position: absolute; inset: 0; touch-action: none; }
+.draw-bar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
+  padding: 6px 10px; border-radius: 14px; background: rgba(52, 58, 68, .92); box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+.draw-bar button { width: 38px; height: 38px; padding: 0; border-radius: 10px; border: 0; background: transparent; color: #e8ecf2; font-size: 18px; cursor: pointer; }
+.draw-bar button:hover { background: rgba(255,255,255,.1); }
+.draw-bar button.on { background: rgba(255,255,255,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.draw-bar button:disabled { opacity: .35; cursor: default; }
+.draw-bar .dot { width: 24px; height: 24px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+.draw-bar .dot.on { box-shadow: 0 0 0 3px #fff; }
+.draw-bar .thin, .draw-bar .thick { font-size: 13px; width: 32px; }
