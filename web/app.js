@@ -345,7 +345,14 @@ const views = {
   async settings() {
     const s = await api("/api/settings");
     const cur = DASH?.theme?.name;
-    return AMB.settingsHtml() + `<div class="card"><h3>🎨 风格</h3>
+    const cp = chatPrefs();
+    return AMB.settingsHtml() + `<div class="card"><h3>🪟 对话框大小 <small>做功课时的对话框；只存在这台电脑的浏览器里</small></h3>
+      <div class="row"><label style="flex:1">宽度 <b id="cwV">${cp.w}%</b><input type="range" id="cwR" min="40" max="100" step="5" value="${cp.w}" style="width:100%"></label>
+        <label style="flex:1">高度 <b id="chV">${cp.h}%</b><input type="range" id="chR" min="40" max="100" step="5" value="${cp.h}" style="width:100%"></label></div>
+      <div class="row"><label><input type="checkbox" id="csideR" ${cp.side ? "checked" : ""}> 左边显示“师尊荐课”栏</label><span class="spacer"></span>
+        <button class="ghost small" id="cResetR">恢复默认（宽 80%、高 100%）</button></div>
+      <p class="small muted">高度 100% = 从顶栏下面一直到屏幕底；对话框底边总是贴着屏幕底。改了马上生效，下次做功课就是这个大小。</p></div>
+      <div class="card"><h3>🎨 风格</h3>
       <div class="row"><button class="${cur === "修仙" ? "primary" : ""}" data-theme="修仙">☯ 东方修仙（师尊 劭神韵）</button>
       <button class="${cur === "玄幻" ? "primary" : ""}" data-theme="玄幻">⚔ 西方玄幻（艾琳学姐）</button></div>
       <p class="small muted">两种风格共用同一份进度，只换名字、导师、配色和台词。两台电脑同步。</p></div>
@@ -460,13 +467,27 @@ function applyResp(r) {
   T.battle = r.battle || null;
   if (r.finished) refresh().then(() => VIEW === "train" && renderTrain());
 }
-// 做功课时对话框占满屏幕到底：页面不滚，只有对话内容在框里滚，输入框贴着屏幕底边
+// 做功课时对话框钉在屏幕上：底边贴着屏幕底，宽高在“设置 → 对话框大小”里调（存在本机浏览器）
+const CHAT_DEF = { w: 80, h: 100, side: true };
+function chatPrefs() {
+  try { return Object.assign({}, CHAT_DEF, JSON.parse(localStorage.getItem("chatLayout") || "{}")); } catch { return { ...CHAT_DEF }; }
+}
+function applyChatLayout(p = chatPrefs()) {
+  const root = document.documentElement;
+  const hdr = document.querySelector("header");
+  const ban = $("#banner");
+  const top = Math.max(hdr ? hdr.getBoundingClientRect().bottom : 60, ban && ban.offsetHeight ? ban.getBoundingClientRect().bottom : 0) + 8;
+  const avail = Math.max(240, innerHeight - top);
+  root.style.setProperty("--chat-w", Math.max(40, Math.min(100, p.w)) + "vw");
+  root.style.setProperty("--chat-top", Math.round(innerHeight - avail * Math.max(40, Math.min(100, p.h)) / 100) + "px");
+  root.classList.toggle("chat-noside", !p.side);
+}
 function fitChat() {
   const tr = $(".train");
   document.documentElement.classList.toggle("in-chat", !!tr);
   if (!tr) return;
   window.scrollTo(0, 0);
-  tr.style.height = Math.max(320, innerHeight - tr.getBoundingClientRect().top) + "px";
+  applyChatLayout();
 }
 window.addEventListener("resize", () => { if ($(".train")) fitChat(); });
 async function renderTrain() {
@@ -481,6 +502,7 @@ async function renderTrain() {
   const ta = $("#answer"); if (ta) ta.focus();
 }
 function bindTrain() {
+  fitChat();
   if (!T.session && !T.msgs.length && !T.busy) return bindHub();
   bindTaskClicks($("#view"));
   const send = $("#send");
@@ -960,6 +982,13 @@ function bindLog() {
   };
 }
 function bindSettings() {
+  const saveChat = (p) => { try { localStorage.setItem("chatLayout", JSON.stringify(p)); } catch {} };
+  const readChat = () => ({ w: Number($("#cwR").value), h: Number($("#chR").value), side: $("#csideR").checked });
+  if ($("#cwR")) {
+    const upd = () => { const p = readChat(); $("#cwV").textContent = p.w + "%"; $("#chV").textContent = p.h + "%"; saveChat(p); };
+    $("#cwR").oninput = upd; $("#chR").oninput = upd; $("#csideR").onchange = upd;
+    $("#cResetR").onclick = () => { $("#cwR").value = CHAT_DEF.w; $("#chR").value = CHAT_DEF.h; $("#csideR").checked = CHAT_DEF.side; upd(); };
+  }
   AMB.bindSettings(showError);
   document.querySelectorAll("[data-theme]").forEach((b) => (b.onclick = async () => {
     try { await api("/api/theme", { theme: b.dataset.theme }); await refresh(); render(); } catch (e) { showError(e); }
