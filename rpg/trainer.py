@@ -190,6 +190,7 @@ def _log(g, sid, user_text, r):
         return
     who = {"me": "🧑 我", "npc": "🌸 " + g.persona["导师名"]}
     body = "\n\n".join("**%s**：\n%s" % (who[w], t) if w in who else "> " + t.replace("\n", "\n> ") for w, t in log)
+    sid = s.get("log_sid", sid)       # 接着上次聊的：写回上次那一段
     head = "## %s · %s <!-- sid:%s -->" % (s.setdefault("started", time.strftime("%Y-%m-%d %H:%M")), g.label(s["type"]), sid)
     try:
         old = f.read_text(encoding="utf-8") if f.is_file() else "# %s · 修炼记录\n\n> 每次传授、背诵口诀、论道、化法为境、试剑的对话都记在这里，新的在下面。\n" % s["iid"].replace("::", " · ")
@@ -222,7 +223,65 @@ def _past_logs(g, iid, sid, n=5):
     return out[-n:]
 
 
+def _parse_log(body):
+    """修炼记录里的一段 → [(who, text)]；who 是 me / npc / sys（系统消息记成连续的 > 行）"""
+    out, prev_blank = [], True
+    for ln in body.splitlines():
+        h = re.match(r"^\*\*(🧑 我|🌸 [^*]+)\*\*：\s*$", ln)
+        if h:
+            out.append(["me" if h.group(1).startswith("🧑") else "npc", ""])
+        elif ln.startswith(">"):
+            if not out or out[-1][0] != "sys" or prev_blank:
+                out.append(["sys", ""])
+            out[-1][1] += re.sub(r"^> ?", "", ln) + "\n"
+        elif out:
+            out[-1][1] += ln + "\n"
+        prev_blank = not ln.strip()
+    return [(w, t.strip()) for w, t in out if t.strip()]
+
+
+def _last_log(g, iid, label):
+    """这个大项上一次同类练习的记录：(sid, 时间, [(who, text)])；没有就 None"""
+    f = _log_file(g, iid)
+    if not f or not f.is_file():
+        return None
+    text = f.read_text(encoding="utf-8")
+    heads = [h for h in _LOG_HEAD.finditer(text) if h.group(1).endswith("· " + label)]
+    if not heads:
+        return None
+    h = heads[-1]
+    nxt = _LOG_HEAD.search(text, h.end())
+    entries = _parse_log(text[h.end():nxt.start() if nxt else len(text)])
+    return (h.group(2), h.group(1).rsplit(" · ", 1)[0], entries) if entries else None
+
+
+def _resume(g, task, last):
+    """接着上次的对话：把上次的对话原样摆出来，进入可以接着问师傅的状态；也可以点“重新开始”"""
+    old_sid, when, entries = last
+    it = _item(g, task["target"])
+    label = g.label(task["type"])
+    s = new_session(task["type"], task.get("title") or label, task, iid=it["id"], board=task["board"],
+                    resumed=label, log_sid=old_sid, started=when, log=list(entries))
+    content = "\n".join(["【口诀】" + v for v in it.get("verses", [])] + ["【术语】" + t for t in it.get("terms", [])]
+                        + ["【思路】" + t for t in it.get("thoughts", [])])
+    history = [{"role": "user" if w == "me" else "assistant", "content": t} for w, t in entries if w in ("me", "npc")][-12:]
+    s["discuss"] = {"kind": label, "title": it["name"], "board": task["board"], "history": history,
+                    "question": "大项「%s」的内容：\n%s" % (it["name"], content), "mine": "（接着上次的%s聊）" % label, "reference": ""}
+    msgs = [dict(_msg("sys", "📜 接着 %s 那次%s继续。想从头来就点「🆕 重新开始%s」。" % (when, label, label)), history=True)]
+    msgs += [{"who": w, "text": t, "history": True} for w, t in entries]
+    return _resp(s, msgs, input=_remember(s, _discuss_input(task["type"] == "teach", label)))
+
+
 def start(g, task):
+    if task.get("type") in LOG_TYPES and task.get("target") and not task.get("fresh"):
+        try:
+            last = _last_log(g, task["target"], g.label(task["type"]))
+        except OSError:
+            last = None
+        if last:
+            if g.resting():
+                raise TrainError(f"{g.T('qi')}预警：还需调息 {g.resting()} 分钟。去喝口水、走两步，回来再修炼。")
+            return _resume(g, task, last)
     r = _start(g, task)
     s = ALL.get(r.get("session"))
     if s and s["type"] in LOG_TYPES and s.get("iid"):
@@ -474,7 +533,11 @@ def _example(g, s, text):
 
 
 # ---------------------------------------------------------------- 题后复盘：继续问师傅（按板块 skill 回答）
-def _discuss_input(teach=False):
+def _discuss_input(teach=False, resumed=None):
+    if resumed:   # 接着上次的对话：随时可以重新开始这一项
+        return {"mode": "text", "placeholder": "接着上次聊，直接说；Ctrl+Enter 发送",
+                "buttons": ([{"id": "ask_more", "label": "🌀 再举一例"}] if teach else [])
+                + [{"id": "fresh", "label": "🆕 重新开始" + resumed}, {"id": "discuss_end", "label": "先到这"}]}
     if teach:
         return {"mode": "text", "placeholder": "哪里没听懂？直接问师傅，Ctrl+Enter 发送",
                 "buttons": [{"id": "ask_more", "label": "🌀 再举一例"}, {"id": "discuss_end", "label": "结束传授"}]}
@@ -509,7 +572,7 @@ def _discuss_ask(g, s, text):
 
 
 def _discuss_reply(g, s, text):
-    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input(s["type"] == "teach")))
+    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input(s["type"] == "teach", s.get("resumed"))))
 
 
 def _discuss_action(g, s, act):
@@ -524,7 +587,12 @@ def _discuss_action(g, s, act):
     if act == "ask_more":
         return _resp(s, [_msg("me", "🌀 师傅，再举一个例子。")] + _discuss_ask(
             g, s, "再给我出一道考这个大项的典型例题（四个选项），先让我看题，然后按步骤讲怎么用这个方法做出来"),
-            input=_remember(s, _discuss_input(True)))
+            input=_remember(s, _discuss_input(True, s.get("resumed"))))
+    if act == "fresh":            # 重新开始这一项：开一次全新的
+        SESSIONS.pop(s["id"], None)
+        r = start(g, dict(s["task"], fresh=True))
+        r["replace"] = True
+        return r
     if act in ("discuss_end", "skip"):
         scene = "修炼·传授结束" if s["type"] == "teach" else "试炼·复盘结束"
         return _resp(s, [_msg("npc", _say(g, scene) or "今天就到这，去下一项。")], finished=True)

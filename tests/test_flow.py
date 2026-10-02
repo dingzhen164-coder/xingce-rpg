@@ -137,7 +137,7 @@ class FlowTest(unittest.TestCase):
         return json.loads((self.vault / "训练/存档/存档.json").read_text(encoding="utf-8"))
 
     def run_task(self, task, answer="否定论点 拆桥 先找论点和论据 搭桥"):
-        r = api.session_start({"task": task})
+        r = api.session_start({"task": dict(task, fresh=True)})
         while not r["finished"]:
             if any(b["id"] == "discuss_end" for b in r["input"].get("buttons", [])):   # 题后复盘：结束
                 r = api.session_action({"session": r["session"], "action": "discuss_end"})
@@ -188,16 +188,26 @@ class FlowTest(unittest.TestCase):
         self.assertIn("· 背诵口诀 <!-- sid:", log)          # 前面那次背诵口诀也记了
         self.assertIn("为师来讲", log)
         self.assertIn("🧑 我", log)                     # “再举一例”这句也记下了
+        # 再点“传授”：接着上次那次传授聊（上次的对话原样摆出来，师傅带着上次的上下文回答），写回同一段
         r = api.session_start({"task": dict(t, type="teach")})
-        folds = [m for m in r["messages"] if (m.get("fold") or "").startswith("📜 往期修炼")]
-        self.assertEqual(len(folds), 2)
-        self.assertIn("为师来讲", folds[1]["text"])
+        self.assertIn("接着", r["messages"][0]["text"])
+        self.assertIn("为师来讲", str(r["messages"]))
+        self.assertEqual([b["id"] for b in r["input"]["buttons"]], ["ask_more", "fresh", "discuss_end"])
         r = api.session_reply({"session": r["session"], "text": "削弱和质疑是一回事吗"})
+        self.assertIn("师傅：先看问法", str(r["messages"]))
         api.session_action({"session": r["session"], "action": "discuss_end"})
         log = logs[0].read_text(encoding="utf-8")
-        self.assertEqual(log.count("<!-- sid:"), 3)
+        self.assertEqual(log.count("<!-- sid:"), 2)        # 没有新开一段
         self.assertIn("削弱和质疑是一回事吗", log)
-        self.assertEqual(log.count("往期修炼"), 0)       # 往期记录本身不会被重复写进去
+        self.assertEqual(log.count("为师来讲"), 1)          # 上次的内容没被重复写
+        self.assertNotIn("接着", log)
+        # 重新开始：开一次新的传授，旧的折叠在上面
+        r = api.session_start({"task": dict(t, type="teach")})
+        r = api.session_action({"session": r["session"], "action": "fresh"})
+        self.assertTrue(r.get("replace"))
+        self.assertEqual(len([m for m in r["messages"] if (m.get("fold") or "").startswith("📜 往期修炼")]), 2)
+        api.session_action({"session": r["session"], "action": "discuss_end"})
+        self.assertEqual(logs[0].read_text(encoding="utf-8").count("<!-- sid:"), 3)
         self.run_task(dict(t, type="recite"))
         self.run_task(dict(t, type="recite"))
         self.assertEqual(self.state()["items"][iid]["level"], 1)
@@ -311,19 +321,19 @@ class FlowTest(unittest.TestCase):
         self.assertFalse(ai.available())
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
-        r = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}})
+        r = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x", "fresh": True}})
         r = api.session_reply({"session": r["session"], "text": "搭桥 补充联系"})
         self.assertEqual(r["input"]["mode"], "buttons")
         r = api.session_action({"session": r["session"], "action": "self_ok"})
         self.assertTrue(r["finished"])
         self.assertEqual(self.state()["items"]["论证逻辑::加强题"]["l1"], 1)
         with self.assertRaises(trainer.TrainError):
-            api.session_start({"task": {"type": "feynman", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}})
+            api.session_start({"task": {"type": "feynman", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x", "fresh": True}})
 
     def test_tired_does_not_consume_task(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")
-        r = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}})
+        r = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x", "fresh": True}})
         r2 = api.session_reply({"session": r["session"], "text": "好累啊不想学了"})
         self.assertFalse(r2["finished"])
         self.assertEqual(r2["input"]["mode"], "text")
@@ -337,7 +347,7 @@ class FlowTest(unittest.TestCase):
         r = api.heartbeat({"seconds": 60, "session": chat["session"]})                     # 和导师闲聊
         self.assertFalse(r["studying"])
         self.assertEqual(r["minutes"], 0)
-        s = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}})
+        s = api.session_start({"task": {"type": "recite", "board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x", "fresh": True}})
         self.assertTrue(api.heartbeat({"seconds": 60, "session": s["session"]})["studying"])
         self.assertEqual(api.heartbeat({"seconds": 60, "session": s["session"]})["minutes"], 2)   # 做功课才计时
         api.session_reply({"session": s["session"], "text": "搭桥 补充论据和论点之间的联系"})
@@ -351,7 +361,7 @@ class FlowTest(unittest.TestCase):
         for _ in range(5):
             self.run_task(task, answer="忘了")
         with self.assertRaises(trainer.TrainError):
-            api.session_start({"task": task})
+            api.session_start({"task": dict(task, fresh=True)})
         self.assertGreater(api.dashboard({})["rest"], 0)
 
     def test_semantic_recall_synonyms_errors_and_malformed_result(self):
@@ -367,7 +377,7 @@ class FlowTest(unittest.TestCase):
         self.run_task(task)
         self.assertEqual(self.state()["items"][task["target"]]["l1"], 0)
         ai.chat = lambda m, **kw: json.dumps({"清单": ["true"], "答到": [], "错误说法": []})
-        r = api.session_start({"task": task})
+        r = api.session_start({"task": dict(task, fresh=True)})
         xp = self.state()["xp"]
         with self.assertRaises(trainer.TrainError):
             api.session_reply({"session": r["session"], "text": "讲解"})
