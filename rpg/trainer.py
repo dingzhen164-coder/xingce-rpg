@@ -1203,7 +1203,7 @@ def _rank_scene(group):
     return {2: '试炼·上品', 1: '试炼·中品'}.get(group['rank'], '试炼·下品')
 
 
-def _review_show(g, s, run, events=None, extra=None, head=False):
+def _review_show(g, s, run, events=None, extra=None, head=False, scroll_bottom=False):
     qs, res, group = run['questions'], run['results'], run['settled']
     i = run.setdefault('rpos', 0)
     q, r = qs[i], res[i]
@@ -1226,8 +1226,10 @@ def _review_show(g, s, run, events=None, extra=None, head=False):
             msgs.append(_msg('npc', line))
     if str(i) in run.get('explain', {}):
         msgs.append(_msg('npc', run['explain'][str(i)]))
-    elif q['id'] in question_bank.tutor_notes(g.paths):      # 以前请师傅讲过
+    elif question_bank.TUTOR_HEAD not in (q['analysis'] or '') and q['id'] in question_bank.tutor_notes(g.paths):   # 旧版存在单独文件里的
         msgs.append(_msg('sys', question_bank.tutor_notes(g.paths)[q['id']], fold='🧙 上次的师傅解惑'))
+    for h in run.get('chat', {}).get(str(i), []):          # 这道题上追问师傅的对话
+        msgs.append(_msg('me' if h['role'] == 'user' else 'npc', h['content']))
     msgs += extra or []
     wrong_after = [k for k in range(i + 1, len(qs)) if not res[k]['ok']]
     btns = [('exam_explain:%s' % i, '🧙 师傅解惑' if str(i) not in run.get('explain', {}) else '🧙 再问师傅')]
@@ -1239,8 +1241,12 @@ def _review_show(g, s, run, events=None, extra=None, head=False):
         btns.append(('exam_rwrong', '下一道错题'))
     btns.append(('exam_close', '结束复盘'))
     btns.append(('bank_pause', '稍后再看'))
-    rr = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
+    inp = {'mode': 'text', 'placeholder': '对这道题还有疑问？直接问师傅（Ctrl+Enter 发送）；「🧙 师傅解惑」按功法 skill 把整题讲透',
+           'buttons': [{'id': k, 'label': v} for k, v in btns]}
+    rr = _bank_resp(g, s, run, msgs, events, _remember(s, inp))
     rr['replace'] = True
+    if scroll_bottom:
+        rr['scroll'] = 'bottom'
     return rr
 
 
@@ -1260,8 +1266,11 @@ def _review_action(g, s, run, act):
             return _review_show(g, s, run, extra=[_msg('npc', (_say(g, '试炼·解惑没AI') or '为师今日闭关（没连上 AI）。先把解析读三遍。')
                                                        + '\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）')])
         run.setdefault('explain', {})[str(i)] = text = _explain(g, qs[i], res[i])
-        where = question_bank.save_tutor_note(g.paths, qs[i], text, g.t)
-        return _review_show(g, s, run, extra=[_msg('sys', '📌 已存入 %s（再问一次会换成新的）' % where)])
+        question_bank.save_tutor_note(g.paths, qs[i], text, g.t)        # 备份一份（历年题库重新转换时不丢）
+        where = question_bank.save_tutor_to_bank(g.paths, qs[i], text, g.t)
+        note = ('📌 已写进 训练/题库/%s 这道题的解析末尾（原解析保留；再问一次会换成新的）' % where if where
+                else '📌 题库里没找到这道题（可能改过编号），讲解存在 训练/题库/师傅解惑.md')
+        return _review_show(g, s, run, extra=[_msg('sys', note)], scroll_bottom=True)
     elif act == 'exam_close':
         group = run['settled']
         table, total = _result_table(g, run)
@@ -1299,8 +1308,29 @@ def _bank_resp(g, s, run, messages, events, inp):
     return r
 
 
+def _review_chat(g, s, run, text):
+    """复盘时追问：带着这道题、你的答案和解析问师傅（按板块 skill），对话留在这道题下面"""
+    i = run.get("rpos", 0)
+    q, r = run["questions"][i], run["results"][i]
+    hist = run.setdefault("chat", {}).setdefault(str(i), [])
+    if not ai.available():
+        return _review_show(g, s, run, extra=[_msg("me", text), _msg("npc", (_say(g, "试炼·解惑没AI") or "为师今日闭关（没连上 AI）。")
+                                                                    + "\n（在“设置”里填 AI 的 API key 后才能追问。）")], scroll_bottom=True)
+    ctx = {"kind": "试炼复盘", "title": q["id"], "board": q["board"], "history": hist[-10:],
+           "question": q["stem"] + "\n" + "\n".join("%s. %s" % kv for kv in q["options"].items()),
+           "answer": q["answer"], "mine": r["answer"], "reference": q.get("analysis", "")[:3000]}
+    try:
+        reply = ai.chat(prompts.discuss(g.persona, ctx, _skill_digest(g, q["board"]), text), temperature=0.6, max_tokens=1500)
+    except ai.AIError as e:
+        raise TrainError("师傅没回话：%s" % e)
+    hist += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
+    return _review_show(g, s, run, scroll_bottom=True)
+
+
 def _bank_reply(g, s, text):
     run = question_bank.state(g)["runs"].get(s["board"])
+    if run and run["token"] == s["token"] and run.get("exam") and run["phase"] == "review":
+        return _review_chat(g, s, run, text)
     if not run or run["token"] != s["token"] or run["phase"] != "answer":
         raise TrainError("题目已提交或组已切换，请恢复当前进度")
     if not run.get("reasoning"):

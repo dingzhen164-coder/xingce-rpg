@@ -89,4 +89,13 @@ def detail(g, key):
             'history': [{'date': h.get('date'), 'answer': h.get('answer'), 'ok': h.get('ok'), 'seconds': h.get('seconds')}
                         for h in rec.get('history', [])],
             'status': _status(question_bank.state(g), q),
-            'tutor': trainer._bank_blocks(g, board, question_bank.tutor_notes(g.paths).get(q['id'], '')) if question_bank.tutor_notes(g.paths).get(q['id']) else []}
+            'tutor': _tutor(g, board, q)}
+
+
+def _tutor(g, board, q):
+    """旧版只存在 师傅解惑.md 的讲解；已经写进题库解析的就不重复显示"""
+    from . import trainer
+    if question_bank.TUTOR_HEAD in (q['analysis'] or ''):
+        return []
+    note = question_bank.tutor_notes(g.paths).get(q['id'])
+    return trainer._bank_blocks(g, board, note) if note else []

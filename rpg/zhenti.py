@@ -306,10 +306,13 @@ def merge_distilled(train, folder, dry=False):
             if not m:
                 continue
             body = m.group(1).rstrip('\n')
+            k = body.find('【师傅解惑】')       # 请师傅讲过的留着，接在蒸馏解析后面
+            tutor = body[k:].strip() if k >= 0 else ''
+            body = body[:k].rstrip() if k >= 0 else body
             d = _distilled_start(body, q['extra'])
             official = (body[:d] if d is not None else body).rstrip()
             extra = re.sub(r'^(#+)\s', lambda x: '＃' * len(x.group(1)) + ' ', q['extra'], flags=re.M)
-            new_body = (official + '\n\n' if official else '') + extra
+            new_body = (official + '\n\n' if official else '') + extra + ('\n\n' + tutor if tutor else '')
             nb = block[:m.start(1)] + new_body + '\n\n' + block[m.end(1):].lstrip('\n')
             t = re.search(r'^### 知识点[ \t]*\n(.*?)\n', nb, re.M)
             if t and q['topic'] and (t.group(1).strip() in _COARSE or not t.group(1).strip()) and q['topic'] != t.group(1).strip():

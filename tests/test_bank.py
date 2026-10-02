@@ -289,9 +289,28 @@ class BankTest(unittest.TestCase):
             r = trainer.action(self.g, sid, 'exam_explain:2')
         self.assertIn('坑都写脸上了', str(r))
         self.assertIn('学员选了：C（答错）', sent['prompt'])
-        self.assertIn('已存入 训练/题库/师傅解惑.md', str(r))
+        self.assertIn('已写进 训练/题库/类比推理真题.md', str(r))
         self.assertEqual(bank.tutor_notes(self.paths), {'03': '选C？坑都写脸上了。'})
+        text = f.read_text(encoding='utf-8')
+        block = text[text.index('## 题目 03'):]
+        self.assertIn('秘密解析', block)
+        self.assertIn('【师傅解惑】', block)
+        self.assertLess(block.index('秘密解析'), block.index('选C？坑都写脸上了。'))
+        self.assertEqual(text.count('【师傅解惑】'), 1)
         self.assertIn('再问师傅', str(r))
+        # 再问一次：替换，不叠加
+        with patch.object(trainer.ai, 'available', return_value=True), patch.object(trainer.ai, 'chat', return_value='第二次讲法'):
+            trainer.action(self.g, sid, 'exam_explain:2')
+        text = f.read_text(encoding='utf-8')
+        self.assertEqual(text.count('【师傅解惑】'), 1)
+        self.assertIn('第二次讲法', text)
+        self.assertNotIn('坑都写脸上了', text)
+        # 复盘时直接打字问师傅
+        with patch.object(trainer.ai, 'available', return_value=True), patch.object(trainer.ai, 'chat', side_effect=fake_chat):
+            r = trainer.reply(self.g, sid, '为什么不选B')
+        self.assertIn('为什么不选B', str(r))
+        self.assertIn('为什么不选B', sent['prompt'])
+        self.assertEqual(r.get('scroll'), 'bottom')
         r = trainer.action(self.g, sid, 'exam_close')
         self.assertTrue(r['finished'])
         self.assertNotIn('类比推理', bank.state(self.g)['runs'])

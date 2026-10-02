@@ -149,6 +149,37 @@ def save_tutor_note(paths, q, text, date):
     return '训练/题库/' + TUTOR_FILE
 
 
+TUTOR_HEAD = '【师傅解惑】'
+
+
+def save_tutor_to_bank(paths, q, text, date):
+    """把师傅解惑写进这道题在题库文件里的“### 解析”末尾（原解析不动）；同一题再问就换掉上一次的。
+    返回写进的文件名；找不到这道题返回空"""
+    for f in files(paths, q['board']):
+        t = f.read_text(encoding='utf-8-sig')
+        h = re.search(r'^## 题目 %s\s*$' % re.escape(q['id']), t, re.M)
+        if not h:
+            continue
+        nxt = re.search(r'^## 题目 ', t[h.end():], re.M)
+        end = h.end() + nxt.start() if nxt else len(t)
+        block = t[h.start():end]
+        m = re.search(r'^### 解析[ \t]*\n(.*?)(?=^### |\Z)', block, re.M | re.S)
+        body = m.group(1) if m else ''
+        k = body.find(TUTOR_HEAD)
+        keep = (body[:k] if k >= 0 else body).strip()
+        if re.fullmatch(r'[（(]?\s*待补\s*[)）]?', keep):
+            keep = ''
+        clean = re.sub(r'^(#+)\s', lambda x: '＃' * len(x.group(1)) + ' ', text.strip(), flags=re.M)
+        new = (keep + '\n\n' if keep else '') + '%s（%s）\n%s\n\n' % (TUTOR_HEAD, date, clean)
+        if m:
+            block = block[:m.start(1)] + new + block[m.end(1):]
+        else:
+            block = block.rstrip('\n') + '\n### 解析\n' + new
+        f.write_text(t[:h.start()] + block + t[end:], encoding='utf-8')
+        return f.name
+    return ''
+
+
 def state(g):
     return g.state.setdefault('bank', {'records': {}, 'runs': {}, 'groups': []})
 

@@ -459,7 +459,7 @@ function applyResp(r) {
   T.session = r.session; T.title = r.title; T.busy = false; T_TYPE = r.type;
   // 试炼答题 / 复盘：每一屏只显示当前这道题（不在聊天里越堆越长），从顶上看起
   if (r.replace) T.msgs = [];
-  T.top = !!r.replace;
+  T.top = !!r.replace && r.scroll !== 'bottom';
   T.msgs.push(...r.messages);
   handleEvents(r.events, { inChat: true });
   T.input = r.input || { mode: "none" };
