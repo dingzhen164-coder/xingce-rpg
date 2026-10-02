@@ -31,7 +31,8 @@ class BankTest(unittest.TestCase):
         self.g = engine.Game(self.paths, config.Rules(), config.Persona(), config.Lines(),
                              store.new_state(self.day), self.day)
         self.file = self.paths.train / '题库/论证逻辑真题.md'
-        self.task = {'type': 'bank', 'board': '论证逻辑', 'title': '实战', 'target': '论证逻辑', 'id': 'bank:论证逻辑'}
+        # 这些老用例测的是“写拆题过程”模式：现在要在功课里明确要求（reasoning）
+        self.task = {'type': 'bank', 'board': '论证逻辑', 'title': '实战', 'target': '论证逻辑', 'id': 'bank:论证逻辑', 'reasoning': True}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -360,6 +361,19 @@ class BankTest(unittest.TestCase):
         self.assertEqual(sorted(qs[keep]['papers']), ['乙卷', '甲卷'])
         self.assertEqual(len(bank.state(self.g)['records']['论证逻辑::' + keep]['history']), 2)
         self.assertEqual(importer.dedupe_bank(self.paths, {}, self.g.state)['removed'], 0)
+
+    def test_argument_board_defaults_to_normal_answering(self):
+        self.file.write_text(''.join(question(x) for x in ('01', '02')), encoding='utf-8')
+        task = dict(self.task)
+        task.pop('reasoning')
+        r = trainer.start(self.g, task)
+        self.assertEqual([b['id'] for b in r['input']['buttons']][:4], ['exam_pick:0:A', 'exam_pick:0:B', 'exam_pick:0:C', 'exam_pick:0:D'])
+        trainer.action(self.g, r['session'], 'bank_pause')
+        # 以前按“写拆题过程”开的、还没答过的组：续闯时改成正常答题
+        bank.state(self.g)['runs']['论证逻辑'].update(reasoning=True, exam=False)
+        r = trainer.start(self.g, task)
+        self.assertEqual(r['input']['mode'], 'buttons')
+        self.assertIn('交卷', str(r['input']))
 
     def test_pending_answer_empty_analysis_and_images(self):
         f = self.paths.train / '题库/图形推理真题.md'

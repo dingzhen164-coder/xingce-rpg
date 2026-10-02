@@ -929,8 +929,11 @@ def _start_bank(g, task):
     # 新入口也可以恢复同板块未完成的错题组，计时类型与实际模式一致。
     typ = 'bank_review' if run['mode'] == 'review' else 'bank'
     s = new_session(typ, '%s · %s' % (g.T(typ), question_bank.label(task['board'])), task, board=task['board'], token=run['token'])
-    run.setdefault('reasoning', task['board'] == '论证逻辑')   # 整套试炼按套刷，统一用选项按钮
-    # 选项按钮的组按“考试”来：全部选完交卷才判分，再逐题复盘；写拆题过程的组仍然一题一判（要逐题审方法）
+    # 所有板块默认都是点选项、交卷判分；“写拆题过程逐题审方法”只在功课里明确要求时才用（task.reasoning）
+    if run.get('reasoning') and not task.get('reasoning') and not run['results']:
+        run['reasoning'] = False          # 以前按“写拆题过程”开的组、还没交过题：改成正常答题
+        run['exam'] = True
+    run.setdefault('reasoning', bool(task.get('reasoning')))
     run.setdefault('exam', not run['reasoning'] and not run['results'])
     r = _bank_show(g, s, run)
     r['messages'].insert(0, _msg('npc', g.T('bank_intro')))
