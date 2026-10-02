@@ -463,6 +463,45 @@ def finish(g, run, keep=False):
     return group
 
 
+SELF_PREFIX = '自练-'
+
+
+def add_question(g, body):
+    """红尘历练里录一道自练的好题，追加到 <板块>真题.md，编号 自练-年月日-序号"""
+    board = str(body.get('board') or '').strip()
+    if board not in boards(g):
+        raise BankError('先选一个板块')
+    stem = str(body.get('stem') or '').strip()
+    opts = {k: re.sub(r'\s*\n\s*', ' ', str((body.get('options') or {}).get(k) or '').strip()) for k in 'ABCD'}
+    answer = str(body.get('answer') or '').strip().upper()
+    if not stem:
+        raise BankError('题干不能为空')
+    if not all(opts.values()):
+        raise BankError('A、B、C、D 四个选项都要填')
+    if answer not in ('ABCD') or len(answer) != 1:
+        answer = '（待补）'
+    topic = re.sub(r'\s+', ' ', str(body.get('topic') or '').strip()) or '自练'
+    source = re.sub(r'\s+', ' ', str(body.get('source') or '').strip())
+    analysis = str(body.get('analysis') or '').strip() or '（待补）'
+    if source:
+        stem = '（%s）%s' % (source, stem)
+    folder = g.paths.train / '题库'
+    folder.mkdir(parents=True, exist_ok=True)
+    day = g.t.replace('-', '')
+    taken = {q['id'] for q in read_all(g.paths, board)[0]}
+    n = 1
+    while '%s%s-%02d' % (SELF_PREFIX, day, n) in taken:
+        n += 1
+    ident = '%s%s-%02d' % (SELF_PREFIX, day, n)
+    block = ('\n## 题目 %s\n### 知识点\n%s\n### 题干\n%s\n### 选项\n%s\n### 答案\n%s\n### 解析\n%s\n'
+             % (ident, topic, stem, '\n'.join('%s. %s' % (k, v) for k, v in opts.items()), answer, analysis))
+    path = folder / (board + '真题.md')
+    with path.open('a', encoding='utf-8', newline='\n') as f:
+        f.write(block)
+    q = next((x for x in read_all(g.paths, board)[0] if x['id'] == ident), None)
+    return {'id': ident, 'board': board, 'file': path.name, 'key': board + '::' + ident, 'pending': bool(q and q['pending'])}
+
+
 def close(g, run):
     state(g)['runs'].pop(run['board'], None)
 

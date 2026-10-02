@@ -89,7 +89,7 @@ THEMES = {
             "teach": "传授", "recite": "背诵口诀", "feynman": "论道", "example": "化法为境（举例）", "apply": "试剑", "wrong": "心魔", "kill": "斩心魔",
             "redo": "心魔复生", "review": "温养道基", "rust": "根基松动", "speedrun": "重温功法",
             "levels": "未入门,小成,大成,圆满", "tasks": "今日功课", "side": "支线", "boss": "宗门大比",
-            "ascend": "飞升大典", "leave": "告假玉简", "practice": "历练", "tribulation": "渡劫", "bottleneck": "瓶颈",
+            "ascend": "飞升大典", "leave": "告假玉简", "practice": "红尘历练", "tribulation": "渡劫", "bottleneck": "瓶颈",
             "root": "灵根", "pill": "丹药", "alchemy": "炼丹", "pill_room": "丹房", "retreat": "闭关", "retreat_end": "出关",
             "epiphany": "顿悟", "qi": "走火入魔", "dao": "道心", "weekly": "宗门周常", "bag": "储物袋", "heal": "疗伤",
             "demon_rank": "心魔榜", "tutor_room": "师尊的静室", "chat_btn": "向师尊请教", "breakthrough": "突破",

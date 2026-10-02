@@ -337,15 +337,35 @@ const views = {
 
   log() {
     const d = DASH;
-    return `<div class="grid g2">
+    const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
+    const opts = boardOptions(boards);
+    const recent = (d.practice || []).map((p) => `<div class="pr-item"><div class="row small"><b>${esc(p.board)}</b>${p.source ? `<span class="muted">${esc(p.source)}</span>` : ""}
+        ${p.total ? `<span>${p.correct}/${p.total}（${Math.round(p.correct / p.total * 100)}%）</span>` : ""}${p.minutes ? `<span class="muted">${p.minutes} 分钟</span>` : ""}<span class="spacer"></span><span class="faint">${esc(p.d)}</span></div>
+        ${p.note ? `<div class="pr-note">${md(p.note)}</div>` : ""}</div>`).join("");
+    return `<div class="card hongchen"><h3>🌲 ${esc(W("practice"))} <small>纸质资料、其他 App 上的自练：记成绩、写日志，好题收进题库玉简</small></h3>
+      <div class="hc-grid">
+        <div>
+          <h4>📝 自练日志</h4>
+          <div class="row"><select id="prBoard" style="flex:1.2">${opts}<option>其他</option></select><input id="prSrc" placeholder="资料，如 粉笔980 P120" style="flex:2"></div>
+          <div class="row" style="margin-top:6px"><input id="prTotal" type="number" min="0" placeholder="题数" style="flex:1"><input id="prOk" type="number" min="0" placeholder="对了几题" style="flex:1"><input id="prMin" type="number" min="0" placeholder="分钟" style="flex:1"></div>
+          <textarea id="prNote" rows="6" placeholder="今天练了什么、错在哪、悟到了什么……（会写进 训练/红尘历练/${esc((d.today || "").slice(0, 7) || "年-月")}.md）" style="margin-top:6px;width:100%"></textarea>
+          <div class="row" style="margin-top:6px"><button class="primary" id="prBtn">记下这次${esc(W("practice"))}</button><span class="small muted">分钟计入今天的修炼时间；只写日志的话题数留空</span></div>
+          <div class="pr-list">${recent || '<div class="muted small">还没有记录</div>'}</div>
+        </div>
+        <div>
+          <h4>📥 好题收进题库玉简</h4>
+          <div class="row"><select id="aqBoard" style="flex:1">${opts}</select><input id="aqTopic" placeholder="知识点，如 削弱-他因" style="flex:1.4"><input id="aqSrc" placeholder="出处（可空）" style="flex:1.2"></div>
+          <textarea id="aqStem" rows="4" placeholder="题干" style="margin-top:6px;width:100%"></textarea>
+          ${"ABCD".split("").map((k) => `<div class="row aq-opt"><b>${k}</b><input id="aq${k}" placeholder="选项 ${k}" style="flex:1"></div>`).join("")}
+          <div class="row" style="margin-top:6px"><label class="small">答案 <select id="aqAns"><option value="">待补</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label></div>
+          <textarea id="aqAna" rows="4" placeholder="解析（可空，以后让师傅解惑补上）" style="margin-top:6px;width:100%"></textarea>
+          <div class="row" style="margin-top:6px"><button class="primary" id="aqBtn">收进题库</button><span class="small muted">追加到 训练/题库/&lt;板块&gt;真题.md，编号 自练-日期-序号；之后试炼、知识点试炼、玉简搜索都能用</span></div>
+        </div>
+      </div></div>
+    <div class="grid g2">
       <div class="card"><h3>⚔ 记录${esc(W("boss"))}（模考成绩）</h3>
         <div class="row"><input id="bossName" placeholder="名称，如 第37季" style="flex:2"><input id="bossScore" placeholder="分数" style="flex:1"></div>
         <div class="row" style="margin-top:8px"><button class="primary" id="bossBtn">记录</button><span class="small muted">最近两次的较低分若高于当前${esc(W("score"))}，${esc(W("xp"))}直接补上；达到下一道${esc(W("tribulation"))}线得突破丹</span></div></div>
-      <div class="card"><h3>🌲 记录${esc(W("practice"))}（资料分析、常识等自练）</h3>
-        <div class="row"><input id="prBoard" placeholder="板块" style="flex:2"><input id="prTotal" placeholder="题数" style="flex:1"><input id="prOk" placeholder="对了几题" style="flex:1"><input id="prMin" placeholder="分钟" style="flex:1"></div>
-        <div class="row" style="margin-top:8px"><button class="primary" id="prBtn">记录</button><span class="small muted">分钟计入今天的修炼时间</span></div></div>
-    </div>
-    <div class="grid g2">
       <div class="card"><h3>📜 ${esc(W("leave"))} <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
         <p class="muted">生病、家里有事、加班……用一份${esc(W("leave"))}：今天${esc(W("streak"))}不断，也不计入${esc(W("ideal"))}。</p>
         <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天已告假" : "使用" + esc(W("leave"))}</button></div>
@@ -999,7 +1019,20 @@ function bindLog() {
     try { const r = await api("/api/boss", { name: $("#bossName").value, score: $("#bossScore").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
   };
   $("#prBtn").onclick = async () => {
-    try { const r = await api("/api/practice", { board: $("#prBoard").value, total: $("#prTotal").value, correct: $("#prOk").value, minutes: $("#prMin").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
+    try {
+      const r = await api("/api/practice", { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
+                                             minutes: $("#prMin").value, note: $("#prNote").value });
+      handleEvents(r.events); render();
+    } catch (e) { showError(e); }
+  };
+  $("#aqBtn").onclick = async () => {
+    try {
+      const r = await api("/api/bank/add", { board: $("#aqBoard").value, topic: $("#aqTopic").value, source: $("#aqSrc").value, stem: $("#aqStem").value,
+        options: Object.fromEntries("ABCD".split("").map((k) => [k, $("#aq" + k).value])), answer: $("#aqAns").value, analysis: $("#aqAna").value });
+      toast(`已收进 训练/题库/${r.file}，编号 ${r.id}${r.pending ? "（答案待补，补上后才会出题）" : ""}`);
+      ["aqStem", "aqA", "aqB", "aqC", "aqD", "aqAna"].forEach((id) => { $("#" + id).value = ""; });
+      $("#aqAns").value = "";
+    } catch (e) { showError(e); }
   };
   $("#leaveBtn").onclick = async () => { try { const r = await api("/api/leave", {}); handleEvents(r.events); render(); } catch (e) { showError(e); } };
   $("#asBtn").onclick = async () => {

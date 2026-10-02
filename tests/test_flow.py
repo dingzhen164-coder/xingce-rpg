@@ -303,6 +303,40 @@ class FlowTest(unittest.TestCase):
         self.assertGreater(self.state()["xp"], xp0)
         self.assertEqual(self.state()["pills"][-1]["grade"], "上品")
 
+    def test_hongchen_log_and_add_question(self):
+        r = api.practice({"board": "资料分析", "source": "粉笔980 P12", "total": "10", "correct": "8", "minutes": "20",
+                          "note": "增长率估算又慢了，下次先截位"})
+        self.assertTrue(r["events"])
+        logs = list((self.vault / "训练/红尘历练").glob("*.md"))
+        self.assertEqual(len(logs), 1)
+        text = logs[0].read_text(encoding="utf-8")
+        self.assertIn("资料分析 · 粉笔980 P12 · 8/10（80%） · 20 分钟", text)
+        self.assertIn("增长率估算又慢了", text)
+        api.practice({"board": "资料分析", "total": "", "correct": "", "note": "只写一段心得"})      # 只写日志
+        self.assertIn("只写一段心得", logs[0].read_text(encoding="utf-8"))
+        d = api.dashboard({})
+        self.assertEqual(d["practice"][0]["note"], "只写一段心得")
+        self.assertEqual(d["practice"][1]["source"], "粉笔980 P12")
+        with self.assertRaises(api.ApiError):
+            api.practice({"board": "资料分析", "total": "", "note": ""})
+        # 好题收进题库
+        body = {"board": "论证逻辑", "topic": "削弱-他因", "source": "粉笔980", "stem": "某研究发现……",
+                "options": {"A": "甲", "B": "乙", "C": "丙", "D": "丁"}, "answer": "c", "analysis": "C 指出他因"}
+        r = api.bank_add(body)
+        self.assertEqual(r["file"], "论证逻辑真题.md")
+        self.assertRegex(r["id"], r"^自练-\d{8}-01$")
+        self.assertEqual(api.bank_add(body)["id"][-2:], "02")
+        from rpg import question_bank
+        with api.open_game() as g:
+            q = [x for x in question_bank.read(g.paths, "论证逻辑")[0] if x["id"] == r["id"]][0]
+            self.assertEqual((q["answer"], q["topic"], q["analysis"]), ("C", "削弱-他因", "C 指出他因"))
+            self.assertTrue(q["stem"].startswith("（粉笔980）"))
+            self.assertEqual(question_bank.read_all(g.paths, "论证逻辑")[1], [])
+        r = api.bank_add(dict(body, answer=""))
+        self.assertTrue(r["pending"])
+        with self.assertRaises(api.ApiError):
+            api.bank_add(dict(body, options={"A": "甲"}))
+
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

@@ -19,7 +19,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
-    POST /api/practice             {"board", "total", "correct", "minutes"}  录入自练
+    POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  红尘历练（自练）+ 自练日志
+    POST /api/bank/add             {"board", "topic", "source", "stem", "options": {A..D}, "answer", "analysis"}  自练好题收进题库
     GET  /api/import               导入真题页：各季模考（已导入数）、待修文件、待分类知识点数
     POST /api/import/preview       {"kind": "season"|"text"|"fix", ...}  拆题预览（不写文件）
     POST /api/import/commit        同上 + {"ai": bool}  入库；拆不干净的写进 训练/题库/_待修/
@@ -413,14 +414,25 @@ def retreat_end(body):
 
 def practice(body):
     try:
-        total, correct = int(body["total"]), int(body["correct"])
+        total, correct = int(body.get("total") or 0), int(body.get("correct") or 0)
         minutes = int(body.get("minutes") or 0)
     except Exception:
         raise ApiError("题数、正确数、分钟要填数字")
-    if total <= 0 or not (0 <= correct <= total):
-        raise ApiError("题数要大于 0，正确数不能超过题数")
+    note, source = str(body.get("note") or "").strip(), str(body.get("source") or "").strip()[:60]
+    if total < 0 or not (0 <= correct <= total) or (total == 0 and not note):
+        raise ApiError("题数要大于 0、正确数不能超过题数（只写日志的话题数填 0）")
     with open_game() as g:
-        return {"events": g.add_practice(str(body.get("board", "")).strip() or "自练", total, correct, minutes)}
+        return {"events": g.add_practice(str(body.get("board", "")).strip() or "自练", total, correct, minutes, source, note[:5000])}
+
+
+def bank_add(body):
+    with open_game() as g:
+        if not g.paths.vault:
+            raise ApiError("请先在设置中指定行测库路径")
+        try:
+            return question_bank.add_question(g, body)
+        except question_bank.BankError as e:
+            raise ApiError(str(e))
 
 
 def settings_get(body):
@@ -491,6 +503,7 @@ ROUTES = {
     ("POST", "/api/leave"): leave,
     ("POST", "/api/boss"): boss,
     ("POST", "/api/practice"): practice,
+    ("POST", "/api/bank/add"): bank_add,
     ("GET", "/api/settings"): settings_get,
     ("POST", "/api/settings"): settings_set,
     ("POST", "/api/settings/test"): settings_test,

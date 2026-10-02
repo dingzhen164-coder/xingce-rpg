@@ -479,3 +479,14 @@ html.in-chat .chat { min-height: 0; height: 100%; }
 html.in-chat .msgs { min-height: 0; overflow-y: auto; padding-right: 4px; }
 html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-radius: 0; }
 @media (max-width: 820px) { html.in-chat .train { width: 100vw; } html.in-chat .train > .card:first-child { display: none; } }
+
+/* 修仙录 · 红尘历练：占一整行，左边自练日志，右边好题收进题库 */
+.hongchen .hc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
+.hongchen h4 { margin: 4px 0 8px; }
+.hongchen textarea { box-sizing: border-box; resize: vertical; }
+.hongchen .aq-opt { margin-top: 6px; gap: 8px; }
+.hongchen .aq-opt b { width: 1.2em; text-align: center; }
+.hongchen .pr-list { margin-top: 12px; max-height: 320px; overflow: auto; border-top: 1px dashed var(--line, #ccc); padding-top: 6px; }
+.hongchen .pr-item { padding: 6px 0; border-bottom: 1px dashed var(--line, #ccc); }
+.hongchen .pr-item .row { gap: 8px; }
+.hongchen .pr-note { font-size: 13px; opacity: .9; margin-top: 4px; }

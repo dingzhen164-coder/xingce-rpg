@@ -957,12 +957,42 @@ class Game:
             ev.append({"kind": "info", "msg": f"{self.T('boss')}成绩达到 {nxt} 分，获得一颗{item}（{self.T('tribulation')}时可抵挡一道天雷）"})
         return ev
 
-    def add_practice(self, board, total, correct, minutes):
-        self.state["practice"].append({"d": self.t, "board": board, "total": total,
-                                       "correct": correct, "minutes": minutes})
+    def add_practice(self, board, total, correct, minutes, source="", note=""):
+        rec = {"d": self.t, "board": board, "total": total, "correct": correct, "minutes": minutes}
+        if source:
+            rec["source"] = source
+        if note:
+            rec["note"] = note
+        self.state["practice"].append(rec)
         self.state["seconds"][self.t] = self.state["seconds"].get(self.t, 0) + minutes * 60
-        return self._award(self.rules.xp("自练每题") * total, "practice", board,
-                           note=f"{self.T('practice')} {board} {correct}/{total}")
+        self._practice_log(rec)
+        head = f"{self.T('practice')} {board}" + (f"（{source}）" if source else "")
+        if not total:
+            return [{"kind": "info", "msg": f"{head}：日志已记下"}]
+        return self._award(self.rules.xp("自练每题") * total, "practice", board, note=f"{head} {correct}/{total}")
+
+    def _practice_log(self, rec):
+        """自练日志写进库里：训练/红尘历练/年-月.md，一次一节，Obsidian 里能直接看"""
+        if not self.paths.train:
+            return
+        folder = self.paths.train / "红尘历练"
+        folder.mkdir(parents=True, exist_ok=True)
+        f = folder / f"{self.t[:7]}.md"
+        bits = [rec["board"]] + ([rec["source"]] if rec.get("source") else [])
+        if rec["total"]:
+            bits.append(f"{rec['correct']}/{rec['total']}（{rec['correct'] / rec['total']:.0%}）")
+        if rec["minutes"]:
+            bits.append(f"{rec['minutes']} 分钟")
+        text = f"\n## {self.t} {dt.datetime.now().strftime('%H:%M')} · " + " · ".join(bits) + "\n"
+        if rec.get("note"):
+            text += "\n" + rec["note"].strip() + "\n"
+        if not f.exists():
+            text = f"# 红尘历练 · {self.t[:7]}\n\n纸质资料、其他 App 上的自练记录（修仙录里录入）。\n" + text
+        with f.open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def practice_list(self, n=12):
+        return self.state["practice"][-n:][::-1]
 
     def add_seconds(self, sec):
         """网页心跳：累加今天的修炼时间；跨过达标 / 超额线时导师说话；连续修炼太久触发走火入魔"""
@@ -1316,5 +1346,6 @@ class Game:
             "pill_boards": [b for b in self.boards if self.final_items(b) or vault.wrong_questions(self.paths, self.sources(b))],
             "greeting": self.say(scene), "scene": scene,
             "recent": self.state["events"][-12:][::-1],
+            "practice": self.practice_list(),
         }
 
