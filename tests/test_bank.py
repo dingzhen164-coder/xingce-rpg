@@ -328,6 +328,39 @@ class BankTest(unittest.TestCase):
         r = trainer.action(self.g, sid, 'exam_close')
         self.assertEqual(r['messages'][0]['blocks'][0]['rows'][-1][7], '11:45')
 
+    def test_point_run_and_dedupe(self):
+        from rpg import importer
+        f = self.paths.train / '题库/论证逻辑真题-2020.md'
+        blk = lambda i, topic, stem, paper, num: ('\n## 题目 %s\n### 知识点\n%s\n### 试卷\n%s\n### 模块\n判断推理\n### 题号\n%s\n'
+                                                '### 题干\n（2020年某省）%s\n### 选项\nA. 甲甲\nB. 乙乙\nC. 丙丙\nD. 丁丁\n### 答案\nA\n### 解析\n解析%s\n') % (i, topic, paper, num, stem, i)
+        f.write_text(blk('真题-1', '削弱论证-他因', '研究发现喝咖啡的人更长寿所以咖啡延年', '甲卷', 3)
+                     + blk('真题-2', '削弱论证-因果倒置', '城市里乌鸦越来越多说明垃圾变多了', '甲卷', 4)
+                     + blk('真题-3', '加强论证-搭桥', '某地推行垃圾分类以后河流变清了', '甲卷', 5)
+                     + blk('真题-9', '削弱论证-他因', '研究发现，喝咖啡的人更长寿，所以咖啡延年。', '乙卷', 7), encoding='utf-8')
+        # 知识点试炼：只出“削弱论证”大类、没做过的
+        task = {'type': 'bank', 'board': '点:论证逻辑:削弱论证', 'title': '点', 'target': ''}
+        r = trainer.start(self.g, task)
+        self.assertIn('论证逻辑 · 削弱论证 · 第 1/3 题', str(r))
+        sid = r['session']
+        for i in range(3):
+            trainer.action(self.g, sid, 'exam_pick:%d:A' % i)
+        r = trainer.action(self.g, sid, 'exam_submit')
+        self.assertIn('正确率 100.0%（3/3）', str(r))
+        trainer.action(self.g, sid, 'exam_close')
+        with self.assertRaises(trainer.TrainError):
+            trainer.start(self.g, task)                                   # 这一类做完了
+        # 去重：1 和 9 题干选项一样（只差来源括号和标点）；两份都做过 → 记录合并到留下的那份，试卷并过去
+        r = importer.dedupe_bank(self.paths, {'dry': True}, self.g.state)
+        self.assertEqual((r['groups'], r['removed']), (1, 1))
+        r = importer.dedupe_bank(self.paths, {}, self.g.state)
+        self.assertEqual(r['records'], 1)
+        qs = {q['id']: q for q in bank.read(self.paths, '论证逻辑')[0]}
+        keep = '真题-1' if '真题-1' in qs else '真题-9'
+        self.assertEqual(sorted(qs), sorted(['真题-2', '真题-3', keep]))
+        self.assertEqual(sorted(qs[keep]['papers']), ['乙卷', '甲卷'])
+        self.assertEqual(len(bank.state(self.g)['records']['论证逻辑::' + keep]['history']), 2)
+        self.assertEqual(importer.dedupe_bank(self.paths, {}, self.g.state)['removed'], 0)
+
     def test_pending_answer_empty_analysis_and_images(self):
         f = self.paths.train / '题库/图形推理真题.md'
         img = self.paths.train / '题库/图片/图形推理/粉笔36季-077.png'

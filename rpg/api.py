@@ -225,6 +225,14 @@ def import_rename(body):
             raise ApiError(str(e))
 
 
+def import_dedupe(body):
+    """题库去重：要动存档里的作答记录，所以拿存档；预览不保存"""
+    with open_game(save=not body.get("dry")) as g:
+        if not g.paths.vault:
+            raise ApiError("请先在设置中指定行测库路径")
+        return importer.dedupe_bank(g.paths, body, g.state)
+
+
 def import_distill(body):
     """给已入库的真题补蒸馏解析（读本机的蒸馏笔记文件夹）"""
     from . import zhenti
@@ -466,6 +474,7 @@ ROUTES = {
     ("POST", "/api/import/remove"): import_remove,
     ("POST", "/api/import/normalize"): import_normalize,
     ("POST", "/api/import/distill"): import_distill,
+    ("POST", "/api/import/dedupe"): import_dedupe,
     ("POST", "/api/import/rename"): import_rename,
     ("POST", "/api/import/upload_pdf"): import_upload_pdf,
     ("POST", "/api/import/split"): import_split,

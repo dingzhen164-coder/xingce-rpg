@@ -10,12 +10,7 @@ from collections import Counter
 from . import question_bank
 
 PAGE = 30
-HEAD = re.compile(r'[-－—（(/]')
-
-
-def topic_head(t):
-    """目录按大类：“削弱论证-因果倒置（…）” → “削弱论证”；本来就短的知识点原样"""
-    return HEAD.split(t or '', 1)[0].strip() or t
+topic_head = question_bank.topic_head
 
 
 IMG = re.compile(r'!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)')
@@ -38,10 +33,11 @@ def catalog(g):
         if not qs:
             continue
         st = Counter(_status(data, q) for q in qs)
-        topics = Counter(topic_head(q['topic']) for q in qs)
+        topics = Counter(topic_head(q['topic'], board) for q in qs)
+        left = Counter(topic_head(q['topic'], board) for q in qs if _status(data, q) == 'new')
         out.append({'board': board, 'total': len(qs), 'new': st['new'], 'done': st['done'], 'wrong': st['wrong'],
                     'pending': st['pending'], 'errors': len(errors),
-                    'topics': [{'name': k, 'count': v} for k, v in topics.most_common(60)],
+                    'topics': [{'name': k, 'count': v, 'left': left[k]} for k, v in topics.most_common(60)],
                     'more_topics': max(0, len(topics) - 60)})
     return {'boards': out, 'total': sum(b['total'] for b in out)}
 
@@ -62,7 +58,7 @@ def search(g, body):
         if board and b != board:
             continue
         for q in question_bank.read_all(g.paths, b)[0]:
-            if topic and topic_head(q['topic']) != topic:
+            if topic and topic_head(q['topic'], b) != topic:
                 continue
             st = _status(data, q)
             if status and st != status:

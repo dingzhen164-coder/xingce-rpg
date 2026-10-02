@@ -575,14 +575,27 @@ async function xiulianHtml() {
   return rec + seals + `<div class="card art-hall">${head}<div class="art-grid">${cards}</div></div>`;
 }
 
+let KP_BOARD = '';               // 知识点试炼里选中的板块
+function pointHtml(c, count) {
+  const boards = (c.boards || []).filter(b => b.total);
+  if (!boards.length) return '';
+  if (!boards.find(b => b.board === KP_BOARD)) KP_BOARD = boards[0].board;
+  const b = boards.find(x => x.board === KP_BOARD);
+  return `<div class="card kp-card"><div class="row"><h3 style="margin:0">📖 知识点试炼</h3><span class="small muted">挑一类考点连着刷，一组 ${count} 道没做过的，交卷判分</span></div>
+    <div class="board-seals small-seals">${boards.map(x => `<a class="seal ${x.board === KP_BOARD ? 'on' : ''}" data-kpboard="${esc(x.board)}">${esc(x.board)}</a>`).join('')}</div>
+    <div class="toc">${b.topics.map(t => `<a class="toc-chip kp ${t.left ? '' : 'done'}" data-kp="${esc(b.board)}" data-kptopic="${esc(t.name)}" title="未做 ${t.left} / 共 ${t.count}">${esc(t.name)} <span>${t.left}/${t.count}</span></a>`).join('')}
+      ${b.more_topics ? `<span class="small muted">…另有 ${b.more_topics} 个小类，可在藏经阁玉简里搜</span>` : ''}</div>
+    ${b.topics.length <= 2 ? '<p class="small muted">这个板块的知识点还很粗（只有大类）：用导入页「⑨ 补蒸馏解析」后会细分成考点。</p>' : ''}</div>`;
+}
 async function shizhanHtml() {
-  const d = await api('/api/bank');
+  const [d, c] = await Promise.all([api('/api/bank'), api('/api/library')]);
   const rate = (ok, n) => n ? `${(ok / n * 100).toFixed(0)}%` : '—';
   const done = d.boards.reduce((n, b) => n + b.first_total, 0);
   const wrong = d.boards.reduce((n, b) => n + b.wrong, 0);
   const firstOk = d.boards.reduce((n, b) => n + b.first_correct, 0);
   const boards = d.boards.filter(b => b.total || b.pending || b.wrong);
   return `${pagodaHtml(d.tower, done, wrong, rate(firstOk, done))}
+    ${pointHtml(c, d.count)}
     ${setsHtml(d.sets)}
     <div class="card"><div class="row"><h3 style="margin:0">⚔ 板块试炼</h3><span class="small muted">按题库顺序一组 ${d.count} 关，交卷判分</span><span class="spacer"></span>
       <label class="small">每组 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label></div>
@@ -622,6 +635,9 @@ function bindHub() {
   document.querySelectorAll('[data-xlboard]').forEach(a => a.onclick = () => { XL_BOARD = a.dataset.xlboard; renderTrain(); });
   document.querySelectorAll('[data-xlwrong]').forEach(b => b.onclick = () =>
     startTask({ task: { type: 'wrong', board: b.dataset.xlwrong, target: '', title: `👹 ${W('kill')} · ${b.dataset.xlwrong}` } }));
+  document.querySelectorAll('[data-kpboard]').forEach(a => a.onclick = () => { KP_BOARD = a.dataset.kpboard; renderTrain(); });
+  document.querySelectorAll('[data-kp]').forEach(a => a.onclick = () => startTask({ task: {
+    type: 'bank', board: `点:${a.dataset.kp}:${a.dataset.kptopic}`, target: '', title: `📖 ${a.dataset.kp} · ${a.dataset.kptopic}` } }));
   document.querySelectorAll('[data-xlpill]').forEach(b => b.onclick = () =>
     startTask({ task: { type: 'alchemy', board: b.dataset.xlpill, target: b.dataset.xlpill, title: `⚗ ${W('alchemy')} · ${b.dataset.xlpill}` } }));
   bindTaskClicks($('#view'));
@@ -685,6 +701,9 @@ async function loadImport() {
           按题号对上，不花 token；再合并一次会换成新的，不重复。填蒸馏仓库的根目录或其中“10-真题”文件夹的完整路径。</p>
         <div class="row"><input id="dsFolder" style="flex:1;min-width:280px" placeholder="如 C:\\Users\\29356\\Desktop\\行测obsidian\\行测\\蒸馏skill\\言语蒸馏">
           <button class="ghost" id="dsPreview">预览</button><button id="dsGo">合并</button></div></div>
+      <div class="import-sec"><h4>⑩ 题库去重</h4>
+        <p class="small muted">题干和选项完全一样的题只留一份（来源括号、空格标点不算差别）。留做过的、有蒸馏解析的那份；删掉那份的试卷出处并过来（按卷刷不缺题），作答记录也挪过来。</p>
+        <div class="row"><button class="ghost" id="ddPreview">预览</button><button id="ddGo">去重</button></div></div>
       <div class="import-sec"><h4>⑧ 改编号前缀</h4>
         <p class="small muted">两本书用了同一个前缀、或者想改个更清楚的名字时用。题库、作答记录一起改，做过的题历史不丢。只勾部分板块时只改这些板块里的题。</p>
         <div class="row"><label>旧前缀 <input id="rnOld" placeholder="如 花生600题"></label><label>新前缀 <input id="rnNew" placeholder="如 花生600题逻辑"></label>
@@ -729,6 +748,7 @@ function bindImport() {
       else if (url.endsWith('/rename')) show(`<p>改了 <b>${r.renamed}</b> 道题的编号（${r.files} 个题库文件），作答记录迁移 ${r.records} 条。</p>`);
       else if (url.endsWith('/normalize')) show(`<p>整理了 <b>${r.changed}</b> 道题（${r.files} 个文件）。${r.flagged_total ? `有 ${r.flagged_total} 道题的序号 OCR 丢了信息，没法自动还原，请对照原书改：${r.flagged.map(esc).join('、')}${r.flagged_total > r.flagged.length ? ' …' : ''}` : ''}</p>`);
       else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
+      else if (url.endsWith('/dedupe')) show(`<p>${r.dry ? '预览（还没改）' : '✅ 去重完成'}：${r.groups ? `${r.groups} 组重复，${r.dry ? '要删' : '删了'} <b>${r.removed}</b> 道（${r.boards.map(([b, n]) => esc(b) + ' ' + n).join('、')}）${r.records ? `，${r.records} 条作答记录挪到留下的那道` : ''}。<br><span class="small muted">例：${r.examples.map(esc).join('；')}（左边留下）</span>` : '没有重复的题。'}</p>`);
       else if (url.endsWith('/distill')) show(`<p>${r.dry ? '预览（还没写入）' : '✅ 合并完成'}：找到 <b>${r.notes}</b> 篇蒸馏笔记，对上题库里 <b>${r.merged}</b> 道题${r.topics ? `，其中 ${r.topics} 道的知识点换成了细考点` : ''}；
           ${r.files.length ? `涉及 ${r.files.length} 个题库文件。` : '题库没有要改的。'}${r.not_in_bank ? `<br>${r.not_in_bank} 篇对不上题库（多选题、没导入的模块，或题库里没有这道）。` : ''}
           ${r.images_copied ? `<br>${r.dry ? '要拷' : '拷了'} ${r.images_copied} 张解析配图。` : ''}${r.images_missing ? `<br>⚠ ${r.images_missing} 张配图在蒸馏文件夹里没找到（解析里会显示“缺图”）。` : ''}${r.unreadable ? `<br>${r.unreadable} 篇读不了，已跳过。` : ''}</p>`);
@@ -799,6 +819,8 @@ function bindImport() {
     run(e.target, '/api/import/distill', { folder, dry }, dry);
   };
   $('#dsPreview').onclick = (e) => ds(e, true);
+  $('#ddPreview').onclick = (e) => run(e.target, '/api/import/dedupe', { dry: true }, true);
+  $('#ddGo').onclick = (e) => { if (confirm('删除重复的题（留一份，作答记录合并）？')) run(e.target, '/api/import/dedupe', {}, false); };
   $('#dsGo').onclick = (e) => ds(e, false);
   $('#rnGo').onclick = (e) => {
     const o = $('#rnOld').value.trim(), n = $('#rnNew').value.trim();

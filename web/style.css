@@ -438,3 +438,6 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .set-card { position: relative; border-left: 0; border-right: 0; border-radius: 4px;
   background: linear-gradient(90deg, #6b4a2b 0 10px, transparent 10px calc(100% - 10px), #6b4a2b calc(100% - 10px)), linear-gradient(var(--panel), var(--panel2)); padding-left: 26px; padding-right: 26px; }
 @media (max-width: 760px) { .hall-gates, .pagoda-card { grid-template-columns: 1fr; } }
+.kp-card { border-top: 3px solid var(--accent); }
+.small-seals .seal { padding: 5px 12px; font-size: 13px; }
+.toc-chip.kp.done { opacity: .45; }

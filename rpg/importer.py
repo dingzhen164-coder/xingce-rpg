@@ -1152,6 +1152,103 @@ def rename_prefix(paths, body, state):
     return {"renamed": len(mapping), "records": moved, "files": files}
 
 
+# ---------------------------------------------------------------- 去重：同一道题（题干+选项一样）只留一份
+def _dedupe_fp(stem, opts):
+    s = re.sub(r"^（[^）]{2,60}）", "", stem.strip())                    # 题干前的来源括号不算
+    imgs = re.findall(r"!\[\[[^\]]*?([^/\]]+)\]\]", s)
+    s = re.sub(r"!\[\[[^\]]*\]\]", "", s)
+    o = [re.sub(r"[\W_]+", "", opts.get(k, "")) for k in "ABCD"]
+    s = re.sub(r"[\W_]+", "", s)
+    if (len(s) < 12 and not imgs) or (all(len(x) <= 1 for x in o) and not imgs):
+        return ""        # 太短、或图形题没有图：认不准，不去重
+    return s + "|" + "|".join(imgs) + "|" + "|".join(o)
+
+
+def _set_field(block, name, value):
+    """改一道题里某个小节的内容；没有这个小节就插在“### 题干”前面"""
+    m = re.search(r"^###\s+%s\s*\n(.*?)(?=^###\s|\Z)" % re.escape(name), block, re.M | re.S)
+    if m:
+        return block[:m.start(1)] + value + "\n" + block[m.end(1):]
+    i = block.find("### 题干")
+    return block[:i] + "### %s\n%s\n" % (name, value) + block[i:] if i >= 0 else block
+
+
+def dedupe_bank(paths, body, state):
+    """题库去重：题干和选项都一样的题只留一份。留哪份：做过的 > 有蒸馏解析的 > 有试卷出处的 > 解析长的。
+    删掉的那份：试卷/题号并进留下的那份（按卷刷时这几张卷子都还能刷到），作答记录也挪过去，做过的不丢"""
+    dry = bool(body.get("dry"))
+    bank = paths.train / "题库"
+    data = state.setdefault("bank", {"records": {}, "runs": {}, "groups": []})
+    recs = data["records"]
+    entries = []
+    texts = {}
+    for f in sorted(bank.glob("*真题*.md")):
+        board = f.name.split("真题")[0]
+        texts[f] = f.read_text(encoding="utf-8-sig")
+        for b in parse_blocks(texts[f]):
+            fl = b["fields"]
+            fp = _dedupe_fp(fl.get("题干", ""), parse_opts(fl.get("选项", "")))
+            if fp:
+                entries.append((fp, f, board, b))
+    groups = {}
+    for e in entries:
+        groups.setdefault(e[0], []).append(e)
+
+    def score(e):
+        _, f, board, b = e
+        rec = recs.get("%s::%s" % (board, b["id"]))
+        an = b["fields"].get("解析", "")
+        return (bool(rec and rec.get("history")), "【推理链】" in an, bool(b["fields"].get("试卷")), len(an))
+    ops = {}                 # 文件 → [(start, end, 新文本)]
+    removed, moved, merged, examples = Counter(), 0, 0, []
+    for g in groups.values():
+        if len(g) < 2:
+            continue
+        g.sort(key=score, reverse=True)
+        _, kf, kboard, kb = g[0]
+        kkey = "%s::%s" % (kboard, kb["id"])
+        papers = [x.strip() for x in kb["fields"].get("试卷", "").splitlines() if x.strip()]
+        nums = kb["fields"].get("题号", "").split()
+        nums += [""] * (len(papers) - len(nums))
+        for _, f, board, b in g[1:]:
+            for p, n in zip([x.strip() for x in b["fields"].get("试卷", "").splitlines() if x.strip()],
+                            b["fields"].get("题号", "").split() + [""] * 99):
+                if p not in papers:
+                    papers.append(p)
+                    nums.append(n)
+            okey = "%s::%s" % (board, b["id"])
+            rec = recs.get(okey)
+            if rec and not dry:
+                recs.pop(okey)
+                if kkey in recs:     # 两份都做过：历史合在一起
+                    k = recs[kkey]
+                    k["history"] = sorted(k.get("history", []) + rec.get("history", []), key=lambda h: str(h.get("date", "")))
+                    k["wrong"] = k.get("wrong") or rec.get("wrong")
+                else:
+                    recs[kkey] = dict(rec, question=dict(rec.get("question", {}), id=kb["id"], key=kkey, board=kboard))
+                moved += 1
+            ops.setdefault(f, []).append((b["start"], b["end"], ""))
+            removed[board] += 1
+        if len(examples) < 8:
+            examples.append("%s ← %s" % (kb["id"], "、".join(x[3]["id"] for x in g[1:])))
+        merged += 1
+        if papers:
+            block = texts[kf][kb["start"]:kb["end"]]
+            nb = _set_field(block, "试卷", "\n".join(papers))
+            if any(nums) and all(n.isdigit() for n in nums):
+                nb = _set_field(nb, "题号", " ".join(nums))
+            if nb != block:
+                ops.setdefault(kf, []).append((kb["start"], kb["end"], nb))
+    if not dry:
+        for f, lst in ops.items():
+            text = texts[f]
+            for start, end, new in sorted(lst, reverse=True):
+                text = text[:start] + new + text[end:]
+            _write(f, text.rstrip("\n") + "\n")
+    return {"groups": merged, "removed": sum(removed.values()), "boards": removed.most_common(), "records": moved,
+            "files": len(ops), "examples": examples, "dry": dry}
+
+
 def remove(paths, body, done_keys=()):
     """撤销一批导入：删除编号以 <前缀>- 开头、还没做过的题（题库和待修文件里都删）；做过的题保留（有作答记录）"""
     prefix = (body.get("prefix") or "").strip().rstrip("-")

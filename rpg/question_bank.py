@@ -169,14 +169,56 @@ def sets_of(q):
     return ['%s-%s' % (m.group(1), m.group(2))] if m else []
 
 
+POINT_PREFIX = '点:'
+_HEAD = re.compile(r'[-－—（(/]')
+
+
+# 同一类考点在蒸馏数据里有好几种写法（削弱论证 / 论证削弱 / 削弱质疑 / 削弱型…），按板块归到固定的几类；
+# 归不进去的保留原名（不强行合并），题目上的细考点不动，只影响目录和知识点试炼的分组
+FAMILIES = {
+    '论证逻辑': [('削弱|质疑|反驳', '削弱论证'), ('加强|强化|增强|支持', '加强论证'), ('前提|假设|预设|补充', '前提假设'),
+                ('解释|原因|矛盾', '解释说明'), ('评价|焦点|争论', '评价论证'), ('谬误|错误|缺陷|漏洞|悖论', '逻辑谬误'),
+                ('平行|相似', '平行结构'), ('结构|方式|方法|思路|策略|模型|论证|推理|逻辑|判断', '论证综合')],
+    '形式逻辑': [('平行|相似|结构', '平行结构'), ('真假|真话|假话', '真假推理'),
+                ('翻译|复合|选言|假言|联言|直言|模态|三段论|必然|命题|条件', '翻译推理'),
+                ('排序|排列|组合|分析|对应|匹配|排队|位置|周期|数学|数量|综合|规则', '分析推理'),
+                ('日常|结论|归纳|推出|推断|信息', '归纳推理'), ('集合|概念|关系', '概念关系'), ('谬误|错误|悖论', '逻辑谬误')],
+    '定义判断': [('多定义', '多定义'), ('单定义|规定', '单定义')],
+    '类比推理': [('语义|近义|反义|比喻|象征|感情色彩', '语义关系'), ('语法|主谓|动宾|偏正|并列结构', '语法关系'),
+                ('填空', '填空式类比'), ('三词|多词|多项', '多词类比'),
+                ('逻辑|集合|包含|种属|组成|交叉|并列|全同|对立|矛盾|反对', '逻辑关系'),
+                ('对应|因果|功能|属性|材料|时间|顺承|必要|条件|职业|工具|场所|原料|目的', '对应关系')],
+    '图形推理': [('空间|立体|展开|折纸|拼合|三视图|视图|截面|切面|拼接', '空间重构'),
+                ('数量|计数|笔画|一笔画|面|线|点|角|交点|封闭|部分', '数量规律'),
+                ('位置|平移|旋转|翻转|移动|方位', '位置规律'), ('样式|叠加|遍历|黑白|运算|求同|求异', '样式规律'),
+                ('属性|对称|曲直|开闭|凹凸', '属性规律'), ('分组|分类', '分组分类'), ('功能|特殊|标记', '功能元素')],
+}
+
+
+def topic_head(t, board=''):
+    """知识点大类：“削弱论证-因果倒置（…）” → “削弱论证”；有归类表的板块再归到固定的几类"""
+    parts = [x.strip() for x in _HEAD.split(t or '') if x.strip()]
+    head = parts[0] if parts else (t or '')
+    if len(parts) > 1 and head in (board, '图形推理', '类比推理', '定义判断', '逻辑判断', '判断推理'):
+        head = parts[1]          # “图形推理-数量规律…”：第一段只是板块名，看第二段
+    for pat, name in FAMILIES.get(board, ()):
+        if re.search(pat, head):
+            return name
+    return head
+
+
 def is_set(slot):
-    return str(slot or '').startswith(SET_PREFIX)
+    """不是单个板块的组：整套（套:…）或知识点（点:板块:大类）"""
+    return str(slot or '').startswith((SET_PREFIX, POINT_PREFIX))
 
 
 def label(slot):
     """组名给人看：套:花生600题言语-03 → 花生600题言语 第03套；试卷名原样"""
     if not is_set(slot):
         return slot
+    if slot.startswith(POINT_PREFIX):
+        board, _, topic = slot[len(POINT_PREFIX):].partition(':')
+        return '%s · %s' % (board, topic)
     name = slot[len(SET_PREFIX):]
     m = re.match(r'^(.+)-(\d{2,3})$', name)
     return '%s 第%s套' % (m.group(1), m.group(2)) if m else name
@@ -267,6 +309,23 @@ def summary(g):
 
 def begin(g, board, mode):
     data = state(g)
+    if str(board).startswith(POINT_PREFIX) and mode == 'new':
+        # 知识点试炼：这个板块里这一类知识点还没做过的题，按题库顺序一组
+        if board in data['runs']:
+            return data['runs'][board]
+        b, _, topic = board[len(POINT_PREFIX):].partition(':')
+        if b not in boards(g):
+            raise BankError('板块无效')
+        qs, errors = read(g.paths, b)
+        if errors:
+            raise BankError('\n'.join(errors))
+        qs = [q for q in qs if topic_head(q['topic'], b) == topic and q['key'] not in data['records']][:count(g)]
+        if not qs:
+            raise BankError('「%s · %s」的题已经全部做过了（答案待补的不出）' % (b, topic))
+        run = {'token': uuid.uuid4().hex, 'board': board, 'mode': 'new', 'questions': qs,
+               'pos': 0, 'results': [], 'phase': 'answer'}
+        data['runs'][board] = run
+        return run
     if is_set(board) and mode == 'new':
         # 整套试炼：这一套还没做过的题一次做完，不受“每轮 10/15 关”限制
         if board in data['runs']:
