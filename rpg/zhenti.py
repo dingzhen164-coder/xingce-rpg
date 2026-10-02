@@ -169,6 +169,56 @@ _COARSE = {'逻辑填空', '片段阅读', '语句表达', '数学运算', '人�
            '新思想', '时事政治', '马克思主义', '毛中特', '待分类'}
 
 
+_SKIP_SEC = re.compile(r'相关|同类|链接|题干|选项|官方解析|给定材料|^答案|参考答案|材料|考点$|出处|来源|标签|tags', re.I)
+
+
+def parse_note(path):
+    """宽松地读一篇蒸馏笔记：qid 可带引号也可不带，也可只写在文件名开头；
+    “## 小节” 和 “**标签**：内容” 两种写法都认，按出现顺序收集（相关题、同类特征、题干选项这些不要）。
+    返回 {qid, topic, extra, images}；读不出 qid 时 qid 为空"""
+    t = path.read_text(encoding='utf-8', errors='ignore')
+    fm, body = '', t
+    if t.startswith('---'):
+        fm, _, body = t[3:].partition('\n---')
+    meta = {k.strip(): v.strip().strip('"\'') for k, v in re.findall(r'^([^\s:：#]+)\s*[:：]\s*(.*)$', fm, re.M)}
+    qid = meta.get('qid', '') or meta.get('id', '')
+    if not qid.isdigit():
+        m = re.match(r'(\d{3,})', path.name)
+        qid = m.group(1) if m else ''
+    unlink = lambda x: re.sub(r'\[\[(?:[^\]|]*\|)?([^\]]*)\]\]', r'\1', x)
+    point = unlink(meta.get('考点', ''))
+    note = re.split(r'^#{2,3}\s*题干', body, 1, flags=re.M)[0]
+    base, images, found = str(path.parent), set(), []
+    for m in re.finditer(r'^\*\*([^*\n]{1,12})\*\*\s*[:：]\s*(.+)$', note, re.M):
+        found.append((m.start(), m.group(1).strip(), m.group(2)))
+    for m in re.finditer(r'^#{2,3}\s+(.+?)\s*\n(.*?)(?=^#{1,3}\s|\Z)', note, re.M | re.S):
+        found.append((m.start(), m.group(1).strip(), re.split(r'\n\s*\*\*[^*\n]{1,12}\*\*\s*[:：]', m.group(2))[0]))
+    if not point:
+        m = re.search(r'^考点\s*[:：]\s*(.+)$', note, re.M)
+        point = unlink(m.group(1)) if m else ''
+    doubt, lines = [], t.splitlines()     # > [!warning] 疑点… 这段复核意见（连续的 > 行）
+    for i, ln in enumerate(lines):
+        if '[!warning]' in ln:
+            for x in lines[i:]:
+                if not x.startswith('>'):
+                    break
+                doubt.append(re.sub(r'^>\s?', '', x))
+            break
+    doubt = '\n'.join(doubt)
+    parts = []
+    for _, name, text in sorted(found):
+        name = re.sub(r'^[\d.、\s]+|[：:]$', '', name)
+        if _SKIP_SEC.search(name):
+            continue
+        text = '\n'.join(re.sub(r'^\s*(?:>\s*)?(?:\d+\.\s+)?', '', ln) for ln in unlink(text).strip().splitlines()).strip()
+        if text:
+            parts.append((name, to_text(text, base, images)))
+    if doubt:
+        parts.append(('疑点', re.sub(r'^\[!\w+\]\s*', '', doubt.strip())))
+    return {'qid': qid, 'topic': point.split(' / ', 1)[-1].strip(), 'images': images,
+            'extra': '\n\n'.join('【%s】\n%s' % (k, v) for k, v in parts)}
+
+
 def merge_distilled(train, folder, dry=False):
     """读“考公脑库”式的蒸馏笔记（每题一篇，frontmatter 里有 qid），按编号 真题-<qid> 找到题库里已有的题：
     解析里官方解析保留，后面补上 问法模型 / 推理链 / 最快解法 / 易错点 / 母题抽象 / 疑点（再合并一次会换成新的，不重复）；
@@ -177,20 +227,24 @@ def merge_distilled(train, folder, dry=False):
     train, folder = Path(train), Path(folder)
     if not folder.is_dir():
         raise ValueError('找不到文件夹：%s' % folder)
-    notes, bad = {}, 0
+    notes, bad, scanned, no_qid, no_parts = {}, 0, 0, [], []
     for f in folder.rglob('*.md'):
-        head = f.read_text(encoding='utf-8', errors='ignore')[:600]
-        if not re.search(r'^qid: "\d+"', head, re.M):
-            continue
+        scanned += 1
         try:
-            q = parse(f)
+            q = parse_note(f)
         except Exception:
             bad += 1
             continue
-        if q['qid'] and q['extra']:
+        if not q['qid']:
+            no_qid.append(f.name)
+        elif not q['extra']:
+            no_parts.append(f.name)
+        else:
             notes[q['qid']] = q
     if not notes:
-        raise ValueError('这个文件夹里没找到蒸馏笔记（要有 qid 和 推理链/易错点 这类小节的 .md）。选蒸馏仓库的根目录或“10-真题”文件夹')
+        raise ValueError('在 %d 个 .md 里没读出蒸馏笔记（%d 个没有题号 qid，%d 个没有推理链/易错点这类小节%s）。'
+                         '选蒸馏仓库的根目录（vault-…）或“10-真题”文件夹；还不行就把其中一个 .md 发给我看格式'
+                         % (scanned, len(no_qid), len(no_parts), '，例：' + (no_parts or no_qid)[0] if no_parts or no_qid else ''))
     root = next((d for d in [folder, *folder.parents] if (d / '90-图片').is_dir()), None)
     bank = train / '题库'
     hit, topics, files, images, missing = set(), 0, [], set(), set()
@@ -242,7 +296,9 @@ def merge_distilled(train, folder, dry=False):
                 shutil.copyfile(src, dst)
         else:
             missing.add(rel)
-    return {'notes': len(notes), 'merged': len(hit), 'not_in_bank': len(set(notes) - hit), 'topics': topics,
+    return {'scanned': scanned, 'skipped_no_qid': len(no_qid), 'skipped_no_parts': len(no_parts),
+            'skip_example': (no_parts or no_qid or [''])[0], 'not_in_bank_example': sorted(set(notes) - hit)[:5],
+            'notes': len(notes), 'merged': len(hit), 'not_in_bank': len(set(notes) - hit), 'topics': topics,
             'files': files, 'images_copied': copied, 'images_missing': len(missing), 'unreadable': bad, 'dry': dry}
 
 

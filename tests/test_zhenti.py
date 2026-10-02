@@ -244,3 +244,34 @@ class MergeDistilledTest(unittest.TestCase):
             self.assertEqual(text.count('【推理链】'), f.read_text(encoding='utf-8').count('【推理链】'))
             with self.assertRaises(ValueError):
                 zhenti.merge_distilled(train, Path(d) / '没有这个文件夹')
+
+
+class TolerantNoteTest(unittest.TestCase):
+    def test_variant_formats(self):
+        with tempfile.TemporaryDirectory() as d:
+            train = Path(d) / '训练'
+            (train / '题库').mkdir(parents=True)
+            blk = lambda i: ('\n## 题目 真题-%s\n### 知识点\n逻辑填空\n### 题干\n题%s____\n### 选项\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n'
+                             '### 答案\nA\n### 解析\n官方%s\n') % (i, i, i)
+            (train / '题库/逻辑填空真题-2020.md').write_text(blk('1746638') + blk('17159') + blk('999'), encoding='utf-8')
+            deep = Path(d) / 'vault-言语理解与表达/10-真题/言语理解与表达/逻辑填空/逻辑填空-成语辨析'
+            deep.mkdir(parents=True)
+            # 不带引号的 qid、别的小节名、考点写在正文里
+            (deep / '1746638 逻辑填空-成语辨析.md').write_text(
+                '---\nqid: 1746638\n考点: 逻辑填空 / 成语辨析-语义侧重\n---\n# 成语辨析\n\n'
+                '**问法模型**：填入画横线部分最恰当 → 先找提示词\n\n## 解题思路\n1. 看前后文\n2. 比较侧重\n\n'
+                '**秒杀技巧**：看感情色彩\n\n## 易错陷阱\n- 只看词义\n\n## 相关题\n- [[10-真题/x|x]]\n\n### 题干\n题\n', encoding='utf-8')
+            # 没有 frontmatter，qid 只在文件名开头
+            (deep / '17159 逻辑填空-成语辨析.md').write_text('# 标题\n考点：[[20-考点/逻辑填空/成语辨析|逻辑填空 / 成语辨析-搭配]]\n\n'
+                                                         '## 推理链\n第1步：x\n\n## 母题抽象\n> 搭配优先\n', encoding='utf-8')
+            (deep / '说明.md').write_text('# 只是说明\n', encoding='utf-8')
+            r = zhenti.merge_distilled(train, Path(d) / 'vault-言语理解与表达')
+            self.assertEqual((r['scanned'], r['notes'], r['merged'], r['topics'], r['skipped_no_qid']), (3, 2, 2, 2, 1))
+            text = (train / '题库/逻辑填空真题-2020.md').read_text(encoding='utf-8')
+            self.assertIn('### 知识点\n成语辨析-语义侧重', text)
+            self.assertIn('官方1746638\n\n【问法模型】\n填入画横线部分最恰当 → 先找提示词\n\n【解题思路】\n看前后文\n比较侧重\n\n'
+                          '【秒杀技巧】\n看感情色彩\n\n【易错陷阱】\n- 只看词义', text)
+            self.assertNotIn('相关题', text)
+            self.assertIn('### 知识点\n成语辨析-搭配', text)
+            self.assertIn('【推理链】\n第1步：x\n\n【母题抽象】\n搭配优先', text)
+            self.assertIn('官方999\n', text)

@@ -749,8 +749,8 @@ function bindImport() {
       else if (url.endsWith('/normalize')) show(`<p>整理了 <b>${r.changed}</b> 道题（${r.files} 个文件）。${r.flagged_total ? `有 ${r.flagged_total} 道题的序号 OCR 丢了信息，没法自动还原，请对照原书改：${r.flagged.map(esc).join('、')}${r.flagged_total > r.flagged.length ? ' …' : ''}` : ''}</p>`);
       else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
       else if (url.endsWith('/dedupe')) show(`<p>${r.dry ? '预览（还没改）' : '✅ 去重完成'}：${r.groups ? `${r.groups} 组重复，${r.dry ? '要删' : '删了'} <b>${r.removed}</b> 道（${r.boards.map(([b, n]) => esc(b) + ' ' + n).join('、')}）${r.records ? `，${r.records} 条作答记录挪到留下的那道` : ''}。<br><span class="small muted">例：${r.examples.map(esc).join('；')}（左边留下）</span>` : '没有重复的题。'}</p>`);
-      else if (url.endsWith('/distill')) show(`<p>${r.dry ? '预览（还没写入）' : '✅ 合并完成'}：找到 <b>${r.notes}</b> 篇蒸馏笔记，对上题库里 <b>${r.merged}</b> 道题${r.topics ? `，其中 ${r.topics} 道的知识点换成了细考点` : ''}；
-          ${r.files.length ? `涉及 ${r.files.length} 个题库文件。` : '题库没有要改的。'}${r.not_in_bank ? `<br>${r.not_in_bank} 篇对不上题库（多选题、没导入的模块，或题库里没有这道）。` : ''}
+      else if (url.endsWith('/distill')) show(`<p>${r.dry ? '预览（还没写入）' : '✅ 合并完成'}：扫描 ${r.scanned} 个 .md，读出 <b>${r.notes}</b> 篇蒸馏笔记${r.skipped_no_qid || r.skipped_no_parts ? `（跳过：${r.skipped_no_qid} 个没有题号、${r.skipped_no_parts} 个没有解析小节，例：${esc(r.skip_example)}）` : ''}，对上题库里 <b>${r.merged}</b> 道题${r.topics ? `，其中 ${r.topics} 道的知识点换成了细考点` : ''}；
+          ${r.files.length ? `涉及 ${r.files.length} 个题库文件。` : '题库没有要改的。'}${r.not_in_bank ? `<br>${r.not_in_bank} 篇对不上题库（多选题、没导入的模块，或题库里没有这道；例：qid ${r.not_in_bank_example.map(esc).join('、')}）。` : ''}
           ${r.images_copied ? `<br>${r.dry ? '要拷' : '拷了'} ${r.images_copied} 张解析配图。` : ''}${r.images_missing ? `<br>⚠ ${r.images_missing} 张配图在蒸馏文件夹里没找到（解析里会显示“缺图”）。` : ''}${r.unreadable ? `<br>${r.unreadable} 篇读不了，已跳过。` : ''}</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
