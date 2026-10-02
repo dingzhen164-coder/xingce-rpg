@@ -119,9 +119,15 @@ def tired_response(g, s, text):
                  input=s.get("last_input") or _text_input(""))
 
 
+ALL = {}        # 所有会话（含已结束的，最多留 200 个）：写修炼记录用
+
+
 def new_session(typ, title, task, **data):
     s = {"id": uuid.uuid4().hex[:12], "type": typ, "title": title, "task": task, **data}
     SESSIONS[s["id"]] = s
+    ALL[s["id"]] = s
+    while len(ALL) > 200:
+        ALL.pop(next(iter(ALL)))
     return s
 
 
@@ -145,7 +151,101 @@ def _wrong_intro(g, q, head):
 
 
 # ---------------------------------------------------------------- 开始
+# ---------------------------------------------------------------- 修炼记录：大项的每次对话存进 训练/修炼记录/<板块>/<大项>.md
+LOG_DIR = "修炼记录"
+LOG_TYPES = ("teach", "recite", "review", "speedrun", "feynman", "example", "apply")
+_LOG_HEAD = re.compile(r"^## (.+?) <!-- sid:(\w+) -->[ \t]*$", re.M)
+
+
+def _log_file(g, iid):
+    board, _, name = iid.partition("::")
+    safe = lambda x: re.sub(r'[\\/:*?"<>|]+', "_", x).strip() or "_"
+    return g.paths.train / LOG_DIR / safe(board) / (safe(name) + ".md") if g.paths.train else None
+
+
+def _msg_text(m):
+    """记进修炼记录的文字：师傅和自己说的话全记；系统消息只记标题行（例题只留“例题 1（真题-xxx）”，题干去玉简里查）"""
+    if m.get("who") == "sys":
+        return (m.get("text") or "").strip()
+    parts = [m.get("text") or ""] + [b["v"] for b in m.get("blocks", []) if b.get("t") == "text"]
+    return "\n".join(p for p in parts if p.strip()).strip()
+
+
+def _log(g, sid, user_text, r):
+    """把这次对话（含刚说的话和这一轮的回复）写进这个大项的修炼记录；同一次会话反复覆盖自己那一段"""
+    s = ALL.get(sid)
+    if not s or s["type"] not in LOG_TYPES or not s.get("iid"):
+        return
+    log = s.setdefault("log", [])
+    if user_text:
+        log.append(("me", user_text))
+    for m in r.get("messages", []):
+        if m.get("history") or m.get("fold"):     # 往期记录、折叠的答案解析不重复记
+            continue
+        t = _msg_text(m)
+        if t:
+            log.append((m.get("who", "sys"), t))
+    f = _log_file(g, s["iid"])
+    if not f:
+        return
+    who = {"me": "🧑 我", "npc": "🌸 " + g.persona["导师名"]}
+    body = "\n\n".join("**%s**：\n%s" % (who[w], t) if w in who else "> " + t.replace("\n", "\n> ") for w, t in log)
+    head = "## %s · %s <!-- sid:%s -->" % (s.setdefault("started", time.strftime("%Y-%m-%d %H:%M")), g.label(s["type"]), sid)
+    try:
+        old = f.read_text(encoding="utf-8") if f.is_file() else "# %s · 修炼记录\n\n> 每次传授、背诵口诀、论道、化法为境、试剑的对话都记在这里，新的在下面。\n" % s["iid"].replace("::", " · ")
+        m = re.search(r"^## .+? <!-- sid:%s -->[ \t]*$" % sid, old, re.M)
+        if m:
+            nxt = _LOG_HEAD.search(old, m.end())
+            old = old[:m.start()] + head + "\n\n" + body + "\n\n" + (old[nxt.start():] if nxt else "")
+        else:
+            old = old.rstrip("\n") + "\n\n" + head + "\n\n" + body + "\n"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(old.rstrip("\n") + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _past_logs(g, iid, sid, n=5):
+    """这个大项以前的修炼记录（最近 n 次，不含这一次），做成折叠消息放在对话最上面"""
+    f = _log_file(g, iid)
+    if not f or not f.is_file():
+        return []
+    text = f.read_text(encoding="utf-8")
+    heads = list(_LOG_HEAD.finditer(text))
+    out = []
+    for i, h in enumerate(heads):
+        if h.group(2) == sid:
+            continue
+        body = text[h.end():heads[i + 1].start() if i + 1 < len(heads) else len(text)].strip()
+        body = re.sub(r"^> ?", "", body, flags=re.M)
+        out.append({"who": "sys", "text": body, "fold": "📜 往期修炼 · " + h.group(1), "history": True})
+    return out[-n:]
+
+
 def start(g, task):
+    r = _start(g, task)
+    s = ALL.get(r.get("session"))
+    if s and s["type"] in LOG_TYPES and s.get("iid"):
+        _log(g, s["id"], "", r)
+        past = _past_logs(g, s["iid"], s["id"])
+        if past:
+            r["messages"] = past + [_msg("sys", "↑ 以上是这一项以前的修炼记录（点开看），下面是这一次。")] + r["messages"]
+    return r
+
+
+def reply(g, sid, text):
+    r = _reply(g, sid, text)
+    _log(g, sid, (text or "").strip(), r)
+    return r
+
+
+def action(g, sid, act):
+    r = _action(g, sid, act)
+    _log(g, sid, "", r)
+    return r
+
+
+def _start(g, task):
     """task：今日功课里的一项（dict），或临时构造的 {"type","board","target","title","id"}"""
     typ = task["type"]
     if typ not in ("chat", "skeleton") and g.resting():
@@ -205,7 +305,7 @@ def start(g, task):
 
 
 # ---------------------------------------------------------------- 回复 / 按钮
-def reply(g, sid, text):
+def _reply(g, sid, text):
     s = get(sid)
     text = (text or "").strip()
     if not text:
@@ -234,7 +334,7 @@ def reply(g, sid, text):
     raise TrainError("这一步不需要输入文字，请点按钮")
 
 
-def action(g, sid, act):
+def _action(g, sid, act):
     """按钮：自评（self_ok / self_no）、功法（gen / final）、跳过（skip）"""
     s = get(sid)
     if s["type"] in ("bank", "bank_review"):
@@ -426,7 +526,8 @@ def _discuss_action(g, s, act):
             g, s, "再给我出一道考这个大项的典型例题（四个选项），先让我看题，然后按步骤讲怎么用这个方法做出来"),
             input=_remember(s, _discuss_input(True)))
     if act in ("discuss_end", "skip"):
-        return _resp(s, [_msg("npc", _say(g, "试炼·复盘结束") or "复盘完了就去下一项。")], finished=True)
+        scene = "修炼·传授结束" if s["type"] == "teach" else "试炼·复盘结束"
+        return _resp(s, [_msg("npc", _say(g, scene) or "今天就到这，去下一项。")], finished=True)
     raise TrainError("这一步请打字追问，或点「师傅解惑」/「结束复盘」")
 
 
@@ -478,7 +579,9 @@ def _start_teach(g, task):
         msgs.append(_msg("sys", "答案：%s\n%s" % (q["answer"], _plain(q["analysis"]) or "（无解析）"), fold="例题 %d 答案与解析（先自己做再展开）" % k))
     if not examples:
         msgs.append(_msg("sys", "题库里没找到贴近这一项的真题，点「🌀 再举一例」让师傅现编一道。"))
+    past = _past_logs(g, it["id"], s["id"], n=1)
     s["discuss"] = {"kind": "传授", "title": it["name"], "board": board, "history": [],
+                    "previous": past[-1]["text"][-1500:] if past else "",
                     "question": "大项「%s」的内容：\n%s" % (it["name"], content),
                     "mine": "（弟子在听课）", "reference": "\n\n".join(_plain(q["stem"])[:300] + " 答案 " + q["answer"] for q in examples)}
     msgs.append(_msg("sys", "听完可以直接追问，或点「🌀 再举一例」。讲明白了再去背诵口诀、论道。"))

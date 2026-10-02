@@ -441,3 +441,10 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 .kp-card { border-top: 3px solid var(--accent); }
 .small-seals .seal { padding: 5px 12px; font-size: 13px; }
 .toc-chip.kp.done { opacity: .45; }
+/* 对话框固定在屏幕底部：往上翻看前面的对话时，输入框和按钮不跑 */
+.chat .composer { position: sticky; bottom: 0; z-index: 6; margin: 0 -18px -16px; padding: 10px 18px 14px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(8px);
+  border-radius: 0 0 var(--radius) var(--radius); box-shadow: 0 -10px 20px -12px rgba(0,0,0,.25); }
+.chat .composer textarea { max-height: 32vh; }
+/* 左边荐课也跟着屏幕走 */
+.train > .card:first-child { position: sticky; top: 90px; align-self: start; max-height: calc(100vh - 110px); overflow-y: auto; }

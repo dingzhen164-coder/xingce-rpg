@@ -205,7 +205,8 @@ def discuss(p, ctx, digest, question):
                  f"【{ctx.get('kind', '')}】{ctx.get('title', '')}\n板块：{ctx.get('board', '')}\n"
                  f"题目：{ctx.get('question', '')}\n标准答案：{ctx.get('answer') or '（无）'}\n"
                  f"学员的作答：{ctx.get('mine', '')}\n参考解析/思路：{ctx.get('reference') or '（无）'}\n"
-                 f"skill资料：\n{digest or '（这个板块还没有 skill 资料，按通用方法讲并说明）'}")},
+                 + (f"上次修炼时聊过的（节选，弟子的想法可以接着用）：\n{ctx['previous']}\n" if ctx.get('previous') else "")
+                 + f"skill资料：\n{digest or '（这个板块还没有 skill 资料，按通用方法讲并说明）'}")},
              {"role": "assistant", "content": "好，题目和资料我看过了，问吧。"}]
             + history + [{"role": "user", "content": question}])
 

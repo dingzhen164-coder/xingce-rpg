@@ -180,6 +180,24 @@ class FlowTest(unittest.TestCase):
         r = api.session_action({"session": r["session"], "action": "discuss_end"})
         self.assertTrue(r["finished"])
         self.assertEqual(self.state()["items"].get(iid, {}).get("level", 0), 0)
+        # 修炼记录：这次传授写进 训练/修炼记录/论证逻辑/<大项>.md；下次再点，往期对话折叠在最上面
+        logs = list((self.vault / "训练/修炼记录/论证逻辑").glob("*.md"))
+        self.assertEqual(len(logs), 1)
+        log = logs[0].read_text(encoding="utf-8")
+        self.assertIn("· 传授 <!-- sid:", log)
+        self.assertIn("· 背诵口诀 <!-- sid:", log)          # 前面那次背诵口诀也记了
+        self.assertIn("为师来讲", log)
+        self.assertIn("🧑 我", log)                     # “再举一例”这句也记下了
+        r = api.session_start({"task": dict(t, type="teach")})
+        folds = [m for m in r["messages"] if (m.get("fold") or "").startswith("📜 往期修炼")]
+        self.assertEqual(len(folds), 2)
+        self.assertIn("为师来讲", folds[1]["text"])
+        r = api.session_reply({"session": r["session"], "text": "削弱和质疑是一回事吗"})
+        api.session_action({"session": r["session"], "action": "discuss_end"})
+        log = logs[0].read_text(encoding="utf-8")
+        self.assertEqual(log.count("<!-- sid:"), 3)
+        self.assertIn("削弱和质疑是一回事吗", log)
+        self.assertEqual(log.count("往期修炼"), 0)       # 往期记录本身不会被重复写进去
         self.run_task(dict(t, type="recite"))
         self.run_task(dict(t, type="recite"))
         self.assertEqual(self.state()["items"][iid]["level"], 1)
