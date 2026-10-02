@@ -80,6 +80,8 @@ def parse(path):
     t = path.read_text(encoding='utf-8')
     meta = dict(re.findall(r'^(\w+): "(.*)"$', t.split('\n---', 1)[0], re.M))
     note, _, qpart = t.partition('\n---\n\n### 题干')
+    if not qpart:                      # 版式略有不同（没有分隔线）也能读
+        note, _, qpart = t.partition('### 题干')
     qpart = '### 题干' + qpart
     base = str(path.parent)
     images = set()
@@ -109,12 +111,13 @@ def parse(path):
     parts.append(('母题抽象', re.sub(r'^>\s*', '', section(note, '母题抽象', '##'), flags=re.M).strip()))
     parts.append(('疑点', doubt))
     analysis = '\n\n'.join('【%s】\n%s' % (k, to_text(v, base, images) if k != '官方解析' else v) for k, v in parts if v)
+    extra = '\n\n'.join('【%s】\n%s' % (k, to_text(v, base, images)) for k, v in parts[1:] if v)   # 只有蒸馏出来的部分
     point = meta.get('考点', '')
     kind = path.parent.name
     board = logic_board(point.split(' / ', 1)[-1]) if kind == '逻辑判断' else BOARD_OF_DIR.get(kind, '')
     return {'qid': meta.get('qid', ''), 'paper': meta.get('试卷', ''), 'year': meta.get('年份', ''),
             'board': board, 'kind': kind, 'point': point, 'topic': point.split(' / ', 1)[-1] or kind,
-            'stem': stem, 'options': opts, 'answer': answer, 'analysis': analysis, 'images': images}
+            'stem': stem, 'options': opts, 'answer': answer, 'analysis': analysis, 'extra': extra, 'images': images}
 
 
 def block(q):
@@ -158,6 +161,89 @@ def convert(src, out):
     img_list.write_text('\r\n'.join(i.replace('/', '\\') for i in images) + '\r\n', encoding='utf-8-sig')
     return {'total': len(qs), 'boards': dict(by), 'bad': bad, 'unknown': dict(unknown), 'images': len(images),
             'pending': sum(not q['answer'] for q in qs), 'papers': len({q['paper'] for q in qs})}
+
+
+# ---------------------------------------------------------------- 给已入库的题补上蒸馏解析
+DISTILLED = re.compile(r'^【(?:问法模型|推理链|最快解法|易错点|母题抽象|疑点)】', re.M)
+_COARSE = {'逻辑填空', '片段阅读', '语句表达', '数学运算', '人文常识', '科技常识', '法律常识', '地理国情', '经济常识',
+           '新思想', '时事政治', '马克思主义', '毛中特', '待分类'}
+
+
+def merge_distilled(train, folder, dry=False):
+    """读“考公脑库”式的蒸馏笔记（每题一篇，frontmatter 里有 qid），按编号 真题-<qid> 找到题库里已有的题：
+    解析里官方解析保留，后面补上 问法模型 / 推理链 / 最快解法 / 易错点 / 母题抽象 / 疑点（再合并一次会换成新的，不重复）；
+    知识点原来只是“逻辑填空”这种大类的，换成蒸馏的细考点。用到的图从蒸馏仓库的 90-图片 拷到 题库/图片/真题库/。"""
+    import shutil
+    train, folder = Path(train), Path(folder)
+    if not folder.is_dir():
+        raise ValueError('找不到文件夹：%s' % folder)
+    notes, bad = {}, 0
+    for f in folder.rglob('*.md'):
+        head = f.read_text(encoding='utf-8', errors='ignore')[:600]
+        if not re.search(r'^qid: "\d+"', head, re.M):
+            continue
+        try:
+            q = parse(f)
+        except Exception:
+            bad += 1
+            continue
+        if q['qid'] and q['extra']:
+            notes[q['qid']] = q
+    if not notes:
+        raise ValueError('这个文件夹里没找到蒸馏笔记（要有 qid 和 推理链/易错点 这类小节的 .md）。选蒸馏仓库的根目录或“10-真题”文件夹')
+    root = next((d for d in [folder, *folder.parents] if (d / '90-图片').is_dir()), None)
+    bank = train / '题库'
+    hit, topics, files, images, missing = set(), 0, [], set(), set()
+    for f in sorted(bank.glob('*真题*.md')):
+        text = f.read_text(encoding='utf-8')
+        heads = list(re.finditer(r'^## 题目 真题-(\d+)\s*$', text, re.M))
+        if not heads:
+            continue
+        out, pos, changed = [], 0, False
+        for i, h in enumerate(heads):
+            q = notes.get(h.group(1))
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+            if not q:
+                continue
+            block = text[h.start():end]
+            m = re.search(r'^### 解析[ \t]*\n(.*?)(?=^### |\Z)', block, re.M | re.S)
+            if not m:
+                continue
+            body = m.group(1).rstrip('\n')
+            d = DISTILLED.search(body)
+            official = (body[:d.start()] if d else body).rstrip()
+            extra = re.sub(r'^(#+)\s', lambda x: '＃' * len(x.group(1)) + ' ', q['extra'], flags=re.M)
+            new_body = (official + '\n\n' if official else '') + extra
+            nb = block[:m.start(1)] + new_body + '\n\n' + block[m.end(1):].lstrip('\n')
+            t = re.search(r'^### 知识点[ \t]*\n(.*?)\n', nb, re.M)
+            if t and q['topic'] and (t.group(1).strip() in _COARSE or not t.group(1).strip()) and q['topic'] != t.group(1).strip():
+                nb = nb[:t.start(1)] + q['topic'] + nb[t.end(1):]
+                topics += 1
+            hit.add(h.group(1))
+            images |= q['images']
+            if nb != block:
+                out.append(text[pos:h.start()] + nb)
+                pos = end
+                changed = True
+        if changed:
+            files.append(f.name)
+            if not dry:
+                f.write_text(''.join(out) + text[pos:], encoding='utf-8', newline='\n')
+    copied = 0
+    for rel in sorted(images):
+        dst = bank / '图片' / '真题库' / rel
+        if dst.is_file():
+            continue
+        src = root / '90-图片' / rel if root else None
+        if src and src.is_file():
+            copied += 1
+            if not dry:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
+        else:
+            missing.add(rel)
+    return {'notes': len(notes), 'merged': len(hit), 'not_in_bank': len(set(notes) - hit), 'topics': topics,
+            'files': files, 'images_copied': copied, 'images_missing': len(missing), 'unreadable': bad, 'dry': dry}
 
 
 # ---------------------------------------------------------------- 原题副本（ERRRC/xingcezhenti）

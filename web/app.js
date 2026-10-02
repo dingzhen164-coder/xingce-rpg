@@ -680,6 +680,11 @@ async function loadImport() {
         <textarea id="ansKey" rows="5" style="width:100%" placeholder="练习01 ADDBA CDCAB DBBCC BBADD&#10;练习02 DDACB DADAC DDBAA DABAB&#10;……"></textarea></div>
       <div class="import-sec"><h4>⑥ 整理题库格式</h4>
         <div class="row"><button id="normGo">整理全部题库</button><span class="small muted">选项统一写成“A. ”；把 OCR 认错的序号还原成 ①②③、ⅠⅡⅢ。只改题干和选项，编号、答案、作答记录不动</span></div></div>
+      <div class="import-sec"><h4>⑨ 补蒸馏解析</h4>
+        <p class="small muted">已经入库的历年真题（编号“真题-数字”），可以从本机下载的蒸馏笔记里补上 推理链 / 最快解法 / 易错点 / 母题抽象，知识点换成细考点。
+          按题号对上，不花 token；再合并一次会换成新的，不重复。填蒸馏仓库的根目录或其中“10-真题”文件夹的完整路径。</p>
+        <div class="row"><input id="dsFolder" style="flex:1;min-width:280px" placeholder="如 C:\\Users\\29356\\Desktop\\行测obsidian\\行测\\蒸馏skill\\言语蒸馏">
+          <button class="ghost" id="dsPreview">预览</button><button id="dsGo">合并</button></div></div>
       <div class="import-sec"><h4>⑧ 改编号前缀</h4>
         <p class="small muted">两本书用了同一个前缀、或者想改个更清楚的名字时用。题库、作答记录一起改，做过的题历史不丢。只勾部分板块时只改这些板块里的题。</p>
         <div class="row"><label>旧前缀 <input id="rnOld" placeholder="如 花生600题"></label><label>新前缀 <input id="rnNew" placeholder="如 花生600题逻辑"></label>
@@ -724,6 +729,9 @@ function bindImport() {
       else if (url.endsWith('/rename')) show(`<p>改了 <b>${r.renamed}</b> 道题的编号（${r.files} 个题库文件），作答记录迁移 ${r.records} 条。</p>`);
       else if (url.endsWith('/normalize')) show(`<p>整理了 <b>${r.changed}</b> 道题（${r.files} 个文件）。${r.flagged_total ? `有 ${r.flagged_total} 道题的序号 OCR 丢了信息，没法自动还原，请对照原书改：${r.flagged.map(esc).join('、')}${r.flagged_total > r.flagged.length ? ' …' : ''}` : ''}</p>`);
       else if (url.endsWith('/remove')) show(`<p>删除了 <b>${r.removed}</b> 题${r.kept ? `，${r.kept} 道已经做过的保留` : ''}。</p>`);
+      else if (url.endsWith('/distill')) show(`<p>${r.dry ? '预览（还没写入）' : '✅ 合并完成'}：找到 <b>${r.notes}</b> 篇蒸馏笔记，对上题库里 <b>${r.merged}</b> 道题${r.topics ? `，其中 ${r.topics} 道的知识点换成了细考点` : ''}；
+          ${r.files.length ? `涉及 ${r.files.length} 个题库文件。` : '题库没有要改的。'}${r.not_in_bank ? `<br>${r.not_in_bank} 篇对不上题库（多选题、没导入的模块，或题库里没有这道）。` : ''}
+          ${r.images_copied ? `<br>${r.dry ? '要拷' : '拷了'} ${r.images_copied} 张解析配图。` : ''}${r.images_missing ? `<br>⚠ ${r.images_missing} 张配图在蒸馏文件夹里没找到（解析里会显示“缺图”）。` : ''}${r.unreadable ? `<br>${r.unreadable} 篇读不了，已跳过。` : ''}</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
       if (!dry) {   // 入库后整页重画：下面各板块的题数要跟着变
@@ -783,6 +791,15 @@ function bindImport() {
   $('#impCommit').onclick = (e) => { try { run(e.target, '/api/import/commit', textBody(), false); } catch (err) { show(`<p>⚠ ${esc(err.message)}</p>`); } };
   $('#ansGo').onclick = (e) => run(e.target, '/api/import/answers', { prefix: $('#ansPrefix').value.trim(), key: $('#ansKey').value }, false);
   $('#normGo').onclick = (e) => run(e.target, '/api/import/normalize', {}, false);
+  try { $('#dsFolder').value = localStorage.getItem('dsFolder') || ''; } catch {}
+  const ds = (e, dry) => {
+    const folder = $('#dsFolder').value.trim();
+    if (!folder) return show('<p>⚠ 填蒸馏笔记文件夹的路径</p>');
+    try { localStorage.setItem('dsFolder', folder); } catch {}
+    run(e.target, '/api/import/distill', { folder, dry }, dry);
+  };
+  $('#dsPreview').onclick = (e) => ds(e, true);
+  $('#dsGo').onclick = (e) => ds(e, false);
   $('#rnGo').onclick = (e) => {
     const o = $('#rnOld').value.trim(), n = $('#rnNew').value.trim();
     const boards = [...document.querySelectorAll('.rnB:checked')].map((x) => x.value);

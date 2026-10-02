@@ -212,3 +212,35 @@ class RawTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MergeDistilledTest(unittest.TestCase):
+    def test_merge_into_existing_bank(self):
+        with tempfile.TemporaryDirectory() as d:
+            train = Path(d) / '训练'
+            (train / '题库').mkdir(parents=True)
+            f = train / '题库/逻辑填空真题-2020.md'
+            f.write_text('\n## 题目 真题-501\n### 知识点\n逻辑填空\n### 试卷\n卷\n### 题干\n他一直在____中前行。\n'
+                         '### 选项\nA. 逆境\nB. 竞争\nC. 矛盾\nD. 挑战\n### 答案\nC\n### 解析\n官方解析501\n\n'
+                         '## 题目 真题-502\n### 知识点\n逻辑填空\n### 题干\n别的题\n### 选项\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n'
+                         '### 答案\nA\n### 解析\n官方502\n', encoding='utf-8')
+            notes = Path(d) / '蒸馏/10-真题/言语理解与表达/逻辑填空'
+            notes.mkdir(parents=True)
+            (Path(d) / '蒸馏/90-图片/公式图').mkdir(parents=True)
+            (Path(d) / '蒸馏/90-图片/公式图/g.png').write_bytes(b'png')
+            note = NOTE % dict(qid='501', paper='卷', year='2020', point='逻辑填空 / 实词辨析-语义侧重', img='', doubt='')
+            note = note.replace('1. 第1步：推理501', '1. 第1步：推理501 <img src="../../../90-图片/公式图/g.png" />')
+            (notes / '501 x.md').write_text(note, encoding='utf-8')
+            r = zhenti.merge_distilled(train, Path(d) / '蒸馏/10-真题')
+            self.assertEqual((r['notes'], r['merged'], r['topics'], r['files'], r['images_copied']),
+                             (1, 1, 1, ['逻辑填空真题-2020.md'], 1))
+            text = f.read_text(encoding='utf-8')
+            self.assertIn('### 知识点\n实词辨析-语义侧重', text)
+            self.assertIn('官方解析501\n\n【问法模型】\n问法501', text)
+            self.assertIn('【推理链】\n第1步：推理501', text)
+            self.assertIn('官方502\n', text)                                   # 没对上的题不动
+            self.assertTrue((train / '题库/图片/真题库/公式图/g.png').is_file())
+            self.assertEqual(zhenti.merge_distilled(train, Path(d) / '蒸馏')['files'], [])   # 再合并一次：不重复
+            self.assertEqual(text.count('【推理链】'), f.read_text(encoding='utf-8').count('【推理链】'))
+            with self.assertRaises(ValueError):
+                zhenti.merge_distilled(train, Path(d) / '没有这个文件夹')

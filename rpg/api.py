@@ -225,6 +225,19 @@ def import_rename(body):
             raise ApiError(str(e))
 
 
+def import_distill(body):
+    """给已入库的真题补蒸馏解析（读本机的蒸馏笔记文件夹）"""
+    from . import zhenti
+    p = _import_paths()
+    folder = str(body.get("folder") or "").strip().strip('"')
+    if not folder:
+        raise ApiError("填蒸馏笔记所在的文件夹")
+    try:
+        return zhenti.merge_distilled(p.train, folder, dry=bool(body.get("dry")))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
 def import_normalize(body):
     return _import_call(importer.normalize_bank, body)
 
@@ -452,6 +465,7 @@ ROUTES = {
     ("POST", "/api/import/classify"): import_classify,
     ("POST", "/api/import/remove"): import_remove,
     ("POST", "/api/import/normalize"): import_normalize,
+    ("POST", "/api/import/distill"): import_distill,
     ("POST", "/api/import/rename"): import_rename,
     ("POST", "/api/import/upload_pdf"): import_upload_pdf,
     ("POST", "/api/import/split"): import_split,
