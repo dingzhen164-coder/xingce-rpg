@@ -149,6 +149,32 @@ class FlowTest(unittest.TestCase):
                 break
         return r
 
+    def test_daily_wrong_is_one_shared_task(self):
+        d = api.dashboard({})
+        wrongs = [t for t in d["plan"]["tasks"] if t["type"] == "wrong"]
+        self.assertEqual([t["id"] for t in wrongs], ["wrong:daily"])     # 今日功课只有一项斩心魔
+        t = wrongs[0]
+        self.assertIn("0/%d" % t["quota"], t["title"])
+        # 心魔录和今日功课用同一个 task_id，进度互通
+        r = api.session_start({"task_id": "wrong:daily"})
+        r = api.session_reply({"session": r["session"], "text": "削弱 否定论点 选A"})
+        self.assertIn("wrong_next", [b["id"] for b in r["input"]["buttons"]])
+        t = [x for x in self.state()["plan"]["tasks"] if x["id"] == "wrong:daily"][0]
+        self.assertEqual(len(t["hits"]), 1)
+        self.assertEqual(t["done"], t["quota"] == 1)
+        # 旧版计划（一只一项）进来自动合成一项
+        st = self.state()
+        st["plan"]["tasks"] = [x for x in st["plan"]["tasks"] if x["type"] != "wrong"] + [
+            {"id": "wrong:36|论证逻辑|2", "type": "wrong", "board": "论证逻辑", "title": "斩心魔 · 第36季论证逻辑第2题",
+             "target": "36|论证逻辑|2", "minutes": 5, "done": True, "ok": True, "optional": False},
+            {"id": "wrong:36|论证逻辑|3", "type": "wrong", "board": "论证逻辑", "title": "斩心魔 · 第36季论证逻辑第3题",
+             "target": "36|论证逻辑|3", "minutes": 5, "done": False, "ok": None, "optional": False}]
+        (self.vault / "训练/存档/存档.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        d = api.dashboard({})
+        wrongs = [t for t in d["plan"]["tasks"] if t["type"] == "wrong"]
+        self.assertEqual(len(wrongs), 1)
+        self.assertEqual((wrongs[0]["quota"], wrongs[0]["hits"], wrongs[0]["minutes"]), (2, ["36|论证逻辑|2"], 10))
+
     def test_full_flow(self):
         d = api.dashboard({})
         self.assertEqual(d["realm"]["name"], "凡人 · 未入道")
@@ -227,7 +253,7 @@ class FlowTest(unittest.TestCase):
         r = api.session_start({"task": {"type": "wrong", "board": "论证逻辑", "target": "", "title": "心魔"}})
         r = api.session_reply({"session": r["session"], "text": "削弱 否定论点 选A"})
         self.assertFalse(r["finished"])
-        self.assertEqual([b["id"] for b in r["input"]["buttons"]], ["ask_explain", "discuss_end"])
+        self.assertEqual([b["id"] for b in r["input"]["buttons"]], ["ask_explain", "wrong_next", "discuss_end"])
         r = api.session_reply({"session": r["session"], "text": "为什么不选B"})
         self.assertIn("师傅：先看问法。为什么不选B", str(r["messages"]))
         r = api.session_action({"session": r["session"], "action": "ask_explain"})

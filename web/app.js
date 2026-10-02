@@ -122,7 +122,13 @@ async function render() {
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
     else if (VIEW === "bank") { HALL = 'shizhan'; return go('train'); }   // 试炼塔并进了修炼殿
-    else if (VIEW === "wrong") { await refresh(); v.innerHTML = await views.wrong(); }
+    else if (VIEW === "wrong") {
+      await refresh(); v.innerHTML = await views.wrong();
+      const k = $("#killGo");
+      if (k) k.onclick = () => (DASH?.plan?.tasks || []).some((t) => t.id === "wrong:daily")
+        ? startTask({ task_id: "wrong:daily" })
+        : startTask({ task: { type: "wrong", board: "", target: "", title: `👹 ${W("kill")}` } });
+    }
     else if (VIEW === "pill") { await refresh(); v.innerHTML = views.pill(); bindPill(); }
     else if (VIEW === "log") { await refresh(); v.innerHTML = views.log(); bindLog(); }
     else if (VIEW === "settings") { await refresh(); await AMB.load(); v.innerHTML = await views.settings(); bindSettings(); }
@@ -294,7 +300,16 @@ const views = {
     const rows = w.boards.filter((b) => b.total).map((b) => `<tr><td>${esc(b.board)}</td><td>${b.total}</td><td>${b.new}</td><td style="color:var(--red)">${b.redo}</td><td style="color:var(--green)">${b.done}</td></tr>`).join("");
     const redo = w.redo.map((r) => { const [n, s, q] = r.key.split("|"); return `<tr><td>第${n}季 ${esc(s)} 第${q}题</td><td>${r.due || ""}</td><td>${r.streak || 0}</td><td>${r.tries}</td></tr>`; }).join("");
     const demon = (DASH?.demon || []).map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.board)}</td><td>${esc(r.name)}</td><td><b style="color:${i < 3 ? "var(--red)" : "inherit"}">${pct(r.acc)}%</b></td><td>${esc(r.grade_name)}</td></tr>`).join("");
-    return `<div class="card"><h3>👹 ${esc(W("demon_rank"))} <small>按最近几季模考正确率从低到高：排在前面的就是你最大的${esc(W("wrong"))}</small></h3>
+    const daily = (DASH?.plan?.tasks || []).find((t) => t.id === "wrong:daily");
+    const left = w.boards.reduce((n, b) => n + b.new + b.redo, 0);
+    const kill = `<div class="card kill-card"><div class="row"><h3 style="margin:0">⚔ ${esc(W("kill"))}</h3>
+        <span class="small muted">和${esc(W("tasks"))}里的「${esc(W("kill"))}」是同一项，在哪斩都算进度</span></div>
+      ${daily ? `${bar(Math.min(1, daily.hits.length / daily.quota), "red")}
+        <div class="small">今日 <b>${Math.min(daily.hits.length, daily.quota)}/${daily.quota}</b> 只${daily.redo ? `（含${esc(W("redo"))} ${daily.redo}）` : ""}${daily.done ? " · ✅ 今日功课已完成，多斩不限" : ""}</div>`
+        : `<div class="small muted">今日功课里没有排${esc(W("kill"))}，想斩也可以直接开斩。</div>`}
+      <div class="row"><button class="primary" id="killGo" ${left || daily ? "" : "disabled"}>👹 ${daily && !daily.done ? "斩下一只" : "再斩一只"}</button>
+        <span class="small muted">未交手 ${w.boards.reduce((n, b) => n + b.new, 0)} · 待${esc(W("redo"))} ${w.boards.reduce((n, b) => n + b.redo, 0)}</span></div></div>`;
+    return kill + `<div class="card"><h3>👹 ${esc(W("demon_rank"))} <small>按最近几季模考正确率从低到高：排在前面的就是你最大的${esc(W("wrong"))}</small></h3>
       <table><tr><th>#</th><th>板块</th><th>${esc(W("root"))}</th><th>正确率</th><th>品阶</th></tr>${demon || '<tr><td colspan="5" class="muted">还没有模考数据</td></tr>'}</table></div>
       <div class="card"><h3>📕 ${esc(W("wrong"))}一览 <small>来自模考板块复盘里做错 ❌ / 没做 ⚪ 的题</small></h3>
       <table><tr><th>板块</th><th>${esc(W("wrong"))}</th><th>未交手</th><th>${esc(W("redo"))}</th><th>已斩</th></tr>${rows || '<tr><td colspan="5" class="muted">还没有数据</td></tr>'}</table></div>
@@ -608,12 +623,15 @@ async function xiulianHtml() {
 }
 
 let KP_BOARD = '';               // 知识点试炼里选中的板块
-function pointHtml(c, count) {
+function orderSel(o) {
+  return `<label class="small">出题 <select class="bankOrder"><option value="seq" ${o !== 'shuffle' ? 'selected' : ''}>按顺序</option><option value="shuffle" ${o === 'shuffle' ? 'selected' : ''}>🔀 乱序</option></select></label>`;
+}
+function pointHtml(c, count, order) {
   const boards = (c.boards || []).filter(b => b.total);
   if (!boards.length) return '';
   if (!boards.find(b => b.board === KP_BOARD)) KP_BOARD = boards[0].board;
   const b = boards.find(x => x.board === KP_BOARD);
-  return `<div class="card kp-card"><div class="row"><h3 style="margin:0">📖 知识点试炼</h3><span class="small muted">挑一类考点连着刷，一组 ${count} 道没做过的，交卷判分</span></div>
+  return `<div class="card kp-card"><div class="row"><h3 style="margin:0">📖 知识点试炼</h3><span class="small muted">挑一类考点连着刷，一组 ${count} 道没做过的，交卷判分</span><span class="spacer"></span>${orderSel(order)}</div>
     <div class="board-seals small-seals">${boards.map(x => `<a class="seal ${x.board === KP_BOARD ? 'on' : ''}" data-kpboard="${esc(x.board)}">${esc(x.board)}</a>`).join('')}</div>
     <div class="toc">${b.topics.map(t => `<a class="toc-chip kp ${t.left ? '' : 'done'}" data-kp="${esc(b.board)}" data-kptopic="${esc(t.name)}" title="未做 ${t.left} / 共 ${t.count}">${esc(t.name)} <span>${t.left}/${t.count}</span></a>`).join('')}
       ${b.more_topics ? `<span class="small muted">…另有 ${b.more_topics} 个小类，可在藏经阁玉简里搜</span>` : ''}</div>
@@ -627,10 +645,10 @@ async function shizhanHtml() {
   const firstOk = d.boards.reduce((n, b) => n + b.first_correct, 0);
   const boards = d.boards.filter(b => b.total || b.pending || b.wrong);
   return `${pagodaHtml(d.tower, done, wrong, rate(firstOk, done))}
-    ${pointHtml(c, d.count)}
+    ${pointHtml(c, d.count, d.order)}
     ${setsHtml(d.sets)}
-    <div class="card"><div class="row"><h3 style="margin:0">⚔ 板块试炼</h3><span class="small muted">按题库顺序一组 ${d.count} 关，交卷判分</span><span class="spacer"></span>
-      <label class="small">每组 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label></div>
+    <div class="card"><div class="row"><h3 style="margin:0">⚔ 板块试炼</h3><span class="small muted">${d.order === 'shuffle' ? '从没做过的题里随机抽' : '按题库顺序'}一组 ${d.count} 关，交卷判分（做过的不再出）</span><span class="spacer"></span>
+      ${orderSel(d.order)} <label class="small">每组 <select id="bankCount"><option value="10" ${d.count === 10 ? 'selected' : ''}>10 关</option><option value="15" ${d.count === 15 ? 'selected' : ''}>15 关</option></select></label></div>
       <div class="arena-grid">${boards.map(b => `<div class="arena ${b.active ? 'active' : ''}">
         <div class="row"><b>${esc(b.board)}</b><span class="spacer"></span>${b.active ? '<span class="tag cur">进行中</span>' : ''}</div>
         <div class="small muted">余 ${b.remaining}/${b.total} · 首次正确率 ${rate(b.first_correct, b.first_total)}${b.pending ? ` · 待补 ${b.pending}` : ''}</div>
@@ -681,6 +699,13 @@ function bindBank() {
     try { await api('/api/bank/count', { count: Number(e.target.value) }); toast('已保存，下一组生效'); }
     catch (err) { showError(err); }
   };
+  document.querySelectorAll('.bankOrder').forEach(sel => sel.onchange = async (e) => {
+    try {
+      await api('/api/bank/count', { order: e.target.value });
+      toast(e.target.value === 'shuffle' ? '已改成乱序：下一组从没做过的题里随机抽' : '已改回按顺序');
+      renderTrain();
+    } catch (err) { showError(err); }
+  });
   $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
   document.querySelectorAll('[data-bank]').forEach(b => b.onclick = () => startTask({ task: {
     type: b.dataset.mode === 'review' ? 'bank_review' : 'bank', board: b.dataset.bank,

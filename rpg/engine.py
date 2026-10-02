@@ -30,6 +30,7 @@ import time
 
 from . import skeleton, themes, vault
 
+DAILY_WRONG = "wrong:daily"   # 今日功课/心魔录共用的斩心魔任务
 TRAIN_TYPES = ("recite", "review", "speedrun", "feynman", "example", "apply", "wrong")
 
 
@@ -1067,6 +1068,7 @@ class Game:
                 st = self.state["items"].get(task.get("target"), {})
                 if task["type"] == "apply" and not task.get("done") and st.get("level") == 2 and not st.get("example_ok"):
                     p["tasks"][index] = self._task("example", task["board"], self.T("example") + " · " + task["board"], task["target"])
+            self._merge_wrong(p["tasks"])
             self._add_bank_tasks(p["tasks"])
             return p
         tasks, used = [], set()
@@ -1106,7 +1108,7 @@ class Game:
             used.add(it["id"])
 
         # 4) 心魔
-        tasks += [t for t in self._plan_wrong(cur, cur_boards) if t["target"] not in used]
+        tasks += self._plan_wrong(cur, cur_boards, used)
 
         # 5) 新修：当前秘境里有定稿功法的板块，按“最久没练”轮换
         ready = [b for b in cur_boards if self.final_items(b)]
@@ -1169,7 +1171,7 @@ class Game:
             out.append(self._task(typ, h.get("board", ""), f"{self.T('heal')} · {self.label(typ)}「{name}」", h["target"]))
         return out
 
-    def _plan_wrong(self, cur, cur_boards):
+    def _plan_wrong(self, cur, cur_boards, used=()):
         r = self.rules
         last_n = int(r.num("错题只取最近几季"))
         order = list(cur_boards)
@@ -1189,15 +1191,70 @@ class Game:
         started = D(self.state.get("batch_start", {}).get(key, self.t))
         days_left = max(3, int(r.num("每批预计天数")) - (self.today - started).days)
         quota = max(lo, min(hi, len(redo) + math.ceil(len(fresh_cur) / days_left)))
-        out = []
-        for b, q in (redo + fresh_cur + fresh_old)[:quota]:
-            again = any(q is x[1] for x in redo)
-            out.append(self._task("wrong", b, f"{self.T('kill')} · 第{q['season']}季{q['source']}第{q['num']}题"
-                                  + (f"（{self.T('redo')}）" if again else ""), q["key"]))
-        return out
+        picked = [(b, q["key"]) for b, q in (redo + fresh_cur + fresh_old) if q["key"] not in used][:quota]
+        if not picked:
+            return []
+        t = self._task("wrong", "", "", DAILY_WRONG.split(":", 1)[1],
+                       extra={"quota": len(picked), "keys": [list(x) for x in picked], "hits": [], "redo": len(redo)})
+        t["minutes"] *= len(picked)
+        self._wrong_title(t)
+        return [t]
+
+    # 今日功课和心魔录共用的那一项“斩心魔”：一天一只任务，按只数计进度
+    def _wrong_title(self, t):
+        n, k = t["quota"], len(t["hits"])
+        t["title"] = f"{self.T('kill')} · 今日 {min(k, n)}/{n} 只" + (f"（含{self.T('redo')} {t['redo']}）" if t.get("redo") else "")
+
+    def daily_wrong(self):
+        p = self.state.get("plan") or {}
+        if p.get("date") != self.t:
+            return None
+        return next((t for t in p.get("tasks", []) if t["id"] == DAILY_WRONG), None)
+
+    def next_wrong(self, board=""):
+        """下一只该斩的心魔 (board, key)：先按今日功课排好的顺序，再到所有板块里挑（到期回炉 > 没交手 > 其余）"""
+        t = self.daily_wrong()
+        if t and not board:
+            for b, key in t["keys"]:
+                if key not in t["hits"]:
+                    return b, key
+        hits = set(t["hits"]) if t else set()
+        allq = sorted(self._pool_wrong([board] if board else list(self.boards)))
+        pool = [x for x in allq if x[2] not in hits] or allq       # 今天都斩过了：再从头来
+        return (pool[0][1], pool[0][2]) if pool else None
+
+    def wrong_hit(self, key, ok):
+        """斩过一只（不论从哪进来的）：今日的斩心魔任务进度 +1，够数就算完成"""
+        t = self.daily_wrong()
+        if not t or key in t["hits"]:
+            return
+        t["hits"].append(key)
+        t["ok"] = ok if t["ok"] is None else (t["ok"] and ok)
+        if len(t["hits"]) >= t["quota"]:
+            t["done"] = True
+        self._wrong_title(t)
+
+    def _merge_wrong(self, tasks):
+        """旧计划里一只心魔一项：合成一项（已经斩过的算进度）"""
+        heal = self.T("heal")
+        old = [t for t in tasks if t["type"] == "wrong" and t["id"] != DAILY_WRONG and not t["title"].startswith(heal)]
+        if not old:
+            return
+        ix = tasks.index(old[0])
+        t = self._task("wrong", "", "", DAILY_WRONG.split(":", 1)[1],
+                       extra={"quota": len(old), "keys": [[x["board"], x["target"]] for x in old],
+                              "hits": [x["target"] for x in old if x["done"]], "redo": sum(self.T("redo") in x["title"] for x in old)})
+        t["minutes"] = sum(x["minutes"] for x in old)
+        t["done"] = all(x["done"] for x in old)
+        self._wrong_title(t)
+        tasks[ix:ix] = [t]
+        for x in old:
+            tasks.remove(x)
 
     def mark_done(self, task, ok):
         tid = task.get("id") or f"{task.get('type')}:{task.get('target')}"
+        if tid == DAILY_WRONG:          # 按只数算，见 wrong_hit
+            return
         for t in (self.state.get("plan") or {}).get("tasks", []):
             if t["id"] == tid and not t["done"]:
                 t["done"], t["ok"] = True, ok

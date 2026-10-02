@@ -261,6 +261,12 @@ def import_classify(body):
 
 
 def bank_count(body):
+    if "order" in body:
+        if body["order"] not in question_bank.ORDERS:
+            raise ApiError("出题顺序无效")
+        with open_game() as g:
+            question_bank.state(g)["order"] = body["order"]
+        return {"order": body["order"]}
     n = body.get("count")
     if n not in (10, 15):
         raise ApiError("题量只能选择 10 或 15")

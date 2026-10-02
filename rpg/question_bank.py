@@ -9,6 +9,7 @@
 存档 bank 含 records（题目快照与作答历史）、runs（可恢复的一组）、groups（组成绩）。
 不改写用户题库；首次错误及复练都留记录，首次正确率与复练正确率分开。
 """
+import random
 import re
 import uuid
 
@@ -314,6 +315,21 @@ def count(g):
     return 15 if n == 15 else 10
 
 
+ORDERS = ('seq', 'shuffle')
+
+
+def order(g):
+    """出题顺序：seq 按题库顺序；shuffle 从没做过的题里随机抽（做过的照样不出）"""
+    o = state(g).get('order')
+    return o if o in ORDERS else 'seq'
+
+
+def _pick(g, qs):
+    if order(g) == 'shuffle' and len(qs) > count(g):
+        return random.sample(qs, count(g))
+    return qs[:count(g)]
+
+
 def summary(g):
     data = state(g)
     result = []
@@ -332,7 +348,7 @@ def summary(g):
                        'wrong': len(wrong), 'errors': errors, 'active': bool(run),
                        'wrong_items': [{'id': r['question']['id'], 'topic': r['question']['topic'],
                                         'last': r['history'][-1], 'tries': len(r['history'])} for r in wrong]})
-    return {'boards': result, 'count': count(g),
+    return {'boards': result, 'count': count(g), 'order': order(g),
             'groups': [dict(x, rank=rank(g, x['correct'], x['total']), label=label(x['board'])) for x in data['groups'][-20:][::-1]],
             'streak_need': max(1, int(g.rules.num('回炉连续判对'))),
             'bonus': g.rules.xp('实战通关'), 'tower': tower(g), 'sets': sets(g)}
@@ -350,7 +366,7 @@ def begin(g, board, mode):
         qs, errors = read(g.paths, b)
         if errors:
             raise BankError('\n'.join(errors))
-        qs = [q for q in qs if topic_head(q['topic'], b) == topic and q['key'] not in data['records']][:count(g)]
+        qs = _pick(g, [q for q in qs if topic_head(q['topic'], b) == topic and q['key'] not in data['records']])
         if not qs:
             raise BankError('「%s · %s」的题已经全部做过了（答案待补的不出）' % (b, topic))
         run = {'token': uuid.uuid4().hex, 'board': board, 'mode': 'new', 'questions': qs,
@@ -385,7 +401,7 @@ def begin(g, board, mode):
     else:
         qs = [r['question'] for r in data['records'].values()
               if r['question']['board'] == board and r.get('wrong')]
-    qs = qs[:count(g)]
+    qs = _pick(g, qs) if mode == 'new' else qs[:count(g)]
     if not qs:
         raise BankError(g.T('bank_empty') if mode == 'new' else g.T('bank_no_wrong'))
     run = {'token': uuid.uuid4().hex, 'board': board, 'mode': mode, 'questions': qs,

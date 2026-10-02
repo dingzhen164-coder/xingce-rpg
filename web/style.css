@@ -107,6 +107,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 60px; }
 .bar.green > div { background: var(--green); }
 .bar.yellow > div { background: var(--gold); }
 .bar.blue > div { background: var(--accent2); }
+.bar.red > div { background: var(--red); }
+.kill-card { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.kill-card .row { gap: 10px; margin: 6px 0; }
 .hero-score { text-align: center; min-width: 120px; }
 .hero-score .big { font-size: 36px; font-weight: 900; color: var(--gold); line-height: 1.1; }
 .hero-score .big span { font-size: 15px; }

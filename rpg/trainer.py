@@ -340,15 +340,21 @@ def _start(g, task):
         return _resp(s, [_msg("npc", f"{g.T('apply')}：\n\n{q.get('题目', '')}")],
                      input=_remember(s, _text_input("先说你认出的考点和思路，再给答案")))
     if typ == "wrong":
-        if not task.get("target"):   # 修炼殿里自选板块斩心魔：挑这个板块最该斩的一只（到期回炉 > 没交手过 > 其余）
-            pool = sorted(g._pool_wrong([task["board"]]))
-            if not pool:
-                raise TrainError(f"「{task['board']}」还没有{g.T('wrong')}（模考板块复盘里做错的题）")
-            task = dict(task, target=pool[0][2])
+        origin = {k: task.get(k) for k in ("id", "type", "board", "target", "title")}
+        if task.get("target") in ("", None, "daily"):
+            # 斩心魔（今日功课/心魔录/修炼殿共用）：挑下一只最该斩的（今日排好的 > 到期回炉 > 没交手过 > 其余）
+            nxt = g.next_wrong(task.get("board") or "")
+            if not nxt:
+                where = f"「{task['board']}」" if task.get("board") else ""
+                raise TrainError(f"{where}还没有{g.T('wrong')}（模考板块复盘里做错的题）")
+            task = dict(task, board=nxt[0], target=nxt[1])
+            daily = g.daily_wrong()
+            if daily:
+                task["title"] = daily["title"] if origin["id"] == "wrong:daily" else task["title"]
         q = vault.find_question(g.paths, task["target"])
         if not q:
             raise TrainError("找不到这道题（复盘文件可能改名或删除了）")
-        s = new_session(typ, task["title"], task, key=q["key"], board=task["board"])
+        s = new_session(typ, task["title"], task, key=q["key"], board=task["board"], origin=origin)
         return _resp(s, [_wrong_intro(g, q, f"{g.T('wrong')}现身！"),
                          _msg("npc", f"用{g.T('skeleton')}里的方法{g.T('kill')}：这是什么题型 → 用什么方法 → 关键依据落在哪句话 → 选哪个。")],
                      input=_remember(s, _text_input("题型 → 方法 → 依据 → 答案")))
@@ -548,8 +554,21 @@ def _discuss_input(teach=False, resumed=None):
 def _to_discuss(g, s, messages, events, ctx):
     """判完分不马上关门：进入复盘，可以点“师傅解惑”或继续追问；点“结束复盘”才算这次修炼结束"""
     s["discuss"] = dict(ctx, board=s.get("board", ""), history=[])
-    return _resp(s, messages + [_msg("sys", "可以继续复盘：点「🧙 师傅解惑」让师傅按功法讲透，或者直接打字追问。")],
-                 events, input=_remember(s, _discuss_input()))
+    extra = []
+    if s["type"] == "wrong":
+        daily = g.daily_wrong()
+        if daily:
+            extra.append(_msg("sys", f"今日{g.T('kill')}进度：{min(len(daily['hits']), daily['quota'])}/{daily['quota']}"
+                              + ("（已完成，想多斩几只也行）" if daily["done"] else "")))
+    return _resp(s, messages + extra + [_msg("sys", "可以继续复盘：点「🧙 师傅解惑」让师傅按功法讲透，或者直接打字追问。")],
+                 events, input=_remember(s, _wrong_input(s)))
+
+
+def _wrong_input(s):
+    inp = _discuss_input()
+    if s["type"] == "wrong" and (s.get("origin") or {}).get("target") in ("", None, "daily"):
+        inp["buttons"].insert(1, {"id": "wrong_next", "label": "👹 下一只"})
+    return inp
 
 
 def _skill_digest(g, board):
@@ -572,7 +591,8 @@ def _discuss_ask(g, s, text):
 
 
 def _discuss_reply(g, s, text):
-    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, _discuss_input(s["type"] == "teach", s.get("resumed"))))
+    inp = _wrong_input(s) if s["type"] == "wrong" else _discuss_input(s["type"] == "teach", s.get("resumed"))
+    return _resp(s, _discuss_ask(g, s, text), input=_remember(s, inp))
 
 
 def _discuss_action(g, s, act):
@@ -583,7 +603,12 @@ def _discuss_action(g, s, act):
             where = vault.save_tutor_note(g.paths, s["key"], s["discuss"]["history"][-1]["content"], g.t)
             if where:
                 msgs.append(_msg("sys", "📌 已存入复盘解析：%s 第 %s 题（再问一次会换成新的）" % (where, s["key"].split("|")[2])))
-        return _resp(s, msgs, input=_remember(s, _discuss_input()))
+        return _resp(s, msgs, input=_remember(s, _wrong_input(s)))
+    if act == "wrong_next" and s.get("origin"):
+        SESSIONS.pop(s["id"], None)
+        r = start(g, dict(s["origin"], target=""))
+        r["replace"] = True
+        return r
     if act == "ask_more":
         return _resp(s, [_msg("me", "🌀 师傅，再举一个例子。")] + _discuss_ask(
             g, s, "再给我出一道考这个大项的典型例题（四个选项），先让我看题，然后按步骤讲怎么用这个方法做出来"),
@@ -716,6 +741,7 @@ def _wrong(g, s, text):
 def _wrong_finish(g, s, ok, iid, extra, r=None):
     ev = _drop_dup_npc(g.on_wrong(s["key"], s["board"], ok, iid), r and r.get("点评"))
     g.mark_done(s["task"], ok)
+    g.wrong_hit(s["key"], ok)
     head = f"⚔ {g.T('kill')}成功" if ok else f"💥 {g.T('wrong')}逃走了（{int(g.rules.num('回炉间隔天数'))} 天后{g.T('redo')}）"
     if r is not None:
         head += f"　答案{'✓' if r.get('答案正确') else '✗'}　思路{'✓' if r.get('思路正确') else '✗'}"
