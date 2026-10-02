@@ -464,3 +464,12 @@ html.drawing, html.drawing body { overflow: hidden; touch-action: none; }
 .draw-bar .dot { width: 24px; height: 24px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
 .draw-bar .dot.on { box-shadow: 0 0 0 3px #fff; }
 .draw-bar .thin, .draw-bar .thick { font-size: 13px; width: 32px; }
+/* 做功课：对话框贴底，框里滚 */
+html.in-chat, html.in-chat body { overflow: hidden; }
+html.in-chat .train { align-items: stretch; }
+html.in-chat .train > .card { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+html.in-chat .train > .card:first-child { position: static; max-height: none; height: 100%; overflow-y: auto; }
+html.in-chat .chat { min-height: 0; height: 100%; }
+html.in-chat .msgs { min-height: 0; overflow-y: auto; padding-right: 4px; }
+html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-radius: 0; }
+html.in-chat .train > .card + .card { margin-top: 0; }

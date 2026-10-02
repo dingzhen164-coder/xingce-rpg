@@ -116,6 +116,7 @@ function banner() {
 
 async function render() {
   const v = $("#view");
+  document.documentElement.classList.remove("in-chat");
   try {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
@@ -459,14 +460,23 @@ function applyResp(r) {
   T.battle = r.battle || null;
   if (r.finished) refresh().then(() => VIEW === "train" && renderTrain());
 }
+// 做功课时对话框占满屏幕到底：页面不滚，只有对话内容在框里滚，输入框贴着屏幕底边
+function fitChat() {
+  const tr = $(".train");
+  document.documentElement.classList.toggle("in-chat", !!tr);
+  if (!tr) return;
+  window.scrollTo(0, 0);
+  tr.style.height = Math.max(320, innerHeight - tr.getBoundingClientRect().top) + "px";
+}
+window.addEventListener("resize", () => { if ($(".train")) fitChat(); });
 async function renderTrain() {
   if (VIEW !== "train") return;
   const html = await views.train().catch((e) => { showError(e); return ''; });
   if (VIEW !== "train") return;
   $("#view").innerHTML = html;
   bindTrain();
+  fitChat();
   const box = $("#msgs"); if (box) box.scrollTop = T.top ? 0 : box.scrollHeight;
-  if (T.top) window.scrollTo(0, 0);
   startTimer();
   const ta = $("#answer"); if (ta) ta.focus();
 }
