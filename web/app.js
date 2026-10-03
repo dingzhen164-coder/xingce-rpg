@@ -421,15 +421,13 @@ function bindRetreatTimer() {
 // ------------------------------------------------------------ 听道（其他平台看网课）：首页记录，计入每日功行
 function lectureCard(d) {
   const m = d.minutes, goal = m.goal || 300;
-  const sw = Math.min(100, (m.study ?? 0) / goal * 100), lw = Math.min(100 - sw, (m.lecture ?? 0) / goal * 100);
   const left = Math.max(0, goal - m.today);
-  const days = [0, 1, 2, 3, 4, 5, 6].map((k) => { const t = new Date(Date.now() - k * 864e5); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); });
-  const dayName = (ds, k) => k === 0 ? "今天" : k === 1 ? "昨天" : k === 2 ? "前天" : ds.slice(5);
+  const days = lastDays();
   const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
       <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span><button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
-  return `<div class="card lecture-card" style="margin-top:14px">
+  return `<div class="card lecture-card tone-lecture" style="margin-top:14px">
     <h3>📿 ${esc(W("lecture_title"))} <small>今日功行 ${m.today} / ${goal} 分钟 · ${esc(W("study"))} ${m.study ?? 0} · ${esc(W("lecture"))} ${m.lecture ?? 0}${left ? ` · 还差 ${left} 分钟` : " · 已圆满 ✦"}</small></h3>
-    <div class="dual-bar" title="${esc(W("study"))} ${m.study ?? 0} 分钟 + ${esc(W("lecture"))} ${m.lecture ?? 0} 分钟"><span class="s" style="width:${sw}%"></span><span class="l" style="width:${lw}%"></span></div>
+    <div title="做题 ${d.timesplit?.today?.practice ?? 0} · 复习 ${d.timesplit?.today?.review ?? 0} · ${esc(W("lecture"))} ${m.lecture ?? 0} 分钟">${sancaiBar(d.timesplit?.today || { review: m.study ?? 0, lecture: m.lecture ?? 0 }, goal)}</div>
     <p class="small muted">${esc(W("lecture_hint"))}</p>
     <div class="row lec-form">
       <label>${esc(W("lecture"))}几分钟 <input type="number" id="lecMin" min="1" max="600" placeholder="如 90"></label>
@@ -489,32 +487,60 @@ function bindTimeCard() {
   }));
 }
 // ------------------------------------------------------------ 红尘历练：首页记自练日志（好题收进题库在修仙录）
+function lastDays() {
+  return [0, 1, 2, 3, 4, 5, 6].map((k) => { const t = new Date(Date.now() - k * 864e5); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); });
+}
+function dayName(ds, k) { return k === 0 ? "今天" : k === 1 ? "昨天" : k === 2 ? "前天" : ds.slice(5); }
+// 三才时辰的颜色条：做题（朱）· 复习（金）· 听课（青），按每日目标算宽度；only 只画其中几段
+function sancaiBar(t, goal, only) {
+  const keys = only || ["practice", "review", "lecture"];
+  let used = 0;
+  return `<div class="tri-bar">${keys.map((k) => {
+    const w = Math.max(0, Math.min(100 - used, (t[k] || 0) / goal * 100)); used += w;
+    return w ? `<span class="seg-${k}" style="width:${w}%"></span>` : "";
+  }).join("")}</div>`;
+}
 function practiceCard(d) {
   const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
-  const recent = (d.practice || []).map((p) => `<div class="pr-item"><div class="row small"><span class="faint">${esc(p.d.slice(5))}</span><b>${esc(p.board)}</b>${p.source ? `<span class="muted">${esc(p.source)}</span>` : ""}
-      ${p.total ? `<span>${p.correct}/${p.total}（${Math.round(p.correct / p.total * 100)}%）</span>` : ""}${p.minutes ? `<span class="muted">${p.minutes} 分钟</span>` : ""}</div>
-      ${p.note ? `<div class="pr-note">${md(p.note)}</div>` : ""}</div>`).join("");
-  return `<div class="card hongchen" style="margin-top:14px">
-    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>纸质资料、其他 App 上的自练；分钟算进「做题」，日志写进 训练/红尘历练/${esc((d.today || "").slice(0, 7))}.md</small></h3>
-    <div class="hc-grid">
-      <div>
-        <div class="row"><select id="prBoard" style="flex:1.2">${boardOptions(boards)}<option>其他</option></select><input id="prSrc" placeholder="资料，如 粉笔980 P120" style="flex:2"></div>
-        <div class="row" style="margin-top:6px"><input id="prTotal" type="number" min="0" placeholder="题数" style="flex:1"><input id="prOk" type="number" min="0" placeholder="对了几题" style="flex:1"><input id="prMin" type="number" min="0" placeholder="分钟" style="flex:1"></div>
-        <textarea id="prNote" rows="4" placeholder="今天练了什么、错在哪、悟到了什么……" style="margin-top:6px;width:100%"></textarea>
-        <div class="row" style="margin-top:6px"><button class="primary" id="prBtn">🌲 记下这次${esc(W("practice"))}</button><span class="small muted">只写日志的话题数留空</span></div>
-      </div>
-      <div class="pr-list">${recent || '<div class="muted small">还没有自练记录</div>'}</div>
-    </div></div>`;
+  const goal = d.minutes.goal || 300, t = d.timesplit?.today || { practice: 0, self: 0 };
+  const today = (d.practice || []).filter((p) => p.d === d.today);
+  const n = today.reduce((a, p) => a + (p.total || 0), 0), ok = today.reduce((a, p) => a + (p.correct || 0), 0);
+  const days = lastDays();
+  const rows = (d.practice || []).map((x) => `<div class="lec-row pr-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${esc(x.board)}</b>
+      ${x.total ? `<span>${x.correct}/${x.total}（${Math.round(x.correct / x.total * 100)}%）</span>` : ""}${x.minutes ? `<span>${x.minutes} 分钟</span>` : ""}
+      <span class="muted">${esc(x.source || "")}</span><span class="spacer"></span>${x.id ? `<button class="ghost small" data-pr-del="${esc(x.id)}" title="记错了，删掉这笔">删</button>` : ""}</div>
+      ${x.note ? `<div class="pr-note">${md(x.note)}</div>` : ""}`).join("");
+  return `<div class="card lecture-card tone-practice" style="margin-top:14px">
+    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题（${Math.round(ok / n * 100)}%）` : ""}</small></h3>
+    ${sancaiBar({ practice: t.self, drill: t.practice - t.self }, goal, ["practice", "drill"])}
+    <p class="small muted">纸质资料、其他 App 上的自练也是历练。练完来此记一笔：分钟算进「做题」，心得写进 训练/${esc(W("practice"))}/${esc((d.today || "").slice(0, 7))}.md。</p>
+    <div class="row lec-form">
+      <label>板块 <select id="prBoard">${boardOptions(boards)}<option>其他</option></select></label>
+      <label style="flex:1.6">资料（可不填） <input id="prSrc" maxlength="60" placeholder="如：粉笔980 P120"></label>
+      <label>题数 <input type="number" id="prTotal" min="0" placeholder="如 20"></label>
+      <label>对了几题 <input type="number" id="prOk" min="0" placeholder="如 16"></label>
+      <label>几分钟 <input type="number" id="prMin" min="0" placeholder="如 40"></label>
+      <span class="lec-quick">${[20, 40, 60].map((m) => `<button class="ghost small" data-pr-q="${m}">${m}</button>`).join("")}</span>
+      <label>哪天 <select id="prDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
+      <button class="primary" id="prBtn">🌲 记入</button></div>
+    <label class="small muted pr-note-label">心得（可不填；只写心得题数留空）<textarea id="prNote" rows="2" placeholder="今天练了什么、错在哪、悟到了什么……"></textarea></label>
+    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近期${esc(W("practice"))}记录</summary>${rows}</details>` : ""}
+  </div>`;
 }
 function bindPractice() {
   const b = $("#prBtn"); if (!b) return;
+  document.querySelectorAll("[data-pr-q]").forEach((x) => (x.onclick = () => { $("#prMin").value = x.dataset.prQ; }));
   b.onclick = async () => {
     try {
       const r = await api("/api/practice", { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
-                                             minutes: $("#prMin").value, note: $("#prNote").value });
+                                             minutes: $("#prMin").value, note: $("#prNote").value, date: $("#prDay").value });
       handleEvents(r.events); await refresh(); render();
     } catch (e) { showError(e); }
   };
+  document.querySelectorAll("[data-pr-del]").forEach((x) => (x.onclick = async () => {
+    if (!confirm("删掉这笔记录？（那次的分钟和修为会扣回；日志文件里的那段请在 Obsidian 里自己删）")) return;
+    try { await api("/api/practice/delete", { id: x.dataset.prDel }); await refresh(); render(); } catch (e) { showError(e); }
+  }));
 }
 function bindLecture() {
   const go = $("#lecGo"); if (!go) return;

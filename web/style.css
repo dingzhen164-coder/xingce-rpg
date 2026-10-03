@@ -492,8 +492,8 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .hongchen .pr-note { font-size: 13px; opacity: .9; margin-top: 4px; }
 
 /* 首页 · 三才时辰：三枚圆形法印（外圈的亮弧 = 占总时长的比例），下面一条以听课为 1 的比例条 */
+:root { --c-lecture: #3f9e8f; --c-practice: #c2463a; --c-review: #c9a227; }
 .sancai { --seal-font: "STXingkai", "华文行楷", "STKaiti", "KaiTi", "楷体", var(--display);
-  --c-lecture: #3f9e8f; --c-practice: #c2463a; --c-review: #c9a227;
   background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--gold) 10%, transparent), transparent 60%), var(--panel); }
 .sancai-head { display: flex; align-items: center; gap: 10px; }
 .sancai-head h3 { margin: 0; letter-spacing: .15em; }
@@ -546,3 +546,24 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .ratio-line { flex-wrap: wrap; white-space: nowrap; }
 .hongchen .hc-grid > .pr-list { margin-top: 0; }
 @media (max-width: 640px) { .sancai-head .spacer { display: none; } .ratio-line .spacer { flex-basis: 100%; } }
+
+/* 听道 · 闻法记 与 红尘历练 · 自练日志：同一个模板，颜色对应三才时辰（听课青、做题朱、复习金） */
+.tone-lecture { --tone: var(--c-lecture); }
+.tone-practice { --tone: var(--c-practice); }
+.lecture-card { border-top: 3px solid var(--tone, var(--gold));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--gold)) 7%, transparent), transparent 90px), var(--panel); }
+.lecture-card h3 { color: var(--tone, inherit); }
+.lecture-card h3 small { color: var(--muted); }
+.lecture-card .primary { background: linear-gradient(135deg, color-mix(in srgb, var(--tone) 80%, #fff), var(--tone)); border-color: var(--tone); }
+.lecture-card .lec-quick .ghost:hover { border-color: var(--tone); color: var(--tone); }
+.lecture-card input:focus, .lecture-card select:focus, .lecture-card textarea:focus { border-color: var(--tone); outline: none; }
+.tri-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--panel2); margin: 4px 0 6px; }
+.tri-bar .seg-lecture { background: linear-gradient(90deg, color-mix(in srgb, var(--c-lecture) 70%, #fff), var(--c-lecture)); }
+.tri-bar .seg-practice { background: linear-gradient(90deg, color-mix(in srgb, var(--c-practice) 70%, #fff), var(--c-practice)); }
+.tri-bar .seg-review { background: linear-gradient(90deg, color-mix(in srgb, var(--c-review) 70%, #fff), var(--c-review)); }
+.tri-bar .seg-drill { background: color-mix(in srgb, var(--c-practice) 35%, transparent); }
+.pr-note-label { display: block; margin-top: 8px; }
+.pr-note-label textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; resize: vertical; }
+.pr-row + .pr-note { padding: 2px 0 6px 52px; font-size: 13px; color: var(--muted); border-bottom: 1px dashed var(--line); }
+.lec-form label > input, .lec-form label > select { display: block; }
+.tone-practice .lec-form input[type=number] { width: 84px; }

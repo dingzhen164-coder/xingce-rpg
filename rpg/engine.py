@@ -970,19 +970,39 @@ class Game:
             ev.append({"kind": "info", "msg": f"{self.T('boss')}成绩达到 {nxt} 分，获得一颗{item}（{self.T('tribulation')}时可抵挡一道天雷）"})
         return ev
 
-    def add_practice(self, board, total, correct, minutes, source="", note=""):
-        rec = {"d": self.t, "board": board, "total": total, "correct": correct, "minutes": minutes}
+    def add_practice(self, board, total, correct, minutes, source="", note="", day=None):
+        d = D(day) if day else self.today
+        if not (self.today - dt.timedelta(days=7) <= d <= self.today):
+            raise ValueError("只能补记最近 7 天的自练")
+        ds = d.isoformat()
+        rec = {"id": "%s-%d" % (ds, int(time.time() * 1000) % 10 ** 9), "d": ds, "board": board,
+               "total": total, "correct": correct, "minutes": minutes}
         if source:
             rec["source"] = source
         if note:
             rec["note"] = note
         self.state["practice"].append(rec)
-        self.state["seconds"][self.t] = self.state["seconds"].get(self.t, 0) + minutes * 60
+        self.state["seconds"][ds] = self.state["seconds"].get(ds, 0) + minutes * 60
         self._practice_log(rec)
         head = f"{self.T('practice')} {board}" + (f"（{source}）" if source else "")
         if not total:
             return [{"kind": "info", "msg": f"{head}：日志已记下"}]
-        return self._award(self.rules.xp("自练每题") * total, "practice", board, note=f"{head} {correct}/{total}")
+        ev = self._award(self.rules.xp("自练每题") * total, "practice", board, note=f"{head} {correct}/{total}")
+        rec["xp"] = sum(e.get("v", 0) for e in ev if e.get("kind") == "xp")
+        return ev
+
+    def delete_practice(self, pid):
+        """删掉记错的一笔自练（扣回分钟和修为；日志文件里的那段不动，自己在 Obsidian 里删）"""
+        ps = self.state["practice"]
+        x = next((x for x in ps if x.get("id") == pid), None)
+        if not x:
+            raise ValueError("找不到这条记录")
+        ps.remove(x)
+        self.state["seconds"][x["d"]] = max(0, self.state["seconds"].get(x["d"], 0) - x.get("minutes", 0) * 60)
+        self.state["xp"] = max(0, self.state["xp"] - x.get("xp", 0))
+        self.state["events"].append({"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "practice",
+                                     "board": x["board"], "item": "", "ok": True, "xp": -x.get("xp", 0),
+                                     "note": "删除%s记录 %s %d/%d" % (self.T("practice"), x["board"], x["correct"], x["total"])})
 
     def _practice_log(self, rec):
         """自练日志写进库里：训练/红尘历练/年-月.md，一次一节，Obsidian 里能直接看"""
@@ -990,17 +1010,17 @@ class Game:
             return
         folder = self.paths.train / "红尘历练"
         folder.mkdir(parents=True, exist_ok=True)
-        f = folder / f"{self.t[:7]}.md"
+        f = folder / f"{rec['d'][:7]}.md"
         bits = [rec["board"]] + ([rec["source"]] if rec.get("source") else [])
         if rec["total"]:
             bits.append(f"{rec['correct']}/{rec['total']}（{rec['correct'] / rec['total']:.0%}）")
         if rec["minutes"]:
             bits.append(f"{rec['minutes']} 分钟")
-        text = f"\n## {self.t} {dt.datetime.now().strftime('%H:%M')} · " + " · ".join(bits) + "\n"
+        text = f"\n## {rec['d']} {dt.datetime.now().strftime('%H:%M')} · " + " · ".join(bits) + "\n"
         if rec.get("note"):
             text += "\n" + rec["note"].strip() + "\n"
         if not f.exists():
-            text = f"# 红尘历练 · {self.t[:7]}\n\n纸质资料、其他 App 上的自练记录（修仙录里录入）。\n" + text
+            text = f"# 红尘历练 · {rec['d'][:7]}\n\n纸质资料、其他 App 上的自练记录（修仙录里录入）。\n" + text
         with f.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
 

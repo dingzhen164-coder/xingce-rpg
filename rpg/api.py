@@ -19,7 +19,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
-    POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  红尘历练（自练）+ 自练日志
+    POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  红尘历练（自练）+ 自练日志；"date" 可补记最近 7 天
+    POST /api/practice/delete      {"id"}  删掉记错的一笔自练
     POST /api/bank/add             {"board", "topic", "source", "stem", "options": {A..D}, "answer", "analysis"}  自练好题收进题库
     GET  /api/import               导入真题页：各季模考（已导入数）、待修文件、待分类知识点数
     POST /api/import/preview       {"kind": "season"|"text"|"fix", ...}  拆题预览（不写文件）
@@ -422,7 +423,20 @@ def practice(body):
     if total < 0 or not (0 <= correct <= total) or (total == 0 and not note):
         raise ApiError("题数要大于 0、正确数不能超过题数（只写日志的话题数填 0）")
     with open_game() as g:
-        return {"events": g.add_practice(str(body.get("board", "")).strip() or "自练", total, correct, minutes, source, note[:5000])}
+        try:
+            return {"events": g.add_practice(str(body.get("board", "")).strip() or "自练", total, correct, minutes, source, note[:5000],
+                                             body.get("date") or None)}
+        except ValueError as e:
+            raise ApiError(str(e))
+
+
+def practice_delete(body):
+    with open_game() as g:
+        try:
+            g.delete_practice(str(body.get("id") or ""))
+        except ValueError as e:
+            raise ApiError(str(e))
+        return {"ok": True}
 
 
 def bank_add(body):
@@ -503,6 +517,7 @@ ROUTES = {
     ("POST", "/api/leave"): leave,
     ("POST", "/api/boss"): boss,
     ("POST", "/api/practice"): practice,
+    ("POST", "/api/practice/delete"): practice_delete,
     ("POST", "/api/bank/add"): bank_add,
     ("GET", "/api/settings"): settings_get,
     ("POST", "/api/settings"): settings_set,

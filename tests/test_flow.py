@@ -319,6 +319,17 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(d["practice"][1]["source"], "粉笔980 P12")
         with self.assertRaises(api.ApiError):
             api.practice({"board": "资料分析", "total": "", "note": ""})
+        # 补记昨天、删掉记错的一笔（分钟、修为扣回）
+        import datetime as _dt
+        y = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+        xp0, sec0 = self.state()["xp"], self.state()["seconds"].get(y, 0)
+        api.practice({"board": "判断推理", "total": "5", "correct": "5", "minutes": "10", "date": y})
+        rec = self.state()["practice"][-1]
+        self.assertEqual((rec["d"], self.state()["seconds"][y]), (y, sec0 + 600))
+        api.practice_delete({"id": rec["id"]})
+        self.assertEqual((self.state()["xp"], self.state()["seconds"][y]), (xp0, sec0))
+        with self.assertRaises(api.ApiError):
+            api.practice({"board": "判断推理", "total": "5", "correct": "5", "date": "2000-01-01"})
         # 好题收进题库
         body = {"board": "论证逻辑", "topic": "削弱-他因", "source": "粉笔980", "stem": "某研究发现……",
                 "options": {"A": "甲", "B": "乙", "C": "丙", "D": "丁"}, "answer": "c", "analysis": "C 指出他因"}
