@@ -224,6 +224,7 @@ const views = {
       <div class="hero-score"><div class="small muted">${esc(W("score"))}</div><div class="big">${R.score}<span>分</span></div>
         <div class="small muted">目标 ${R.target} 分</div></div>
     </div>
+    ${timeCard(d)}
     <div class="grid g5" style="margin-top:14px">
       <div class="stat"><div class="k">🔥 ${esc(W("streak"))}</div><div class="v">${d.streak.days} 天</div><div class="d">${esc(W("xp"))}加成 +${pct(d.streak.bonus)}%</div></div>
       <div class="stat"><div class="k">🪷 ${esc(W("dao"))}</div><div class="v ${d.dao.value < 60 ? "bad" : ""}">${d.dao.value} · ${esc(d.dao.label)}</div><div class="d">近 14 天修炼的稳定度</div></div>
@@ -233,6 +234,7 @@ const views = {
     </div>
     ${trib}
     ${lectureCard(d)}
+    ${practiceCard(d)}
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
         <div id="tasks">${tasks.map(taskRow).join("") || `<div class="muted">今天没有功课。去“${esc(NAV("skeleton"))}”编撰${esc(W("skeleton"))}。</div>`}</div>
@@ -339,21 +341,9 @@ const views = {
     const d = DASH;
     const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
     const opts = boardOptions(boards);
-    const recent = (d.practice || []).map((p) => `<div class="pr-item"><div class="row small"><b>${esc(p.board)}</b>${p.source ? `<span class="muted">${esc(p.source)}</span>` : ""}
-        ${p.total ? `<span>${p.correct}/${p.total}（${Math.round(p.correct / p.total * 100)}%）</span>` : ""}${p.minutes ? `<span class="muted">${p.minutes} 分钟</span>` : ""}<span class="spacer"></span><span class="faint">${esc(p.d)}</span></div>
-        ${p.note ? `<div class="pr-note">${md(p.note)}</div>` : ""}</div>`).join("");
-    return `<div class="card hongchen"><h3>🌲 ${esc(W("practice"))} <small>纸质资料、其他 App 上的自练：记成绩、写日志，好题收进题库玉简</small></h3>
+    return `<div class="card hongchen"><h3>📥 好题收进题库玉简 <small>纸质资料、其他 App 上碰到的好题收进来；自练日志在${esc(NAV("home"))}的「${esc(W("practice"))}」里记</small></h3>
       <div class="hc-grid">
         <div>
-          <h4>📝 自练日志</h4>
-          <div class="row"><select id="prBoard" style="flex:1.2">${opts}<option>其他</option></select><input id="prSrc" placeholder="资料，如 粉笔980 P120" style="flex:2"></div>
-          <div class="row" style="margin-top:6px"><input id="prTotal" type="number" min="0" placeholder="题数" style="flex:1"><input id="prOk" type="number" min="0" placeholder="对了几题" style="flex:1"><input id="prMin" type="number" min="0" placeholder="分钟" style="flex:1"></div>
-          <textarea id="prNote" rows="6" placeholder="今天练了什么、错在哪、悟到了什么……（会写进 训练/红尘历练/${esc((d.today || "").slice(0, 7) || "年-月")}.md）" style="margin-top:6px;width:100%"></textarea>
-          <div class="row" style="margin-top:6px"><button class="primary" id="prBtn">记下这次${esc(W("practice"))}</button><span class="small muted">分钟计入今天的修炼时间；只写日志的话题数留空</span></div>
-          <div class="pr-list">${recent || '<div class="muted small">还没有记录</div>'}</div>
-        </div>
-        <div>
-          <h4>📥 好题收进题库玉简</h4>
           <div class="row"><select id="aqBoard" style="flex:1">${opts}</select><input id="aqTopic" placeholder="知识点，如 削弱-他因" style="flex:1.4"><input id="aqSrc" placeholder="出处（可空）" style="flex:1.2"></div>
           <textarea id="aqStem" rows="4" placeholder="题干" style="margin-top:6px;width:100%"></textarea>
           ${"ABCD".split("").map((k) => `<div class="row aq-opt"><b>${k}</b><input id="aq${k}" placeholder="选项 ${k}" style="flex:1"></div>`).join("")}
@@ -450,6 +440,82 @@ function lectureCard(d) {
     ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录</summary>${rows}</details>` : ""}
   </div>`;
 }
+// ------------------------------------------------------------ 三才时辰：听课 / 做题 / 复习，以听课为 1 看比例
+let TIME_SPAN = (() => { try { return localStorage.getItem("timeSpan") || "today"; } catch { return "today"; } })();
+function hm(m) { m = Math.round(m || 0); return m >= 60 ? `<b>${Math.floor(m / 60)}</b><i>时</i>${m % 60 ? `<b>${m % 60}</b><i>分</i>` : ""}` : `<b>${m}</b><i>分</i>`; }
+function timeCard(d) {
+  const ts = d.timesplit; if (!ts) return "";
+  const t = ts[TIME_SPAN] || ts.today;
+  const total = t.lecture + t.practice + t.review;
+  const orbs = [
+    ["lecture", "闻", "听课", "闻法", `网课、讲座（${W("lecture")}）`],
+    ["practice", "历", "做题", "历练", `试炼、${W("kill")}、试剑、炼丹${t.self ? ` · 自练 ${t.self} 分` : " · 含自练"}`],
+    ["review", "温", "复习", "温养", "传授、背诵口诀、论道、温养"],
+  ].map(([k, seal, name, alias, hint]) => {
+    const share = total ? t[k] / total : 0;
+    return `<div class="orb orb-${k}" style="--share:${(share * 360).toFixed(1)}deg">
+      <div class="orb-ring"><div class="orb-core">
+        <div class="orb-seal">${seal}</div>
+        <div class="orb-name">${name}<small>${alias}</small></div>
+        <div class="orb-num">${hm(t[k])}</div>
+        <div class="orb-pct">${total ? Math.round(share * 100) + "%" : "—"}</div>
+      </div></div>
+      <div class="orb-hint">${esc(hint)}</div></div>`;
+  }).join("");
+  const base = t.lecture;
+  const ratio = (v) => base ? (v / base).toFixed(v / base >= 10 ? 0 : 1).replace(/\.0$/, "") : "—";
+  const seg = (k, v) => total ? `<span class="seg seg-${k}" style="flex:${v || 0}" title="${v} 分钟"></span>` : "";
+  const ratioLine = base
+    ? `听课 <b>1</b> <em>:</em> 做题 <b>${ratio(t.practice)}</b> <em>:</em> 复习 <b>${ratio(t.review)}</b>`
+    : `<span class="muted">${total ? "这段时间还没听课，比例以听课为 1，暂时算不出来" : "这段时间还没有记录"}</span>`;
+  // 刻度：每一格是一份“听课时长”
+  const units = base && total ? Math.min(40, Math.round(total / base)) : 0;
+  const ticks = units > 1 ? Array.from({ length: units - 1 }, (_, i) => `<span style="left:${((i + 1) * base / total * 100).toFixed(2)}%"></span>`).join("") : "";
+  return `<div class="card sancai" style="margin-top:14px">
+    <div class="sancai-head"><h3>☯ 三才时辰 <small>听课 · 做题 · 复习</small></h3><span class="spacer"></span>
+      <div class="sancai-tabs">${[["today", "今日"], ["week", "近七日"], ["all", "累计"]].map(([k, n]) => `<a data-tspan="${k}" class="${k === TIME_SPAN ? "on" : ""}">${n}</a>`).join("")}</div></div>
+    <div class="orbs">${orbs}</div>
+    <div class="ratio">
+      <div class="ratio-line">${ratioLine}<span class="spacer"></span><span class="faint small">共 ${Math.round(total)} 分钟 · 以听课为 1</span></div>
+      <div class="ratio-bar">${seg("lecture", t.lecture)}${seg("practice", t.practice)}${seg("review", t.review)}<div class="ticks">${ticks}</div></div>
+    </div></div>`;
+}
+function bindTimeCard() {
+  document.querySelectorAll("[data-tspan]").forEach((a) => (a.onclick = () => {
+    TIME_SPAN = a.dataset.tspan;
+    try { localStorage.setItem("timeSpan", TIME_SPAN); } catch {}
+    const el = document.querySelector(".sancai");
+    if (el) { el.outerHTML = timeCard(DASH); bindTimeCard(); }
+  }));
+}
+// ------------------------------------------------------------ 红尘历练：首页记自练日志（好题收进题库在修仙录）
+function practiceCard(d) {
+  const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
+  const recent = (d.practice || []).map((p) => `<div class="pr-item"><div class="row small"><span class="faint">${esc(p.d.slice(5))}</span><b>${esc(p.board)}</b>${p.source ? `<span class="muted">${esc(p.source)}</span>` : ""}
+      ${p.total ? `<span>${p.correct}/${p.total}（${Math.round(p.correct / p.total * 100)}%）</span>` : ""}${p.minutes ? `<span class="muted">${p.minutes} 分钟</span>` : ""}</div>
+      ${p.note ? `<div class="pr-note">${md(p.note)}</div>` : ""}</div>`).join("");
+  return `<div class="card hongchen" style="margin-top:14px">
+    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>纸质资料、其他 App 上的自练；分钟算进「做题」，日志写进 训练/红尘历练/${esc((d.today || "").slice(0, 7))}.md</small></h3>
+    <div class="hc-grid">
+      <div>
+        <div class="row"><select id="prBoard" style="flex:1.2">${boardOptions(boards)}<option>其他</option></select><input id="prSrc" placeholder="资料，如 粉笔980 P120" style="flex:2"></div>
+        <div class="row" style="margin-top:6px"><input id="prTotal" type="number" min="0" placeholder="题数" style="flex:1"><input id="prOk" type="number" min="0" placeholder="对了几题" style="flex:1"><input id="prMin" type="number" min="0" placeholder="分钟" style="flex:1"></div>
+        <textarea id="prNote" rows="4" placeholder="今天练了什么、错在哪、悟到了什么……" style="margin-top:6px;width:100%"></textarea>
+        <div class="row" style="margin-top:6px"><button class="primary" id="prBtn">🌲 记下这次${esc(W("practice"))}</button><span class="small muted">只写日志的话题数留空</span></div>
+      </div>
+      <div class="pr-list">${recent || '<div class="muted small">还没有自练记录</div>'}</div>
+    </div></div>`;
+}
+function bindPractice() {
+  const b = $("#prBtn"); if (!b) return;
+  b.onclick = async () => {
+    try {
+      const r = await api("/api/practice", { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
+                                             minutes: $("#prMin").value, note: $("#prNote").value });
+      handleEvents(r.events); await refresh(); render();
+    } catch (e) { showError(e); }
+  };
+}
 function bindLecture() {
   const go = $("#lecGo"); if (!go) return;
   document.querySelectorAll("[data-lec-q]").forEach((b) => (b.onclick = () => { $("#lecMin").value = b.dataset.lecQ; }));
@@ -469,6 +535,8 @@ function bindLecture() {
 function bindHome() {
   bindTaskClicks($("#view"));
   bindLecture();
+  bindPractice();
+  bindTimeCard();
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
   $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
   const gp = $("#goPill"); if (gp) gp.onclick = () => go("pill");
@@ -1017,13 +1085,6 @@ function bindPill() {
 function bindLog() {
   $("#bossBtn").onclick = async () => {
     try { const r = await api("/api/boss", { name: $("#bossName").value, score: $("#bossScore").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
-  };
-  $("#prBtn").onclick = async () => {
-    try {
-      const r = await api("/api/practice", { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
-                                             minutes: $("#prMin").value, note: $("#prNote").value });
-      handleEvents(r.events); render();
-    } catch (e) { showError(e); }
   };
   $("#aqBtn").onclick = async () => {
     try {

@@ -319,7 +319,7 @@ def heartbeat(body):
     sec = max(0, min(90, int(body.get("seconds", 0))))
     studying = trainer.is_studying(body.get("session"))
     with open_game() as g:
-        ev = tutor.enrich(g, g.add_seconds(sec)) if studying and sec else []
+        ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(body.get("session")))) if studying and sec else []
         return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 

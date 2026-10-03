@@ -337,6 +337,22 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.bank_add(dict(body, options={"A": "甲"}))
 
+    def test_time_split(self):
+        with api.open_game() as g:
+            g.add_seconds(600, "practice")
+            g.add_seconds(1200, "review")
+            g.state["seconds"]["2020-01-01"] = 300              # 旧存档：没分类的算复习
+        api.practice({"board": "资料分析", "total": "5", "correct": "4", "minutes": "30"})
+        api.lecture_add({"minutes": 20})
+        d = api.dashboard({})
+        self.assertEqual(d["timesplit"]["today"], {"lecture": 20, "practice": 40, "review": 20, "self": 30})
+        self.assertEqual(d["timesplit"]["all"]["review"], 25)
+        self.assertEqual(d["timesplit"]["week"]["review"], 20)
+        trainer.SESSIONS["x"] = {"type": "bank"}
+        self.assertEqual(trainer.study_kind("x"), "practice")
+        trainer.SESSIONS["x"] = {"type": "recite"}
+        self.assertEqual(trainer.study_kind("x"), "review")
+
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

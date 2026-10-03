@@ -32,6 +32,15 @@ STUDY_TYPES = ("teach", "recite", "review", "speedrun", "feynman", "example", "a
 REVIEW_GRACE = 180  # 秒
 
 
+PRACTICE_TYPES = ("bank", "bank_review", "wrong", "apply", "tribulation", "alchemy")   # 计入“做题”，其余修炼计入“复习”
+
+
+def study_kind(sid):
+    s = SESSIONS.get(sid or "")
+    typ = s["type"] if s else FINISHED.get(sid or "", ("", 0))[0]
+    return "practice" if typ in PRACTICE_TYPES else "review"
+
+
 def is_studying(sid):
     """这个会话是否在“修炼”：正在进行的功课，或刚结束 3 分钟内（在看解析）。闲聊、编撰功法不算。"""
     s = SESSIONS.get(sid or "")

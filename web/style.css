@@ -490,3 +490,59 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .hongchen .pr-item { padding: 6px 0; border-bottom: 1px dashed var(--line, #ccc); }
 .hongchen .pr-item .row { gap: 8px; }
 .hongchen .pr-note { font-size: 13px; opacity: .9; margin-top: 4px; }
+
+/* 首页 · 三才时辰：三枚圆形法印（外圈的亮弧 = 占总时长的比例），下面一条以听课为 1 的比例条 */
+.sancai { --seal-font: "STXingkai", "华文行楷", "STKaiti", "KaiTi", "楷体", var(--display);
+  --c-lecture: #3f9e8f; --c-practice: #c2463a; --c-review: #c9a227;
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--gold) 10%, transparent), transparent 60%), var(--panel); }
+.sancai-head { display: flex; align-items: center; gap: 10px; }
+.sancai-head h3 { margin: 0; letter-spacing: .15em; }
+.sancai-tabs { display: flex; gap: 4px; font-family: var(--display); }
+.sancai-tabs a { cursor: pointer; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.sancai-tabs a.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 35%, transparent); }
+.orbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0 8px; }
+.orb { --c: var(--c-lecture); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.orb-practice { --c: var(--c-practice); }
+.orb-review { --c: var(--c-review); }
+.orb-ring { position: relative; width: min(190px, 26vw); aspect-ratio: 1; border-radius: 50%; padding: 7px;
+  background: conic-gradient(from -90deg, var(--c) 0 var(--share), color-mix(in srgb, var(--c) 14%, transparent) var(--share) 360deg);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--c) 30%, transparent); }
+.orb-ring::before { /* 外圈缓缓转动的符纹 */
+  content: ""; position: absolute; inset: -9px; border-radius: 50%; border: 1px dashed color-mix(in srgb, var(--c) 55%, transparent);
+  animation: orb-spin 60s linear infinite; }
+.orb-ring::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .orb-ring::before { animation: none; } }
+.orb-core { position: relative; width: 100%; height: 100%; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--c) 16%, var(--panel)), var(--panel) 70%);
+  border: 2px solid color-mix(in srgb, var(--gold) 55%, transparent); box-shadow: inset 0 0 18px color-mix(in srgb, var(--c) 22%, transparent); overflow: hidden; }
+.orb-seal { position: absolute; font-family: var(--seal-font); font-size: min(120px, 16vw); line-height: 1; color: var(--c); opacity: .09; pointer-events: none; }
+.orb-name { font-family: var(--seal-font); font-size: clamp(18px, 2.4vw, 26px); color: var(--c); letter-spacing: .2em; text-align: center; line-height: 1.1; }
+.orb-name small { display: block; font-size: 12px; letter-spacing: .5em; color: var(--muted); margin-top: 2px; font-family: var(--display); }
+.orb-num { font-family: var(--display); margin-top: 6px; color: var(--text); }
+.orb-num b { font-size: clamp(22px, 3vw, 34px); font-weight: 700; }
+.orb-num i { font-style: normal; font-size: 13px; color: var(--muted); margin: 0 3px 0 1px; }
+.orb-pct { font-size: 12px; color: var(--c); letter-spacing: .1em; }
+.orb-hint { font-size: 12px; color: var(--muted); text-align: center; max-width: 220px; }
+.ratio { margin-top: 10px; }
+.ratio-line { display: flex; align-items: baseline; gap: 6px; font-family: var(--display); font-size: 15px; letter-spacing: .05em; }
+.ratio-line b { font-size: 20px; color: var(--gold); }
+.ratio-line em { font-style: normal; color: var(--muted); margin: 0 2px; }
+.ratio-bar { position: relative; display: flex; height: 14px; border-radius: 999px; overflow: hidden; margin-top: 8px;
+  background: color-mix(in srgb, var(--line) 50%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent); }
+.ratio-bar .seg-lecture { background: linear-gradient(90deg, color-mix(in srgb, var(--c-lecture) 70%, #fff), var(--c-lecture)); }
+.ratio-bar .seg-practice { background: linear-gradient(90deg, color-mix(in srgb, var(--c-practice) 70%, #fff), var(--c-practice)); }
+.ratio-bar .seg-review { background: linear-gradient(90deg, color-mix(in srgb, var(--c-review) 70%, #fff), var(--c-review)); }
+.ratio-bar .ticks { position: absolute; inset: 0; pointer-events: none; }
+.ratio-bar .ticks span { position: absolute; top: 2px; bottom: 2px; width: 1px; background: rgba(255, 255, 255, .55); }
+@media (max-width: 640px) {
+  .orbs { gap: 6px; }
+  .orb-ring { width: 28vw; padding: 4px; }
+  .orb-hint { display: none; }
+  .orb-name small { letter-spacing: .2em; }
+}
+.sancai-head { flex-wrap: wrap; }
+.sancai-tabs a { white-space: nowrap; }
+.ratio-line { flex-wrap: wrap; white-space: nowrap; }
+.hongchen .hc-grid > .pr-list { margin-top: 0; }
+@media (max-width: 640px) { .sancai-head .spacer { display: none; } .ratio-line .spacer { flex-basis: 100%; } }

@@ -204,6 +204,19 @@ class Game:
         ds = day if isinstance(day, str) else day.isoformat()
         return sum(x["minutes"] for x in self.state.setdefault("lectures", []) if x["d"] == ds)
 
+    def time_split(self, days=None):
+        """三才时辰：听课（听道）、做题（试炼/斩心魔/试剑/炼丹/渡劫 + 红尘历练自练）、复习（传授/背诵/论道/温养…）。
+        days=None 为累计；否则是日期字符串的集合。旧存档没分类的修炼时间都算复习。"""
+        keep = (lambda d: True) if days is None else (lambda d: d in days)
+        lecture = sum(x["minutes"] for x in self.state.setdefault("lectures", []) if keep(x["d"]))
+        self_practice = sum(x.get("minutes", 0) for x in self.state["practice"] if keep(x["d"]))
+        kinds = self.state.setdefault("seconds_kind", {})
+        drill = sum(v.get("practice", 0) for d, v in kinds.items() if keep(d)) / 60
+        total = sum(v for d, v in self.state["seconds"].items() if keep(d)) / 60
+        review = max(0.0, total - self_practice - drill)
+        return {"lecture": int(round(lecture)), "practice": int(round(drill + self_practice)), "review": int(round(review)),
+                "self": int(self_practice)}
+
     def minutes(self, day):
         """每日功行 = 修炼 + 听道；每日目标、打卡、道心、周常都按这个算"""
         return self.study_minutes(day) + self.lecture_minutes(day)
@@ -994,10 +1007,14 @@ class Game:
     def practice_list(self, n=12):
         return self.state["practice"][-n:][::-1]
 
-    def add_seconds(self, sec):
-        """网页心跳：累加今天的修炼时间；跨过达标 / 超额线时导师说话；连续修炼太久触发走火入魔"""
+    def add_seconds(self, sec, kind="review"):
+        """网页心跳：累加今天的修炼时间；跨过达标 / 超额线时导师说话；连续修炼太久触发走火入魔。
+        kind：practice（做题）/ review（复习），给首页的三才时辰分类用"""
         before = self.minutes(self.t)
         self.state["seconds"][self.t] = self.state["seconds"].get(self.t, 0) + sec
+        if kind == "practice":
+            k = self.state.setdefault("seconds_kind", {}).setdefault(self.t, {})
+            k["practice"] = k.get("practice", 0) + sec
         after = self.minutes(self.t)
         goal = self.rules.num("每日目标分钟")
         ev = []
@@ -1336,6 +1353,9 @@ class Game:
                         if retreat and time.time() < retreat["end"] else None),
             "rest": self.resting(),
             "lectures": [x for x in self.state.setdefault("lectures", []) if x["d"] >= (self.today - dt.timedelta(days=6)).isoformat()][::-1],
+            "timesplit": {"today": self.time_split({self.t}),
+                          "week": self.time_split({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}),
+                          "all": self.time_split()},
             "minutes": {"today": int(self.minutes(self.t)), "goal": self.rules.num("每日目标分钟"),
                         "study": int(self.study_minutes(self.t)), "lecture": int(self.lecture_minutes(self.t)),
                         "floor": self.rules.num("保底分钟")},
