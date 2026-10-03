@@ -602,9 +602,13 @@ def _wrong_input(s):
     return inp
 
 
+def _skill_name(g, board):
+    return g.boards.get(board, {}).get("skill") or SIDE_SKILLS.get(board) or ""
+
+
 def _skill_digest(g, board):
-    skill = g.boards.get(board, {}).get("skill") or SIDE_SKILLS.get(board)
-    return vault.skill_digest(g.paths, skill) if skill else ""
+    skill = _skill_name(g, board)
+    return vault.skill_for_tutor(g.paths, skill)[0] if skill else ""
 
 
 def _discuss_ask(g, s, text):
@@ -1330,11 +1334,14 @@ def _review_action(g, s, run, act):
         if not ai.available():   # 没连 AI：说一句，不记成“讲过了”
             return _review_show(g, s, run, extra=[_msg('npc', (_say(g, '试炼·解惑没AI') or '为师今日闭关（没连上 AI）。先把解析读三遍。')
                                                        + '\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）')])
-        run.setdefault('explain', {})[str(i)] = text = _explain(g, qs[i], res[i])
+        text, skill, used = _explain(g, qs[i], res[i])
+        run.setdefault('explain', {})[str(i)] = text
         question_bank.save_tutor_note(g.paths, qs[i], text, g.t)        # 备份一份（历年题库重新转换时不丢）
         where = question_bank.save_tutor_to_bank(g.paths, qs[i], text, g.t)
         note = ('📌 已写进 训练/题库/%s 这道题的解析末尾（原解析保留；再问一次会换成新的）' % where if where
                 else '📌 题库里没找到这道题（可能改过编号），讲解存在 训练/题库/师傅解惑.md')
+        note += ('\n📜 依据 skill「%s」：%s' % (skill, '、'.join(used[:8]) + (' 等 %d 个文件' % len(used) if len(used) > 8 else ''))
+                 if used else '\n⚠ 这个板块没找到 skill 资料（copilot/skills/%s），师傅只能按通用方法讲' % (skill or '未配置'))
         return _review_show(g, s, run, extra=[_msg('sys', note)], scroll_bottom=True)
     elif act == 'exam_close':
         group = run['settled']
@@ -1349,13 +1356,14 @@ def _review_action(g, s, run, act):
 
 
 def _explain(g, q, r):
-    """师傅解惑：按这道题所属板块的 skill 讲题；没连 AI 时给一句台词，提示先看解析"""
-    skill = g.boards.get(q['board'], {}).get('skill') or SIDE_SKILLS.get(q['board'])
-    digest = vault.skill_digest(g.paths, skill) if skill else ''
+    """师傅解惑：按这道题所属板块的 skill 讲题。返回 (讲解, skill 名, 读到的 skill 文件)"""
+    skill = _skill_name(g, q['board'])
+    digest, used = vault.skill_for_tutor(g.paths, skill) if skill else ('', [])
     try:
-        return ai.chat(prompts.bank_explain(g.persona, q, r['answer'], digest), temperature=0.6, max_tokens=1500)
+        text = ai.chat(prompts.bank_explain(g.persona, q, r['answer'], digest, skill), temperature=0.5, max_tokens=1800)
     except ai.AIError as e:
         raise TrainError('师傅没回话：%s' % e)
+    return text, skill, used
 
 
 def _bank_resp(g, s, run, messages, events, inp):

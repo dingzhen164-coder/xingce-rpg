@@ -135,6 +135,44 @@ def skill_material(paths, name, extra=()):
     return text, used
 
 
+TUTOR_LIMIT = 60000   # 讲题时给师傅的 skill 资料上限（字）
+
+
+def skill_for_tutor(paths, name):
+    """讲题（师傅解惑、复盘追问、传授）用的 skill 资料：skill 文件夹里所有 .md（SKILL.md 在前；scripts/ 不读），
+    再加上 skill 里引用的库内资料。超出上限的文件写明“未读入”，不悄悄截断。返回 (文字, 读到的文件清单)"""
+    d = skill_dir(paths, name)
+    if not d:
+        return "", []
+    files = [d / "SKILL.md"] + sorted(p for p in d.rglob("*.md")
+                                      if p.name != "SKILL.md" and "scripts" not in p.relative_to(d).parts and not p.name.startswith("."))
+    parts, used, total = [], [], 0
+    for f in files:
+        t = f.read_text(encoding="utf-8", errors="ignore")
+        rel = f.relative_to(d).as_posix()
+        if total + len(t) > TUTOR_LIMIT:
+            used.append(rel + "（未读入：超出上限）")
+            continue
+        total += len(t)
+        parts.append("=== %s ===\n%s" % (rel, t))
+        used.append(rel)
+    _, refs = skill_material(paths, name)      # skill 引用的库内资料（如“六种对应关系.md”）
+    for rel in refs:
+        if rel.endswith("）"):
+            continue
+        f = paths.vault / rel
+        if not f.is_file():
+            continue
+        t = f.read_text(encoding="utf-8", errors="ignore")
+        if total + len(t) > TUTOR_LIMIT:
+            used.append(rel + "（未读入：超出上限）")
+            continue
+        total += len(t)
+        parts.append("=== 资料 %s ===\n%s" % (rel, t))
+        used.append(rel)
+    return "\n\n".join(parts), used
+
+
 # ---------------------------------------------------------------- 模考复盘
 def seasons(paths):
     """[(季数, 目录)]，按季数从小到大"""

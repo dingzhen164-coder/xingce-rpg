@@ -403,6 +403,37 @@ class BankTest(unittest.TestCase):
         self.assertEqual(new, ['满足', '屡禁不止', '挫伤'])
         self.assertEqual([o['word'] for o in book['屡禁不止']['sources'][0]['others']], ['层出不穷', '沉渣泛起', '俯拾皆是'])
 
+    def test_tutor_reads_whole_skill_and_hides_distilled(self):
+        sk = self.paths.vault / 'copilot/skills/xingce-luojitiankong'
+        (sk / 'references').mkdir(parents=True)
+        (sk / 'scripts').mkdir()
+        (sk / 'SKILL.md').write_text('---\nname: x\n---\n# 逻辑填空\n先读 `逻辑填空方法总纲`', encoding='utf-8')
+        (sk / 'references/六种对应关系.md').write_text('解释对应、并列对应、转折对应、递进对应、因果对应、总分对应', encoding='utf-8')
+        (sk / 'scripts/x.md').write_text('脚本说明不该读', encoding='utf-8')
+        (self.paths.vault / '逻辑填空方法总纲.md').write_text('总纲：先找对应关系', encoding='utf-8')
+        q = ('\n## 题目 L1\n### 知识点\n逻辑填空\n### 题干\n____了更多职业。\n### 选项\nA. 造就\nB. 创造\nC. 催生\nD. 产生\n'
+             '### 答案\nC\n### 解析\n官方：C项“催生”指催促问世。\n【文段出处】人民网\n\n【推理链】\n第1步：蒸馏的推理\n\n【师傅解惑】（2026-10-03）\n旧的讲解\n')
+        (self.paths.train / '题库/逻辑填空真题.md').write_text(q, encoding='utf-8')
+        task = {'type': 'bank', 'board': '逻辑填空', 'title': '实战', 'target': '逻辑填空', 'id': 'bank:逻辑填空'}
+        sid = trainer.start(self.g, task)['session']
+        trainer.action(self.g, sid, 'exam_pick:0:B')
+        trainer.action(self.g, sid, 'exam_submit')
+        sent = {}
+        def fake_chat(messages, **kw):
+            sent['p'] = messages[-1]['content']
+            return '讲解'
+        with patch.object(trainer.ai, 'available', return_value=True), patch.object(trainer.ai, 'chat', side_effect=fake_chat):
+            r = trainer.action(self.g, sid, 'exam_explain:0')
+        p = sent['p']
+        self.assertIn('六种对应关系', p.split('题目')[0])          # skill 的 references 也读到了，放在题目前面
+        self.assertIn('总纲：先找对应关系', p)                     # skill 引用的库内资料
+        self.assertNotIn('脚本说明不该读', p)
+        self.assertIn('官方：C项“催生”指催促问世。', p)
+        self.assertNotIn('蒸馏的推理', p)                           # 蒸馏小节、旧的师傅解惑不给师傅看
+        self.assertNotIn('旧的讲解', p)
+        self.assertIn('哪个方法', p)
+        self.assertIn('依据 skill「xingce-luojitiankong」：SKILL.md、references/六种对应关系.md、逻辑填空方法总纲.md', str(r))
+
     def test_exam_timing_table_and_log(self):
         f = self.paths.train / '题库/类比推理真题.md'
         f.write_text(''.join(question(x) for x in ('01', '02')), encoding='utf-8')
