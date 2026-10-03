@@ -358,7 +358,11 @@ class BankTest(unittest.TestCase):
         self.assertIn('方兴未艾', m.call_args[0][0][-1]['content'])
         s = idioms.data(self.g)['方兴未艾']['sources'][0]
         self.assertEqual((s['compare'], s['tutor']), (reply['辨析'], True))
-        self.assertEqual(s['others'][2]['meaning'], '（师傅补）比喻初显才能')
+        self.assertEqual(s['others'][2]['meaning'], '比喻初显才能')
+        s['others'][1]['meaning'] = '（师傅补）旧版带标记'                          # 旧版存的：去掉标记
+        self.assertTrue(idioms.clean_tags(self.g))
+        self.assertEqual(s['others'][1]['meaning'], '旧版带标记')
+        self.assertFalse(idioms.clean_tags(self.g))
         self.assertIn('辨析（🧙 师傅）', (self.paths.train / '成语实词录.md').read_text(encoding='utf-8'))
         idioms.backfill(self.g)                                                    # 再收一次不覆盖师傅的
         self.assertEqual(idioms.data(self.g)['方兴未艾']['sources'][0]['compare'], reply['辨析'])

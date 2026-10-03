@@ -240,6 +240,8 @@ def import_split(body):
 def idioms_list(body):
     with open_game() as g:
         idioms.migrate(g)
+        if idioms.clean_tags(g):
+            idioms.write_file(g)
         return idioms.listing(g)
 
 

@@ -249,6 +249,22 @@ def harvest(g, questions):
 VERSION = 3   # 2：粉笔模考选项连在一起时按空数切词；3：只收汉字词
 
 
+TAG = '（师傅补）'
+
+
+def clean_tags(g):
+    """去掉旧版师傅补的释义前面的“（师傅补）”。有改动返回 True"""
+    changed = False
+    for e in data(g).values():
+        for s in e['sources']:
+            for x in [s] + s.get('others', []):
+                m = x.get('meaning') or ''
+                if m.startswith(TAG):
+                    x['meaning'] = m[len(TAG):]
+                    changed = True
+    return changed
+
+
 def migrate(g):
     """旧版收的词条（选项连在一起时整串当一个词）按新规则重收一遍；收录日期保留"""
     if g.state.get('idioms_ver') == VERSION:
@@ -339,7 +355,7 @@ def delete(g, word):
 
 
 def ask_tutor(g, word):
-    """师傅答疑：每条出处让 AI 写一句话辨析，替换原来的辨析；解析没给的释义补上（标“师傅补”）"""
+    """师傅答疑：每条出处让 AI 写一句话辨析，替换原来的辨析；解析没给的释义顺手补上"""
     from . import ai, prompts
     e = _entry(g, word)
     for s in e['sources']:
@@ -351,10 +367,10 @@ def ask_tutor(g, word):
         means = r.get('释义') or {}
         if isinstance(means, dict):
             if not s.get('meaning') and means.get(word):
-                s['meaning'] = '（师傅补）' + str(means[word]).strip()[:60]
+                s['meaning'] = str(means[word]).strip()[:60]
             for o in s.get('others', []):
                 if not o.get('meaning') and means.get(o['word']):
-                    o['meaning'] = '（师傅补）' + str(means[o['word']]).strip()[:60]
+                    o['meaning'] = str(means[o['word']]).strip()[:60]
     write_file(g)
     return e
 
