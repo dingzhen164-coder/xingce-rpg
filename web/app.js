@@ -18,6 +18,8 @@ const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+
 const pct = (x) => Math.round((x || 0) * 100);
 
 let DASH = null;
+window.DASH_REF = () => DASH;   // settle.js 用
+let SESSION_SNAP = null;         // 开始一项功课时的进度快照，做完后收功结算对比
 let VIEW = "home";
 const T = { session: null, title: "", msgs: [], input: { mode: "none" }, busy: false, finished: false, battle: null };
 const W = (k) => DASH?.theme?.terms?.[k] ?? k;   // 当前风格的说法
@@ -435,7 +437,7 @@ function lectureCard(d) {
       <label style="flex:2">讲的什么（可不填） <input id="lecNote" maxlength="40" placeholder="如：粉笔 判断推理 第3讲"></label>
       <label>哪天 <select id="lecDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
       <button class="primary" id="lecGo">📿 记入</button></div>
-    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录</summary>${rows}</details>` : ""}
+    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录 <span class="muted small">· ${d.lectures.length} 次 · ${d.lectures.reduce((a, x) => a + x.minutes, 0)} 分钟</span></summary>${rows}</details>` : ""}
   </div>`;
 }
 // ------------------------------------------------------------ 三才时辰：听课 / 做题 / 复习，以听课为 1 看比例
@@ -503,38 +505,50 @@ function sancaiBar(t, goal, only) {
 function practiceCard(d) {
   const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
   const goal = d.minutes.goal || 300, t = d.timesplit?.today || { practice: 0, self: 0 };
-  const today = (d.practice || []).filter((p) => p.d === d.today);
-  const n = today.reduce((a, p) => a + (p.total || 0), 0), ok = today.reduce((a, p) => a + (p.correct || 0), 0);
+  const list = d.practice || [];
+  const today = list.filter((p) => p.d === d.today);
+  const sum = (xs, k) => xs.reduce((a, p) => a + (p[k] || 0), 0);
+  const rate = (ok, n) => n ? Math.round(ok / n * 100) + "%" : "—";
+  const n = sum(today, "total"), ok = sum(today, "correct");
+  const wn = sum(list, "total"), wok = sum(list, "correct"), wmin = sum(list, "minutes");
   const days = lastDays();
-  const rows = (d.practice || []).map((x) => `<div class="lec-row pr-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${esc(x.board)}</b>
-      ${x.total ? `<span>${x.correct}/${x.total}（${Math.round(x.correct / x.total * 100)}%）</span>` : ""}${x.minutes ? `<span>${x.minutes} 分钟</span>` : ""}
-      <span class="muted">${esc(x.source || "")}</span><span class="spacer"></span>${x.id ? `<button class="ghost small" data-pr-del="${esc(x.id)}" title="记错了，删掉这笔">删</button>` : ""}</div>
-      ${x.note ? `<div class="pr-note">${md(x.note)}</div>` : ""}`).join("");
+  const rows = list.map((x) => {
+    const r = x.total ? x.correct / x.total : null;
+    const pace = x.total && x.minutes ? `${(x.minutes * 60 / x.total).toFixed(0)} 秒/题` : "";
+    return `<div class="lec-row pr-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${esc(x.board)}</b>
+      ${x.total ? `<span>${x.correct}/${x.total} 题</span><span class="pr-rate ${r >= 0.8 ? "good" : r < 0.6 ? "bad" : ""}">正确率 ${rate(x.correct, x.total)}</span>` : `<span class="muted">只记心得</span>`}
+      ${x.minutes ? `<span>${x.minutes} 分钟</span>` : ""}${pace ? `<span class="muted">${pace}</span>` : ""}
+      ${x.source ? `<span class="muted">· ${esc(x.source)}</span>` : ""}<span class="spacer"></span>${x.id ? `<button class="ghost small" data-pr-del="${esc(x.id)}" title="记错了，删掉这笔">删</button>` : ""}</div>
+      ${x.note ? `<div class="pr-note">${esc(x.note)}</div>` : ""}`;
+  }).join("");
   return `<div class="card lecture-card tone-practice" style="margin-top:14px">
-    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题（${Math.round(ok / n * 100)}%）` : ""}</small></h3>
+    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题 · 正确率 ${rate(ok, n)}` : ""}</small></h3>
     ${sancaiBar({ practice: t.self, drill: t.practice - t.self }, goal, ["practice", "drill"])}
     <p class="small muted">纸质资料、其他 App 上的自练也是历练。练完来此记一笔：分钟算进「做题」，心得写进 训练/${esc(W("practice"))}/${esc((d.today || "").slice(0, 7))}.md。</p>
     <div class="row lec-form">
       <label>板块 <select id="prBoard">${boardOptions(boards)}<option>其他</option></select></label>
-      <label style="flex:1.6">资料（可不填） <input id="prSrc" maxlength="60" placeholder="如：粉笔980 P120"></label>
       <label>题数 <input type="number" id="prTotal" min="0" placeholder="如 20"></label>
       <label>对了几题 <input type="number" id="prOk" min="0" placeholder="如 16"></label>
       <label>几分钟 <input type="number" id="prMin" min="0" placeholder="如 40"></label>
-      <span class="lec-quick">${[20, 40, 60].map((m) => `<button class="ghost small" data-pr-q="${m}">${m}</button>`).join("")}</span>
+      <label style="flex:1">资料（可不填） <input id="prSrc" maxlength="60" placeholder="如：粉笔980 P120"></label>
+      <label style="flex:2">心得（可不填） <input id="prNote" maxlength="500" placeholder="错在哪、悟到了什么；只写心得题数留空"></label>
       <label>哪天 <select id="prDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
       <button class="primary" id="prBtn">🌲 记入</button></div>
-    <label class="small muted pr-note-label">心得（可不填；只写心得题数留空）<textarea id="prNote" rows="2" placeholder="今天练了什么、错在哪、悟到了什么……"></textarea></label>
-    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近期${esc(W("practice"))}记录</summary>${rows}</details>` : ""}
+    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("practice"))}记录 <span class="muted small">· ${list.length} 次 · ${wn} 题 · 正确率 ${rate(wok, wn)} · ${wmin} 分钟</span></summary>${rows}</details>` : ""}
   </div>`;
 }
 function bindPractice() {
   const b = $("#prBtn"); if (!b) return;
-  document.querySelectorAll("[data-pr-q]").forEach((x) => (x.onclick = () => { $("#prMin").value = x.dataset.prQ; }));
   b.onclick = async () => {
     try {
-      const r = await api("/api/practice", { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
-                                             minutes: $("#prMin").value, note: $("#prNote").value, date: $("#prDay").value });
+      const s0 = SETTLE.snap();
+      const body = { board: $("#prBoard").value, source: $("#prSrc").value, total: $("#prTotal").value, correct: $("#prOk").value,
+                     minutes: $("#prMin").value, note: $("#prNote").value, date: $("#prDay").value };
+      const r = await api("/api/practice", body);
       handleEvents(r.events); await refresh(); render();
+      const n = Number(body.total) || 0, ok = Number(body.correct) || 0, m = Number(body.minutes) || 0;
+      SETTLE.show({ kind: "practice", title: `${body.board} · 自练`, sub: body.source, before: s0,
+        lines: [n ? `${ok}/${n} 题` : "", n ? `正确率 ${Math.round(ok / n * 100)}%` : "", m ? `${m} 分钟` : "", n && m ? `${Math.round(m * 60 / n)} 秒/题` : ""].filter(Boolean) });
     } catch (e) { showError(e); }
   };
   document.querySelectorAll("[data-pr-del]").forEach((x) => (x.onclick = async () => {
@@ -549,8 +563,11 @@ function bindLecture() {
     const minutes = Number($("#lecMin").value);
     if (!minutes) return toast(`先填${W("lecture")}了几分钟`);
     try {
-      const r = await api("/api/lecture", { minutes, note: $("#lecNote").value.trim(), date: $("#lecDay").value });
+      const s0 = SETTLE.snap(), note = $("#lecNote").value.trim(), day = $("#lecDay");
+      const r = await api("/api/lecture", { minutes, note, date: day.value });
       handleEvents(r.events); await refresh(); render();
+      SETTLE.show({ kind: "lecture", title: `${W("lecture")} ${minutes} 分钟`, sub: note, before: s0,
+        lines: day.selectedIndex ? [`补记 ${day.options[day.selectedIndex].text}`] : [] });
     } catch (e) { showError(e); }
   };
   document.querySelectorAll("[data-lec-del]").forEach((b) => (b.onclick = async () => {
@@ -578,6 +595,7 @@ function bindHome() {
 }
 
 async function startTask(body) {
+  SESSION_SNAP = window.SETTLE ? SETTLE.snap() : null;
   Object.assign(T, { session: null, title: "准备中…", msgs: [], input: { mode: "none" }, busy: true, finished: false, battle: null });
   go("train");
   try { applyResp(await api("/api/session/start", body)); }
@@ -594,7 +612,15 @@ function applyResp(r) {
   T.input = r.input || { mode: "none" };
   T.finished = r.finished;
   T.battle = r.battle || null;
-  if (r.finished) refresh().then(() => VIEW === "train" && renderTrain());
+  if (r.finished) {
+    const kind = window.SETTLE && SETTLE.kindOf(r.type || T_TYPE), before = SESSION_SNAP, title = r.title || T.title, battle = r.battle;
+    SESSION_SNAP = null;
+    refresh().then(() => {
+      if (VIEW === "train") renderTrain();
+      if (kind && before) SETTLE.show({ kind, title, before,
+        lines: battle && battle.correct != null && battle.total ? [`破关 ${battle.correct}/${battle.total}`, `正确率 ${Math.round(battle.correct / battle.total * 100)}%`] : [] });
+    });
+  }
 }
 // 做功课时对话框钉在屏幕上：底边贴着屏幕底，宽高在“设置 → 对话框大小”里调（存在本机浏览器）
 const CHAT_DEF = { w: 80, h: 100, side: true };

@@ -1024,8 +1024,10 @@ class Game:
         with f.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
 
-    def practice_list(self, n=12):
-        return self.state["practice"][-n:][::-1]
+    def practice_list(self, days=7):
+        """近 7 天的自练（新的在前），首页红尘历练的记录"""
+        since = (self.today - dt.timedelta(days=days - 1)).isoformat()
+        return sorted((x for x in self.state["practice"] if x["d"] >= since), key=lambda x: (x["d"], x.get("id", "")), reverse=True)
 
     def add_seconds(self, sec, kind="review"):
         """网页心跳：累加今天的修炼时间；跨过达标 / 超额线时导师说话；连续修炼太久触发走火入魔。

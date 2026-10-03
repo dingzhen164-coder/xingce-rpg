@@ -564,6 +564,94 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .tri-bar .seg-drill { background: color-mix(in srgb, var(--c-practice) 35%, transparent); }
 .pr-note-label { display: block; margin-top: 8px; }
 .pr-note-label textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; resize: vertical; }
-.pr-row + .pr-note { padding: 2px 0 6px 52px; font-size: 13px; color: var(--muted); border-bottom: 1px dashed var(--line); }
+.pr-row + .pr-note { padding: 2px 0 6px 46px; white-space: pre-wrap; font-size: 13px; color: var(--muted); border-bottom: 1px dashed var(--line); }
 .lec-form label > input, .lec-form label > select { display: block; }
 .tone-practice .lec-form input[type=number] { width: 84px; }
+.pr-rate.good { color: var(--green); } .pr-rate.bad { color: var(--red); }
+.pr-row { flex-wrap: wrap; }
+
+/* ------------------------------------------------------------ 收功结算（web/settle.js） */
+.settle { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; opacity: 0; transition: opacity .45s ease;
+  --seal-font: "STXingkai", "华文行楷", "STKaiti", "KaiTi", "楷体", var(--display); }
+.settle.in { opacity: 1; }
+.settle.out { opacity: 0; }
+.st-veil { position: absolute; inset: 0; cursor: pointer;
+  background: radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--st) 38%, rgba(8, 10, 16, .55)), rgba(6, 8, 14, .9) 70%); backdrop-filter: blur(4px); }
+.st-stage { position: relative; display: flex; align-items: center; gap: 28px; padding: 20px; max-width: 920px; width: 100%;
+  transform: translateY(14px) scale(.97); transition: transform .6s cubic-bezier(.2, .8, .2, 1); pointer-events: none; }
+.settle.in .st-stage { transform: none; }
+.st-stage > * { pointer-events: auto; }
+.st-scene { position: relative; flex: 0 0 380px; height: 460px; }
+.st-aura { position: absolute; left: 50%; top: 46%; width: 340px; height: 340px; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--stg) 70%, transparent) 0, color-mix(in srgb, var(--st) 45%, transparent) 32%, transparent 68%);
+  filter: blur(6px); animation: st-breathe 3.6s ease-in-out infinite; }
+@keyframes st-breathe { 0%, 100% { opacity: .65; transform: translate(-50%, -50%) scale(.94); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); } }
+.st-pillar { position: absolute; left: 50%; top: -40px; bottom: 30px; width: 120px; transform: translateX(-50%);
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--stg) 45%, transparent) 40%, color-mix(in srgb, var(--stg) 70%, transparent) 85%, transparent);
+  filter: blur(10px); animation: st-pillar 2.4s ease-in-out infinite; }
+@keyframes st-pillar { 0%, 100% { opacity: .45; width: 100px; } 50% { opacity: .85; width: 140px; } }
+/* 脚下法阵：压扁成地面上的圆，缓缓转 */
+.st-ringwrap { position: absolute; left: 50%; bottom: 6px; width: 330px; height: 330px; transform: translateX(-50%) perspective(600px) rotateX(70deg);
+  transform-origin: 50% 100%; }
+.st-sit .st-ringwrap { bottom: 30px; }
+.st-ring { width: 100%; height: 100%; animation: st-spin 24s linear infinite; filter: drop-shadow(0 0 6px var(--stg)); }
+@keyframes st-spin { to { transform: rotate(360deg); } }
+.st-seal { position: absolute; left: 50%; top: 2%; transform: translateX(-50%); font-family: var(--seal-font); font-size: 150px; line-height: 1;
+  color: var(--stg); opacity: .13; text-shadow: 0 0 30px var(--stg); }
+.st-body { position: absolute; left: 50%; transform: translateX(-50%); filter: drop-shadow(0 0 14px color-mix(in srgb, var(--stg) 75%, transparent)); }
+.st-sit .st-body { bottom: 30px; width: 320px; animation: st-float 4.2s ease-in-out infinite; }
+.st-stand .st-body { bottom: 0; width: 290px; }
+@keyframes st-float { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -12px); } }
+.st-fig { width: 100%; display: block; overflow: visible; }
+.st-letter { font-family: var(--seal-font); fill: #6b5a3c; }
+.st-spark { animation: st-spark 1.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes st-spark { 0%, 100% { opacity: .6; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.5); } }
+.st-stand .st-sleeve-l { animation: st-sway 3s ease-in-out infinite; transform-origin: 82px 118px; }
+.st-stand .st-sleeve-r { animation: st-sway 3s ease-in-out infinite reverse; transform-origin: 118px 118px; }
+@keyframes st-sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(2.5deg); } }
+/* 上升的灵气 */
+.st-parts { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.st-parts i { position: absolute; bottom: 30px; border-radius: 50%; background: var(--stg); box-shadow: 0 0 8px 2px var(--stg); opacity: 0;
+  animation: st-rise linear infinite; }
+@keyframes st-rise { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: .95; } 100% { transform: translateY(-360px) translateX(12px); opacity: 0; } }
+/* 右侧结算 */
+.st-panel { flex: 1; min-width: 0; color: #f4ecd9; text-align: left; }
+.st-word { font-family: var(--seal-font); font-size: 46px; letter-spacing: .25em; color: var(--stg);
+  text-shadow: 0 0 18px var(--st), 0 0 2px #fff; animation: st-word 1s ease-out both; }
+@keyframes st-word { from { letter-spacing: .8em; opacity: 0; filter: blur(6px); } to { letter-spacing: .25em; opacity: 1; filter: none; } }
+.st-title { font-family: var(--display); font-size: 20px; margin-top: 6px; }
+.st-sub { color: rgba(244, 236, 217, .7); font-size: 14px; margin-top: 2px; }
+.st-lines { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.st-lines span { border: 1px solid color-mix(in srgb, var(--stg) 55%, transparent); border-radius: 999px; padding: 2px 12px; font-size: 13px;
+  background: color-mix(in srgb, var(--st) 22%, transparent); }
+.st-meter { margin-top: 16px; }
+.st-mrow { display: flex; gap: 8px; align-items: baseline; font-family: var(--display); font-size: 15px; }
+.st-mrow b { color: var(--stg); font-size: 18px; }
+.st-gain { margin-left: auto; font-weight: 700; font-size: 16px; text-shadow: 0 0 10px currentColor; }
+.st-bar { position: relative; height: 10px; border-radius: 999px; margin-top: 6px; background: rgba(255, 255, 255, .12);
+  border: 1px solid color-mix(in srgb, var(--stg) 40%, transparent); overflow: hidden; }
+.st-base { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(244, 236, 217, .55); border-radius: 999px; }
+.st-add { position: absolute; top: 0; bottom: 0; box-shadow: 0 0 12px var(--stg); transition: width 1.6s cubic-bezier(.2, .8, .2, 1); }
+.st-head { position: absolute; top: -3px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; box-shadow: 0 0 10px 3px var(--stg);
+  transition: left 1.6s cubic-bezier(.2, .8, .2, 1); }
+.st-cat { margin-top: 12px; font-size: 13px; color: rgba(244, 236, 217, .75); }
+.st-cat b { color: var(--stg); }
+.st-up { margin-top: 12px; font-family: var(--seal-font); font-size: 20px; color: var(--stg); text-shadow: 0 0 12px var(--st); }
+.st-btn { margin-top: 20px; min-width: 120px; font-family: var(--seal-font); font-size: 18px; letter-spacing: .4em;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--st) 75%, #fff), var(--st)) !important; box-shadow: 0 0 18px color-mix(in srgb, var(--stg) 60%, transparent); }
+@media (max-width: 720px) {
+  .st-stage { flex-direction: column; gap: 6px; }
+  .st-scene { flex-basis: auto; width: 300px; height: 320px; transform: scale(.85); margin: -24px 0; }
+  .st-panel { text-align: center; width: 100%; }
+  .st-lines { justify-content: center; }
+  .st-word { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-aura, .st-pillar, .st-ring, .st-sit .st-body, .st-spark, .st-parts i, .st-sleeve-l, .st-sleeve-r { animation: none; }
+}
+.st-halo { animation: st-halo 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes st-halo { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+.st-ribbon { animation: st-ribbon 3.2s ease-in-out infinite; transform-origin: 74px 120px; }
+.st-ribbon.r { animation-direction: reverse; transform-origin: 126px 120px; }
+@keyframes st-ribbon { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-4deg) translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .st-halo, .st-ribbon { animation: none; } }
