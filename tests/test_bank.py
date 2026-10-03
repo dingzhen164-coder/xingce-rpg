@@ -352,6 +352,29 @@ class BankTest(unittest.TestCase):
         self.assertEqual((r['new'], r['total']), ([], 2))
         self.assertEqual(len(idioms.data(self.g)['方兴未艾']['sources']), 1)
 
+    def test_idiom_book_splits_joined_options(self):
+        from rpg import idioms
+        hist = ('\n## 题目 H1\n### 知识点\n逻辑填空\n### 题干\n____，____。\n### 选项\nA. 克服  纠正\nB. 破除  矫正\nC. 消除  修正\nD. 根除  改正\n### 答案\nA\n### 解析\n无\n'
+                '\n## 题目 H2\n### 知识点\n逻辑填空\n### 题干\n____，____。\n### 选项\nA. 满足  挫伤\nB. 顺应  消磨\nC. 契合  抑制\nD. 迎合  影响\n### 答案\nA\n### 解析\n无\n')
+        mock = ('\n## 题目 粉笔36季-047\n### 知识点\n逻辑填空\n### 题干\n才能____弊端，往往具有____。若未被及时____。\n### 选项\n'
+                'A. 克服渐进性纠正\nB. 破除持续性矫正\nC. 消除阶段性修正\nD. 根除累积性改正\n### 答案\nA\n### 解析\n（待补）\n'
+                '\n## 题目 粉笔36季-045\n### 知识点\n逻辑填空\n### 题干\n____，____，____。\n### 选项\n'
+                'A. 满足屡禁不止挫伤\nB. 顺应层出不穷消磨\nC. 契合沉渣泛起抑制\nD. 迎合俯拾皆是影响\n### 答案\nA\n### 解析\n（待补）\n')
+        (self.paths.train / '题库/逻辑填空真题.md').write_text(hist + mock, encoding='utf-8')
+        qs = {q['id']: q for q in bank.read(self.paths, '逻辑填空')[0]}
+        # 旧版收录：整串当一个词
+        self.g.state['idioms'] = {'克服渐进性纠正': {'word': '克服渐进性纠正', 'letter': 'K', 'added': '2026-09-01', 'sources': [
+            {'key': '逻辑填空::粉笔36季-047', 'board': '逻辑填空', 'date': '2026-09-01', 'blank': 1}]}}
+        self.assertTrue(idioms.migrate(self.g))
+        book = idioms.data(self.g)
+        self.assertEqual(sorted(book), ['克服', '渐进性', '纠正'])
+        self.assertEqual(book['渐进性']['sources'][0]['date'], '2026-09-01')        # 收录日期保留
+        self.assertEqual([o['word'] for o in book['渐进性']['sources'][0]['others']], ['持续性', '阶段性', '累积性'])
+        self.assertFalse(idioms.migrate(self.g))
+        new = idioms.harvest(self.g, [qs['粉笔36季-045']])
+        self.assertEqual(new, ['满足', '屡禁不止', '挫伤'])
+        self.assertEqual([o['word'] for o in book['屡禁不止']['sources'][0]['others']], ['层出不穷', '沉渣泛起', '俯拾皆是'])
+
     def test_exam_timing_table_and_log(self):
         f = self.paths.train / '题库/类比推理真题.md'
         f.write_text(''.join(question(x) for x in ('01', '02')), encoding='utf-8')

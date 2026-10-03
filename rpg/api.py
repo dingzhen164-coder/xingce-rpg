@@ -235,7 +235,8 @@ def import_split(body):
 
 
 def idioms_list(body):
-    with open_game(save=False) as g:
+    with open_game() as g:
+        idioms.migrate(g)
         return idioms.listing(g)
 
 
