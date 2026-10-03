@@ -676,6 +676,7 @@ def split_pdf(paths, body):
     if not any(d for n, d in vault.seasons(paths) if n == season):
         raise ImportError_("拆分完成但没找到第%d季的板块复盘：\n%s" % (season, log[-800:]))
     rep = commit(paths, {"kind": "season", "season": season})
+    rep["season"] = season
     rep["split_log"] = "\n".join(ln for ln in log.splitlines() if re.search(r"共解析|题|⚠|跳过", ln))[-1200:]
     return rep
 

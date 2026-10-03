@@ -428,6 +428,49 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.selfstudy_add({"minutes": 0})
 
+    def test_mock_contest(self):
+        def q(n, icon):
+            return "### %d. %s\n\n题干\n\n> [!check]- 答案\n> 正确答案：**A**　我的答案：**A**\n\n---\n\n" % (n, icon)
+        sd = self.vault / "FB模考试卷复盘/板块复盘/第37季"
+        sd.mkdir(parents=True)
+        (sd / "03-逻辑填空.md").write_text(q(1, "✅") + q(2, "❌"), encoding="utf-8")
+        (sd / "13-资料分析.md").write_text(q(3, "✅") + q(4, "✅") + q(5, "⚪") + q(6, "✅"), encoding="utf-8")
+        d = api.mock_summary({})
+        self.assertEqual([s["season"] for s in d["seasons"]], [36, 37])
+        s37 = d["seasons"][1]
+        self.assertEqual((s37["ok"], s37["total"]), (4, 6))
+        mods = {m["name"]: m for m in s37["modules"]}
+        self.assertEqual(mods["言语理解"]["boards"][0], {"board": "逻辑填空", "ok": 1, "wrong": 1, "blank": 0, "total": 2})
+        self.assertAlmostEqual(mods["资料分析"]["score"], round(100 * 3 / 6, 1))      # 没录总分：每题同分估
+        self.assertTrue(mods["资料分析"]["estimated"])
+        api.dashboard({})
+        xp0 = self.state()["xp"]
+        r = api.mock_save({"season": 37, "score": "60", "avg": "53.7", "top": "91.4", "beat": "5.9", "rank": "38580", "people": "44774",
+                           "minutes": {"资料分析": "30", "言语理解": ""}, "scores": {"言语理解": "12"}})
+        self.assertTrue(any(e.get("kind") == "xp" for e in r["events"]))           # 第一次录分数：记进宗门大比
+        self.assertEqual(self.state()["boss"][-1]["name"], "第37季")
+        self.assertGreater(self.state()["xp"], xp0)
+        s37 = r["summary"]["seasons"][1]
+        mods = {m["name"]: m for m in s37["modules"]}
+        self.assertEqual(mods["言语理解"]["score"], 12)
+        self.assertFalse(mods["言语理解"]["estimated"])
+        self.assertAlmostEqual(mods["资料分析"]["score"], 45.0)                     # 按总分 60 × 3/4
+        self.assertEqual((mods["资料分析"]["minutes"], s37["minutes"]), (30, 30))
+        o = r["summary"]["overall"]
+        self.assertEqual((o["mean"], o["mean_avg"], o["latest_rank"]["rank"]), (60, 53.7, 38580))
+        n_boss = len(self.state()["boss"])
+        api.mock_save({"season": 37, "score": "61"})                               # 改分数不重复记大比
+        self.assertEqual(len(self.state()["boss"]), n_boss)
+        with self.assertRaises(api.ApiError):
+            api.mock_save({"season": 37, "rank": "50", "people": "10"})
+        # 导入一份模考：演武记 120 分钟，每季一次
+        r = api._mock_imported({}, 37)
+        self.assertEqual(r["practice_minutes"], 120)
+        p = self.state()["practice"][-1]
+        self.assertEqual((p["board"], p["minutes"], p["total"], p["correct"], p["source"]), ("模考", 120, 6, 4, "粉笔第37季模考"))
+        self.assertNotIn("practice_minutes", api._mock_imported({}, 37))
+        self.assertEqual(api.dashboard({})["timesplit"]["today"]["self"], 120)
+
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

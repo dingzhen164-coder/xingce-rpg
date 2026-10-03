@@ -1,0 +1,209 @@
+/* 宗门大比：每周粉笔模考的成绩与走势（数据来自 /api/mock，见 rpg/mock.py）。
+   - 顶上一排数字：模考总平均分、最近一次、最高、大比平均分、平均击败、最近排名、平均正确率
+   - 分数走势（我的 / 大比平均 / 最高分）、六大模块正确率走势：折线图，悬停看每一季的数，下面可展开数据表
+   - 六大模块：选一季或“历次平均”，看得分（没录就估）、正确率、用时
+   - 历次模考一览 + 录入成绩单（粉笔成绩单上的数字照抄） */
+(function () {
+  let MOCK = null;
+  let PICK = "avg";          // 模块统计看哪一季："avg" = 历次平均
+  let EDIT = null;           // 正在录入的季
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const f1 = (x) => (x == null ? "—" : (Math.round(x * 10) / 10).toString());
+  const pc = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
+
+  // ---------------------------------------------------------------- 折线图（一条 y 轴；悬停十字线 + 提示）
+  function lineChart(id, { xs, series, yMin, yMax, unit = "", ticks = 5 }) {
+    const W = 760, H = 260, L = 40, R = 16, T = 14, B = 30;
+    const iw = W - L - R, ih = H - T - B;
+    const x = (i) => L + (xs.length <= 1 ? iw / 2 : (i * iw) / (xs.length - 1));
+    const y = (v) => T + ih - ((v - yMin) / (yMax - yMin)) * ih;
+    const grid = Array.from({ length: ticks + 1 }, (_, k) => {
+      const v = yMin + ((yMax - yMin) * k) / ticks;
+      return `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="cg"/><text x="${L - 6}" y="${y(v) + 4}" class="cy">${Math.round(v)}${unit}</text>`;
+    }).join("");
+    const xl = xs.map((t, i) => (xs.length > 12 && i % 2 && i !== xs.length - 1 ? "" : `<text x="${x(i)}" y="${H - 8}" class="cx">${esc(t)}</text>`)).join("");
+    const lines = series.map((s) => {
+      const pts = s.values.map((v, i) => (v == null ? null : [x(i), y(v)]));
+      let d = "", pen = false;
+      pts.forEach((p) => { if (!p) { pen = false; return; } d += (pen ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); pen = true; });
+      const dots = pts.map((p) => (p ? `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" class="cd" style="fill:${s.color}"/>` : "")).join("");
+      return `<path d="${d}" class="cl${s.dash ? " dash" : ""}" style="stroke:${s.color}"/>${dots}`;
+    }).join("");
+    const legend = series.map((s) => `<span class="lg"><i style="background:${s.color};border-color:${s.color}"${s.dash ? ' class="dash"' : ""}></i>${esc(s.name)}</span>`).join("");
+    const table = `<details class="ctable"><summary>看数据表</summary><div class="tbl-wrap"><table><thead><tr><th>季</th>${series.map((s) => `<th>${esc(s.name)}</th>`).join("")}</tr></thead>
+      <tbody>${xs.map((t, i) => `<tr><td>${esc(t)}</td>${series.map((s) => `<td>${s.values[i] == null ? "—" : f1(s.values[i]) + unit}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
+    return `<div class="chart" id="${id}" data-chart='${esc(JSON.stringify({ xs, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), L, R, W, unit }))}'>
+      <div class="legend">${legend}</div>
+      <div class="cwrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="折线图">${grid}${xl}
+        <line class="cross" x1="0" x2="0" y1="${T}" y2="${T + ih}" style="display:none"/>${lines}</svg><div class="tip" hidden></div></div>
+      ${table}</div>`;
+  }
+  function bindCharts() {
+    document.querySelectorAll(".chart[data-chart]").forEach((el) => {
+      const c = JSON.parse(el.dataset.chart);
+      const svg = el.querySelector("svg"), tip = el.querySelector(".tip"), cross = el.querySelector(".cross"), wrap = el.querySelector(".cwrap");
+      const n = c.xs.length;
+      const move = (ev) => {
+        const r = svg.getBoundingClientRect();
+        const vx = ((ev.clientX - r.left) / r.width) * c.W;
+        const iw = c.W - c.L - c.R;
+        const i = n <= 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round(((vx - c.L) / iw) * (n - 1))));
+        const px = n <= 1 ? c.L + iw / 2 : c.L + (i * iw) / (n - 1);
+        cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.style.display = "";
+        tip.hidden = false;
+        tip.innerHTML = `<b>${esc(c.xs[i])}</b>` + c.series.map((s) => `<div><i style="background:${s.color}"></i>${esc(s.name)}<span>${s.values[i] == null ? "—" : f1(s.values[i]) + c.unit}</span></div>`).join("");
+        const left = (px / c.W) * r.width;
+        tip.style.left = Math.min(Math.max(0, left + 12), wrap.clientWidth - tip.offsetWidth - 4) + "px";
+      };
+      wrap.addEventListener("pointermove", move);
+      wrap.addEventListener("pointerdown", move);
+      wrap.addEventListener("pointerleave", () => { tip.hidden = true; cross.style.display = "none"; });
+    });
+  }
+
+  // ---------------------------------------------------------------- 页面
+  const kpi = (label, value, sub = "", cls = "") => `<div class="kpi ${cls}"><div class="k">${label}</div><div class="v">${value}</div>${sub ? `<div class="d">${sub}</div>` : ""}</div>`;
+
+  function moduleGrid(d) {
+    const s = PICK === "avg" ? null : d.seasons.find((x) => String(x.season) === String(PICK));
+    const mods = s ? s.modules : d.modules.map((m) => ({ ...m, ok: null }));
+    const opts = [`<option value="avg" ${PICK === "avg" ? "selected" : ""}>历次平均</option>`]
+      .concat(d.seasons.slice().reverse().map((x) => `<option value="${x.season}" ${String(PICK) === String(x.season) ? "selected" : ""}>第 ${x.season} 季</option>`)).join("");
+    const cards = mods.map((m, i) => `<div class="mod" style="--mc:var(--s${(d.module_names.indexOf(m.name) % 6) + 1})">
+        <div class="mod-h"><b>${esc(m.name)}</b>${s && m.total ? `<span class="faint small">${m.ok}/${m.total} 题</span>` : `<span class="faint small">${m.seasons || ""}${m.seasons ? " 季" : ""}</span>`}</div>
+        <div class="mod-row"><span>得分</span><b>${f1(m.score)}</b>${s && m.estimated ? '<span class="faint small">估</span>' : ""}</div>
+        <div class="mod-row"><span>正确率</span><b>${pc(m.acc)}</b></div>
+        <div class="mbar"><span style="width:${Math.round((m.acc || 0) * 100)}%"></span></div>
+        <div class="mod-row"><span>用时</span><b>${m.minutes == null ? "—" : f1(m.minutes) + " 分"}</b>${m.minutes != null && s && m.total ? `<span class="faint small">${Math.round((m.minutes * 60) / m.total)} 秒/题</span>` : ""}</div>
+        ${s && m.boards && m.boards.length > 1 ? `<div class="mod-sub">${m.boards.map((b) => `<span>${esc(b.board)} ${b.ok}/${b.total}</span>`).join("")}</div>` : ""}
+      </div>`).join("");
+    return `<div class="card contest-card"><div class="row"><h3 style="margin:0">☯ 六大模块 <small>得分（没录成绩单的按答对题数折算，标“估”）· 正确率 · 用时</small></h3><span class="spacer"></span>
+      <select id="mkPick">${opts}</select></div><div class="mods">${cards || '<p class="muted">还没有模考复盘。</p>'}</div></div>`;
+  }
+
+  function form(d) {
+    const s = d.seasons.find((x) => String(x.season) === String(EDIT)) || d.seasons[d.seasons.length - 1];
+    if (!s) return "";
+    const v = (k) => (s[k] == null ? "" : s[k]);
+    const opts = d.seasons.slice().reverse().map((x) => `<option value="${x.season}" ${x.season === s.season ? "selected" : ""}>第 ${x.season} 季${x.score == null ? "（未录）" : ""}</option>`).join("");
+    const modIn = (key, ph) => d.module_names.map((m) => {
+      const mm = s.modules.find((x) => x.name === m);
+      const val = key === "minutes" ? mm?.minutes : mm && !mm.estimated ? mm.score : null;
+      return `<label>${esc(m)} <input type="number" step="0.1" min="0" data-mk-${key}="${esc(m)}" value="${val == null ? "" : val}" placeholder="${ph}"></label>`;
+    }).join("");
+    return `<div class="card contest-card" id="mkForm"><h3>📝 录入成绩单 <small>照抄粉笔模考报告上的数字；空着的不算。第一次录分数时也记进${esc(W("boss"))}（修为、悟道、突破丹照旧）</small></h3>
+      <div class="row mk-row">
+        <label>哪一季 <select id="mkSeason">${opts}</select></label>
+        <label>考试日期 <input type="date" id="mkDate" value="${esc(s.date || "")}"></label>
+        <label>我的分数 <input type="number" step="0.1" id="mkScore" value="${v("score")}" placeholder="如 68.5"></label>
+        <label>大比平均分 <input type="number" step="0.1" id="mkAvg" value="${v("avg")}" placeholder="如 53.7"></label>
+        <label>最高分 <input type="number" step="0.1" id="mkTop" value="${v("top")}" placeholder="如 91.4"></label>
+        <label>已击败 % <input type="number" step="0.1" id="mkBeat" value="${v("beat")}" placeholder="如 5.9"></label>
+        <label>排名 <input type="number" id="mkRank" value="${v("rank")}" placeholder="如 38580"></label>
+        <label>总人数 <input type="number" id="mkPeople" value="${v("people")}" placeholder="如 44774"></label>
+      </div>
+      <details class="fold" ${s.minutes != null ? "open" : ""}><summary>各模块用时（分钟）· 各模块得分（报告里有就填，没有会按答对题数估）</summary>
+        <div class="row mk-row">${modIn("minutes", "用时")}</div>
+        <div class="row mk-row">${modIn("score", "得分")}</div></details>
+      <div class="row" style="margin-top:8px"><button class="primary" id="mkSave">保存这一季</button><span class="small muted">对错题数从「FB模考试卷复盘/板块复盘/第N季」自动统计，不用填</span></div></div>`;
+  }
+
+  function html(d) {
+    const o = d.overall, ss = d.seasons;
+    if (!ss.length) {
+      return `<div class="card contest-hero"><h2>⚔ ${esc(W("boss"))}</h2><p class="muted">还没有模考。模考完先到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面的「📥 导入真题」导入模考 PDF，这里就会出现成绩与走势。</p></div>`;
+    }
+    const lr = o.latest_rank;
+    const head = `<div class="card contest-hero"><div class="row"><h2>⚔ ${esc(W("boss"))}</h2><span class="small muted">共 ${o.count} 季模考 · 录了成绩单的 ${o.scored} 季</span></div>
+      <div class="kpis">
+        ${kpi("模考总平均分", f1(o.mean), o.scored ? `${o.scored} 季` : "录成绩单后显示", "hero")}
+        ${kpi("最近一次", f1(o.latest))}
+        ${kpi("最高", f1(o.best))}
+        ${kpi("大比平均分", f1(o.mean_avg), o.mean != null && o.mean_avg != null ? `我比平均 ${o.mean - o.mean_avg >= 0 ? "+" : ""}${f1(o.mean - o.mean_avg)}` : "")}
+        ${kpi("平均已击败", o.mean_beat == null ? "—" : f1(o.mean_beat) + "%")}
+        ${kpi("最近排名", lr ? `${lr.rank}<small>/${lr.people || "?"}</small>` : "—", lr ? `第 ${lr.season} 季` : "")}
+        ${kpi("平均正确率", o.mean_acc == null ? "—" : Math.round(o.mean_acc) + "%", "按复盘对错")}
+      </div></div>`;
+    const xs = ss.map((s) => "第" + s.season + "季");
+    const vals = ss.flatMap((s) => [s.score, s.avg, s.top]).filter((v) => v != null);
+    const lo = vals.length ? Math.max(0, Math.floor(Math.min(...vals) / 10) * 10 - 10) : 0;
+    const scoreChart = lineChart("chScore", {
+      xs, yMin: lo, yMax: 100, unit: "", ticks: Math.round((100 - lo) / 10),
+      series: [
+        { name: "我的分数", color: "var(--s1)", values: ss.map((s) => s.score) },
+        { name: "大比平均分", color: "var(--s2)", values: ss.map((s) => s.avg), dash: true },
+        { name: "最高分", color: "var(--s3)", values: ss.map((s) => s.top), dash: true },
+      ],
+    });
+    const accChart = lineChart("chAcc", {
+      xs, yMin: 0, yMax: 100, unit: "%",
+      series: d.module_names.map((m, i) => ({ name: m, color: `var(--s${i + 1})`,
+        values: ss.map((s) => { const x = s.modules.find((y) => y.name === m); return x ? Math.round(x.acc * 1000) / 10 : null; }) })),
+    });
+    const rows = ss.slice().reverse().map((s) => `<tr><td><b>第 ${s.season} 季</b></td><td>${esc(s.date || "")}</td>
+        <td class="num"><b>${f1(s.score)}</b>${s.score_from_boss ? '<span class="faint small"> 修仙录</span>' : ""}</td><td class="num">${f1(s.avg)}</td><td class="num">${f1(s.top)}</td>
+        <td class="num">${s.beat == null ? "—" : f1(s.beat) + "%"}</td><td class="num">${s.rank ? `${s.rank}/${s.people || "?"}` : "—"}</td>
+        <td class="num">${s.ok}/${s.total}（${pc(s.acc)}）</td><td class="num">${s.minutes == null ? "—" : s.minutes + " 分"}</td>
+        <td><button class="ghost small" data-mk-edit="${s.season}">${s.score == null ? "录入" : "改"}</button></td></tr>`).join("");
+    return head + `
+      <div class="grid g2 contest-grid" style="margin-top:14px">
+        <div class="card contest-card"><h3>📈 分数走势 <small>我的分数 · 大比平均分 · 最高分（满分 100，y 轴从 ${lo} 起）</small></h3>${scoreChart}</div>
+        <div class="card contest-card"><h3>🎯 各模块正确率走势 <small>点图例看各条线；悬停看每一季</small></h3>${accChart}</div>
+      </div>
+      ${moduleGrid(d)}
+      <div class="card contest-card"><h3>🏯 历次大比 <small>排名、大比平均分、已击败照抄粉笔报告；对错题数来自复盘</small></h3>
+        <div class="tbl-wrap"><table class="mk-table"><thead><tr><th>季</th><th>日期</th><th>我的分数</th><th>大比平均</th><th>最高分</th><th>已击败</th><th>排名</th><th>答对</th><th>用时</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div></div>
+      ${form(d)}
+      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里录成绩单 → ③ 去心魔录斩错题。</p>`;
+  }
+
+  function bind() {
+    bindCharts();
+    // 点图例：隐藏 / 显示那条线（颜色跟着线走，不重排）
+    document.querySelectorAll(".chart .lg").forEach((lg, k) => (lg.onclick = () => {
+      const chart = lg.closest(".chart");
+      const idx = [...chart.querySelectorAll(".lg")].indexOf(lg);
+      lg.classList.toggle("off");
+      const paths = chart.querySelectorAll("svg path.cl");
+      const p = paths[idx]; if (!p) return;
+      const on = !lg.classList.contains("off");
+      let n = p.nextElementSibling;
+      p.style.display = on ? "" : "none";
+      while (n && n.tagName === "circle") { n.style.display = on ? "" : "none"; n = n.nextElementSibling; }
+    }));
+    const pick = document.getElementById("mkPick");
+    if (pick) pick.onchange = () => { PICK = pick.value; rerender(); };
+    document.querySelectorAll("[data-mk-edit]").forEach((b) => (b.onclick = () => {
+      EDIT = b.dataset.mkEdit; rerender();
+      document.getElementById("mkForm")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }));
+    const sel = document.getElementById("mkSeason");
+    if (sel) sel.onchange = () => { EDIT = sel.value; rerender(); };
+    const save = document.getElementById("mkSave");
+    if (save) save.onclick = async () => {
+      const g = (id) => document.getElementById(id).value;
+      const pickMods = (key) => Object.fromEntries([...document.querySelectorAll(`[data-mk-${key}]`)].map((i) => [i.getAttribute(`data-mk-${key}`), i.value]));
+      try {
+        const r = await api("/api/mock/save", { season: g("mkSeason"), date: g("mkDate"), score: g("mkScore"), avg: g("mkAvg"), top: g("mkTop"),
+          beat: g("mkBeat"), rank: g("mkRank"), people: g("mkPeople"), minutes: pickMods("minutes"), scores: pickMods("score") });
+        MOCK = r.summary; EDIT = g("mkSeason");
+        handleEvents(r.events);
+        toast(`第 ${EDIT} 季成绩单已保存`);
+        rerender();
+      } catch (e) { showError(e); }
+    };
+  }
+  function rerender() {
+    const v = document.getElementById("view");
+    if (!MOCK || !v) return;
+    v.innerHTML = html(MOCK);
+    bind();
+  }
+  async function render(v) {
+    MOCK = await api("/api/mock");
+    v.innerHTML = html(MOCK);
+    bind();
+  }
+  window.CONTEST = { render };
+})();

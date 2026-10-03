@@ -19,6 +19,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
+    GET  /api/mock                 宗门大比：各季模考成绩、六大模块正确率 / 得分 / 用时、走势
+    POST /api/mock/save            {"season", "score", "avg", "top", "beat", "rank", "people", "date", "minutes": {模块}, "scores": {模块}}
     POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  演武（自练做题）+ 日志；"date" 可补记最近 7 天
     POST /api/practice/delete      {"id"}  删掉记错的一笔自练
     POST /api/selfstudy            {"board"?, "minutes", "topic"?, "note"?, "date"?}  静修（自己复习）
@@ -54,7 +56,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, importer, library, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, importer, library, mock, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -199,8 +201,22 @@ def import_preview(body):
     return _import_call(importer.preview, body)
 
 
+def _mock_imported(rep, season):
+    """导入了一份模考试卷 → 演武 · 历练记记 120 分钟（每季一次）"""
+    if season:
+        with open_game() as g:
+            ev = mock.on_import(g, int(season))
+            if ev:
+                rep["events"] = tutor.enrich(g, ev)
+                rep["practice_minutes"] = mock.IMPORT_MINUTES
+    return rep
+
+
 def import_commit(body):
-    return _import_call(importer.commit, body)
+    rep = _import_call(importer.commit, body)
+    if body.get("kind") == "season" and not rep.get("dry"):
+        _mock_imported(rep, body.get("season"))
+    return rep
 
 
 def import_answers(body):
@@ -212,7 +228,22 @@ def import_upload_pdf(body):
 
 
 def import_split(body):
-    return _import_call(importer.split_pdf, body)
+    rep = _import_call(importer.split_pdf, body)
+    return _mock_imported(rep, rep.get("season"))
+
+
+def mock_summary(body):
+    with open_game(save=False) as g:
+        return mock.summary(g)
+
+
+def mock_save(body):
+    with open_game() as g:
+        try:
+            ev = mock.save(g, body)
+        except mock.MockError as e:
+            raise ApiError(str(e))
+        return {"events": tutor.enrich(g, ev + g.housekeeping()) if ev else [], "summary": mock.summary(g)}
 
 
 def import_install(body):
@@ -551,6 +582,8 @@ ROUTES = {
     ("POST", "/api/leave"): leave,
     ("POST", "/api/boss"): boss,
     ("POST", "/api/practice"): practice,
+    ("GET", "/api/mock"): mock_summary,
+    ("POST", "/api/mock/save"): mock_save,
     ("POST", "/api/practice/delete"): practice_delete,
     ("POST", "/api/selfstudy"): selfstudy_add,
     ("POST", "/api/selfstudy/delete"): selfstudy_delete,

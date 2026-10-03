@@ -122,6 +122,7 @@ async function render() {
   try {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
+    else if (VIEW === "contest") { if (!DASH) await refresh(); await CONTEST.render(v); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
     else if (VIEW === "bank") { HALL = 'shizhan'; return go('train'); }   // 试炼塔并进了修炼殿
     else if (VIEW === "wrong") {
@@ -283,7 +284,7 @@ const views = {
     const tabs = `<div class="lib-head"><h2>${esc(NAV('skeleton'))}</h2><div class="lib-tabs">
       <button class="${LIB.tab === 'gongfa' ? 'on' : ''}" data-libtab="gongfa">📜 功法</button>
       <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">💠 玉简 · 题库</button></div></div>`;
-    if (LIB.tab === 'yujian') return tabs + await yujianHtml();
+    if (LIB.tab === 'yujian') return tabs + await yujianHtml() + importCardHtml();
     const sk = await api("/api/skeletons");
     if (LIB.open) {
       const b = sk.boards.find(x => x.board === LIB.open);
@@ -889,9 +890,8 @@ async function shizhanHtml() {
         ${b.errors.length ? `<div class="warn small">${b.errors.slice(0, 2).map(esc).join('<br>')}</div>` : ''}
         <div class="row"><button class="primary small" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${b.active ? '续闯' : '闯关'}</button>
           <button class="small" data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>回炉${b.wrong ? ' ' + b.wrong : ''}</button></div></div>`).join('')
-        || '<p class="muted">题库还是空的：用下面的「📥 导入真题」入库。</p>'}</div></div>
+        || '<p class="muted">题库还是空的：到藏经阁「💠 玉简 · 题库」最下面的「📥 导入真题」入库。</p>'}</div></div>
     <details class="card"><summary><b>📜 ${esc(W('bank_history'))}</b> <span class="small muted">最近 ${d.groups.length} 组</span></summary>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${x.correct}/${x.total}</span>${x.seconds ? `<span class="small muted">⏱ ${clock(x.seconds)}</span>` : ''}</div>`).join('') || '<p class="muted small">尚未留下试炼战绩。</p>'}</details>
-    <details class="card import-card" id="importCard"><summary><b>📥 导入真题</b> <span class="small muted">模考 PDF、txt、PDF 练习册一键入库</span></summary><div id="importBody">载入中…</div></details>
     <p class="small muted">点选项的组按考试来：全部选完交卷才揭晓对错，再逐题复盘，看不懂点「🧙 师傅解惑」。首次作答得${esc(W('xp'))}，回炉连续答对 ${d.streak_need} 次消除残影。</p>`;
 }
 
@@ -939,7 +939,7 @@ function bindBank() {
       renderTrain();
     } catch (err) { showError(err); }
   });
-  $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
+  if ($('#importCard')) $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
   document.querySelectorAll('[data-bank]').forEach(b => b.onclick = () => startTask({ task: {
     type: b.dataset.mode === 'review' ? 'bank_review' : 'bank', board: b.dataset.bank,
     target: b.dataset.bank, title: `⚔ ${b.dataset.title || b.dataset.bank} · ${W(b.dataset.mode === 'review' ? 'bank_review' : 'bank')}`
@@ -1031,6 +1031,7 @@ function bindImport() {
   const run = async (btn, url, body, dry) => {
     const label = btn.textContent; btn.disabled = true; btn.textContent = '处理中…';
     show('<p class="muted">处理中，请稍候…</p>');
+    const s0 = window.SETTLE ? SETTLE.snap() : null;
     try {
       const r = await api(url, body);
       if (url.endsWith('/answers')) show(`<p>补了 <b>${r.filled}</b> 题的答案（答案表 ${r.key} 个）。</p>`);
@@ -1044,6 +1045,12 @@ function bindImport() {
           ${r.images_copied ? `<br>${r.dry ? '要拷' : '拷了'} ${r.images_copied} 张解析配图。` : ''}${r.images_missing ? `<br>⚠ ${r.images_missing} 张配图在蒸馏文件夹里没找到（解析里会显示“缺图”）。` : ''}${r.unreadable ? `<br>${r.unreadable} 篇读不了，已跳过。` : ''}</p>`);
       else if (url.endsWith('/classify')) show(`<p>补了 ${r.done} 题的知识点，还剩 ${r.left} 题待分类。</p>`);
       else show(importReport(r, dry));
+      if (r.practice_minutes) {   // 导入了一份模考：演武 · 历练记记 120 分钟，弹演武结算
+        $('#importResult').insertAdjacentHTML('beforeend', `<p>⚔ 已给「${esc(W('practice_title'))}」记 ${r.practice_minutes} 分钟（第 ${r.season || body.season} 季模考）。去「${esc(NAV('contest'))}」录成绩单。</p>`);
+        handleEvents(r.events);
+        await refresh();
+        if (s0) SETTLE.show({ kind: 'practice', title: `第 ${r.season || body.season} 季模考`, sub: '导入模考试卷', before: s0, lines: [`${r.practice_minutes} 分钟`] });
+      }
       if (!dry) {   // 入库后整页重画：下面各板块的题数要跟着变
         IMPORT_KEEP = $('#importResult').innerHTML;
         await render();
@@ -1146,6 +1153,10 @@ function skeletonCard(sk, b) {
     <div class="small faint">文件：${esc(b.file)}</div>
     ${rows ? `<table style="margin-top:8px"><tr><th>${esc(W("item"))}（大项）</th><th>内容</th><th>掌握</th><th></th><th></th></tr>${rows}</table>` : '<p class="muted small">这部功法还没有编撰，点右上角按钮开始。</p>'}</div>`;
 }
+// 导入真题放在玉简 · 题库最下面：每次模考完第一步就是把试卷 PDF 导入题库
+function importCardHtml() {
+  return `<details class="card import-card" id="importCard" style="margin-top:18px"><summary><b>📥 导入真题</b> <span class="small muted">模考 PDF（每周模考完先导这里）、txt、PDF 练习册一键入库；导入一份模考给${esc(W("practice_title"))}记 120 分钟</span></summary><div id="importBody">载入中…</div></details>`;
+}
 // ---- 玉简：题库目录 + 搜题
 const YJ_STATUS = { '': '全部', new: '未做', done: '做对', wrong: '做错（心魔）', pending: '答案待补' };
 const YJ_TAG = { new: '<span class="tag">未做</span>', done: '<span class="tag ok">✓ 做对</span>', wrong: '<span class="tag bad">✗ 心魔</span>', pending: '<span class="tag lock">待补</span>' };
@@ -1213,6 +1224,7 @@ function bindLibrary() {
 }
 function bindSkeleton() {
   bindLibrary();
+  if ($('#importCard')) $('#importCard').ontoggle = (e) => { if (e.target.open) loadImport(); };
   document.querySelectorAll("[data-skel]").forEach((b) => (b.onclick = () =>
     startTask({ task: { type: "skeleton", board: b.dataset.skel, target: b.dataset.skel, title: `📜 「${b.dataset.skel}」${W("skeleton")}` } })));
   document.querySelectorAll("[data-free]").forEach((a) => (a.onclick = () =>
