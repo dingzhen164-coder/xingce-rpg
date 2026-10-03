@@ -217,27 +217,132 @@ class Game:
         return {"lecture": int(round(lecture)), "practice": int(round(drill + self_practice)), "review": int(round(review)),
                 "self": int(self_practice)}
 
-    def board_time(self, days=None):
-        """十二模块的时辰：每个板块的听课（听道记录里选了模块的）、做题（含自练）、复习分钟。
-        修炼时间从加上模块统计那天起才分模块，之前的不计入。"""
+    # 听道记录没选模块时，从“讲的什么”里认（写了“图形推理”“图推”“资料”之类）
+    BOARD_ALIAS = (("图推", "图形推理"), ("图形", "图形推理"), ("资料", "资料分析"), ("资分", "资料分析"), ("数量", "数量关系"),
+                   ("数推", "数量关系"), ("常识", "常识判断"), ("政治", "政治理论"), ("时政", "政治理论"), ("片段", "片段阅读"),
+                   ("填空", "逻辑填空"), ("定义", "定义判断"), ("类比", "类比推理"), ("论证", "论证逻辑"), ("形式", "形式逻辑"),
+                   ("翻译推理", "形式逻辑"), ("一拖五", "一拖五"))
+
+    def lecture_board(self, x):
         from . import question_bank
+        boards = question_bank.boards(self)
+        if x.get("board") in boards:
+            return x["board"]
+        if x.get("board") == "none":          # 自己选了“不分模块”
+            return ""
+        note = x.get("note") or ""
+        for b in boards:
+            if b in note:
+                return b
+        for k, b in self.BOARD_ALIAS:
+            if k in note and b in boards:
+                return b
+        return ""
+
+    def set_lecture_board(self, lid, board):
+        from . import question_bank
+        x = next((x for x in self.state.setdefault("lectures", []) if x["id"] == lid), None)
+        if not x:
+            raise ValueError("找不到这条记录")
+        if board and board not in question_bank.boards(self):
+            raise ValueError("模块无效")
+        x["board"] = board or "none"
+
+    _PRACTICE_EV = ("wrong", "apply", "bank", "bank_clear", "pill", "tribulation", "practice")
+    _REVIEW_EV = ("recite", "review", "speedrun", "feynman", "example", "master")
+
+    def _day_weights(self, boards):
+        """每天每个模块练了几次（修炼记录里的段落 + 修炼事件），用来把没记模块的旧时间按比例分到模块"""
+        import re as _re
+        w = {}
+        def add(d, k, b, n=1):
+            if b in boards and n > 0:
+                w.setdefault(d, {}).setdefault(k, {}).setdefault(b, 0)
+                w[d][k][b] += n
+        logs = {}
+        folder = self.paths.train / "修炼记录" if self.paths.train else None
+        apply_label = self.label("apply")
+        if folder and folder.is_dir():
+            for f in folder.glob("*/*.md"):
+                try:
+                    text = f.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                for m in _re.finditer(r"^## (\d{4}-\d{2}-\d{2}) [\d:]+ · (.+?) <!-- sid:", text, _re.M):
+                    k = "practice" if m.group(2).strip() == apply_label else "review"
+                    logs.setdefault(m.group(1), []).append((k, f.parent.name))
+        for d, items in logs.items():
+            for k, b in items:
+                add(d, k, b)
+        for e in self.state["events"]:
+            if e.get("type") in self._PRACTICE_EV:
+                add(e["d"], "practice", e.get("board"), 0 if e["d"] in logs and e["type"] == "apply" else 1)
+            elif e.get("type") in self._REVIEW_EV and e["d"] not in logs:
+                add(e["d"], "review", e.get("board"))
+        return w
+
+    def _board_days(self):
+        """{日期: {模块: {lecture, practice, review}}}（分钟）+ {日期: 分不到模块的分钟}"""
+        from . import question_bank
+        boards = question_bank.boards(self)
+        out, loose = {}, {}
+        def add(d, b, k, m):
+            if m > 0:
+                out.setdefault(d, {}).setdefault(b, {"lecture": 0.0, "practice": 0.0, "review": 0.0})[k] += m
+        for x in self.state.setdefault("lectures", []):
+            b = self.lecture_board(x)
+            if b:
+                add(x["d"], b, "lecture", x["minutes"])
+        self_min = {}
+        for x in self.state["practice"]:
+            self_min[x["d"]] = self_min.get(x["d"], 0) + x.get("minutes", 0)
+            if x["board"] in boards:
+                add(x["d"], x["board"], "practice", x.get("minutes", 0))
+        sb = self.state.setdefault("seconds_board", {})
+        for d, per in sb.items():
+            for b, v in per.items():
+                if b in boards:
+                    for k, sec in v.items():
+                        add(d, b, k, sec / 60)
+        weights = None
+        kinds = self.state.setdefault("seconds_kind", {})
+        for d, sec in self.state["seconds"].items():
+            boarded = {"practice": 0.0, "review": 0.0}
+            for v in sb.get(d, {}).values():
+                for k in boarded:
+                    boarded[k] += v.get(k, 0) / 60
+            drill = kinds.get(d, {}).get("practice", 0) / 60
+            rest = {"practice": max(0.0, drill - boarded["practice"]),
+                    "review": max(0.0, sec / 60 - self_min.get(d, 0) - drill - boarded["review"])}
+            for k, m in rest.items():
+                if m < 1:
+                    continue
+                if weights is None:
+                    weights = self._day_weights(boards)
+                wd = weights.get(d, {})
+                ws = wd.get(k) or wd.get("review" if k == "practice" else "practice")
+                if not ws:
+                    loose[d] = loose.get(d, 0) + m
+                    continue
+                n = sum(ws.values())
+                for b, c in ws.items():
+                    add(d, b, k, m * c / n)
+        return out, loose
+
+    def board_time(self, days=None, cache=None):
+        """十二模块的时辰：每个板块的听课、做题（含自练）、复习分钟，外加分不到模块的分钟。
+        修炼时间按当时在练的模块记；以前没记模块的，按那天修炼记录和修炼事件里各模块练了几次按比例分。"""
+        from . import question_bank
+        per, loose = cache or self._board_days()
         keep = (lambda d: True) if days is None else (lambda d: d in days)
         out = {b: {"lecture": 0.0, "practice": 0.0, "review": 0.0} for b in question_bank.boards(self)}
-        def add(b, k, m):
-            if b in out:
-                out[b][k] += m
-        for x in self.state.setdefault("lectures", []):
-            if keep(x["d"]) and x.get("board"):
-                add(x["board"], "lecture", x["minutes"])
-        for x in self.state["practice"]:
-            if keep(x["d"]):
-                add(x["board"], "practice", x.get("minutes", 0))
-        for d, per in self.state.setdefault("seconds_board", {}).items():
+        for d, bs in per.items():
             if keep(d):
-                for b, v in per.items():
-                    for k, sec in v.items():
-                        add(b, k, sec / 60)
-        return [{"board": b, **{k: int(round(v)) for k, v in m.items()}, "total": int(round(sum(m.values())))} for b, m in out.items()]
+                for b, v in bs.items():
+                    for k, m in v.items():
+                        out[b][k] += m
+        return {"boards": [{"board": b, **{k: int(round(v)) for k, v in m.items()}, "total": int(round(sum(m.values())))} for b, m in out.items()],
+                "loose": int(round(sum(m for d, m in loose.items() if keep(d))))}
 
     def minutes(self, day):
         """每日功行 = 修炼 + 听道；每日目标、打卡、道心、周常都按这个算"""
@@ -1402,10 +1507,11 @@ class Game:
             "retreat": ({"board": retreat["board"], "end": retreat["end"], "minutes": retreat["minutes"]}
                         if retreat and time.time() < retreat["end"] else None),
             "rest": self.resting(),
-            "lectures": [x for x in self.state.setdefault("lectures", []) if x["d"] >= (self.today - dt.timedelta(days=6)).isoformat()][::-1],
-            "boardtime": {"today": self.board_time({self.t}),
-                          "week": self.board_time({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}),
-                          "all": self.board_time()},
+            "lectures": [dict(x, board_auto=self.lecture_board(x)) for x in self.state.setdefault("lectures", [])
+                         if x["d"] >= (self.today - dt.timedelta(days=6)).isoformat()][::-1],
+            "boardtime": (lambda c: {"today": self.board_time({self.t}, c),
+                                      "week": self.board_time({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}, c),
+                                      "all": self.board_time(None, c)})(self._board_days()),
             "timesplit": {"today": self.time_split({self.t}),
                           "week": self.time_split({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}),
                           "all": self.time_split()},

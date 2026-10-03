@@ -426,8 +426,12 @@ function lectureCard(d) {
   const m = d.minutes, goal = m.goal || 300;
   const lec7 = (d.lectures || []).reduce((a, x) => a + x.minutes, 0);
   const days = lastDays();
-  const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>${x.board ? `<span class="tag">${esc(x.board)}</span>` : ""}
-      <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span><button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
+  const allBoards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
+  const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
+      <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span>
+      <select class="lec-board" data-lec-board="${esc(x.id)}" title="这笔听道算哪个模块${x.board ? "" : x.board_auto ? "（从“讲的什么”里认的）" : ""}">
+        <option value="">不分模块</option>${allBoards.map((b) => `<option ${b === (x.board || x.board_auto) ? "selected" : ""}>${esc(b)}</option>`).join("")}</select>
+      ${!x.board && x.board_auto ? '<span class="faint small">自动</span>' : ""}<button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
   return `<div class="card lecture-card tone-lecture" style="margin-top:14px">
     <h3>📿 ${esc(W("lecture_title"))} <small>今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟 · 近 7 天 ${lec7} 分钟</small></h3>
     <div title="今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟（占每日目标 ${goal} 分钟）">${sancaiBar({ lecture: m.lecture ?? 0 }, goal, ["lecture"])}</div>
@@ -495,7 +499,7 @@ const BOARD_COLORS = ["#c2463a", "#d9822b", "#c9a227", "#6e9f3a", "#2e9d6b", "#b
 let BOARD_SPAN = (() => { try { return localStorage.getItem("boardSpan") || "week"; } catch { return "week"; } })();
 function boardTimeCard(d) {
   const bt = d.boardtime; if (!bt) return "";
-  const list = bt[BOARD_SPAN] || bt.week;
+  const cur = bt[BOARD_SPAN] || bt.week, list = cur.boards;
   const total = list.reduce((a, b) => a + b.total, 0);
   const top = Math.max(1, ...list.map((b) => b.total));
   const orbs = list.map((b, i) => {
@@ -513,7 +517,7 @@ function boardTimeCard(d) {
     <div class="sancai-head"><h3>☸ 十二经 · 各模块时辰 <small>听课（记听道时选了模块的）· 做题（含自练）· 复习，单位分钟</small></h3><span class="spacer"></span>
       <div class="sancai-tabs">${[["today", "今日"], ["week", "近七日"], ["all", "累计"]].map(([k, n]) => `<a data-bspan="${k}" class="${k === BOARD_SPAN ? "on" : ""}">${n}</a>`).join("")}</div></div>
     <div class="orbs orbs4">${orbs}</div>
-    <p class="small muted" style="margin:6px 0 0">共 ${Math.round(total)} 分钟。修炼里的时间从这一版起按模块记，之前的没分模块，不计入这里（三才时辰里照算）。</p></div>`;
+    <p class="small muted" style="margin:6px 0 0">共 ${Math.round(total)} 分钟${cur.loose ? `，另有 ${cur.loose} 分钟认不出模块（三才时辰里照算）` : ""}。修炼时间按当时在练的模块记；早先没记模块的，按那天修炼记录里各模块练了几次分摊。听道没选模块的，从“讲的什么”里认（写了“图形推理”“图推”“资料”等），认错了在近 7 天听道记录里改。</p></div>`;
 }
 function bindBoardTime() {
   document.querySelectorAll("[data-bspan]").forEach((a) => (a.onclick = () => {
@@ -606,6 +610,10 @@ function bindLecture() {
         lines: [lb, day.selectedIndex ? `补记 ${day.options[day.selectedIndex].text}` : ""].filter(Boolean) });
     } catch (e) { showError(e); }
   };
+  document.querySelectorAll("[data-lec-board]").forEach((sel) => (sel.onchange = async () => {
+    try { await api("/api/lecture/board", { id: sel.dataset.lecBoard, board: sel.value }); toast(sel.value ? `已算进「${sel.value}」` : "已改成不分模块"); await refresh(); render(); }
+    catch (e) { showError(e); }
+  }));
   document.querySelectorAll("[data-lec-del]").forEach((b) => (b.onclick = async () => {
     if (!confirm("删掉这笔记录？（那次得到的修为也会扣回）")) return;
     try { await api("/api/lecture/delete", { id: b.dataset.lecDel }); await refresh(); render(); } catch (e) { showError(e); }

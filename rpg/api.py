@@ -36,6 +36,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     GET  /api/appearance           背景 / 语录 / 音乐的可选项和当前选择；POST 同路径保存选择
     POST /api/lecture              {"minutes", "note"?, "date"?, "board"?}  记一笔听道（其他平台看网课），计入每日功行
     POST /api/lecture/delete       {"id"}  删掉记错的一笔
+    POST /api/lecture/board        {"id", "board"}  改一笔听道算哪个模块（空 = 不分模块）
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
@@ -371,6 +372,15 @@ def lecture_add(body):
         return {"events": tutor.enrich(g, ev)}
 
 
+def lecture_board(body):
+    with open_game() as g:
+        try:
+            g.set_lecture_board(str(body.get("id") or ""), str(body.get("board") or ""))
+        except ValueError as e:
+            raise ApiError(str(e))
+        return {"ok": True}
+
+
 def lecture_delete(body):
     with open_game() as g:
         try:
@@ -488,6 +498,7 @@ ROUTES = {
     ("GET", "/api/appearance"): appearance_get,
     ("POST", "/api/lecture"): lecture_add,
     ("POST", "/api/lecture/delete"): lecture_delete,
+    ("POST", "/api/lecture/board"): lecture_board,
     ("POST", "/api/appearance"): appearance_set,
     ("POST", "/api/retreat/start"): retreat_start,
     ("POST", "/api/retreat/end"): retreat_end,

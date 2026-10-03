@@ -675,3 +675,4 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
   .orb.mini .orb-name { font-size: 16px; }
   .orb.mini .orb-num b { font-size: 22px; }
 }
+.lec-board { padding: 2px 6px; font-size: 12px; width: auto; }

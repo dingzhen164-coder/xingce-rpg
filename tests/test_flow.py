@@ -375,9 +375,24 @@ class FlowTest(unittest.TestCase):
         api.lecture_add({"minutes": 20})
         api.practice({"board": "论证逻辑", "total": "5", "correct": "4", "minutes": "15"})
         d = api.dashboard({})
-        bt = {b["board"]: b for b in d["boardtime"]["today"]}
+        bt = {b["board"]: b for b in d["boardtime"]["today"]["boards"]}
         self.assertEqual(list(bt), boards)
-        self.assertEqual(bt["论证逻辑"], {"board": "论证逻辑", "lecture": 30, "practice": 25, "review": 5, "total": 60})
+        # 没记模块的 2 分钟复习：按今天修炼事件分摊（今天只有自练事件 → 归论证逻辑）
+        self.assertEqual(bt["论证逻辑"], {"board": "论证逻辑", "lecture": 30, "practice": 25, "review": 7, "total": 62})
+        self.assertEqual(d["boardtime"]["today"]["loose"], 0)
+        # 听道没选模块：从“讲的什么”里认；自己改成不分模块后不再自动认
+        api.lecture_add({"minutes": 40, "note": "薛睿 图推第2讲"})
+        d = api.dashboard({})
+        lec = d["lectures"][0]
+        self.assertEqual(lec["board_auto"], "图形推理")
+        bt = {b["board"]: b for b in d["boardtime"]["today"]["boards"]}
+        self.assertEqual(bt["图形推理"]["lecture"], 40)
+        api.lecture_board({"id": lec["id"], "board": ""})
+        bt = {b["board"]: b for b in api.dashboard({})["boardtime"]["today"]["boards"]}
+        self.assertEqual(bt["图形推理"]["lecture"], 0)
+        api.lecture_board({"id": lec["id"], "board": "资料分析"})
+        bt = {b["board"]: b for b in api.dashboard({})["boardtime"]["today"]["boards"]}
+        self.assertEqual(bt["资料分析"]["lecture"], 40)
         # 知识点试炼 点:板块:考点 → 板块；会话结束后沿用最后的模块
         trainer.SESSIONS["y"] = {"type": "bank", "board": "点:论证逻辑:削弱", "task": {}}
         with api.open_game() as g:
