@@ -19,8 +19,10 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
-    POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  红尘历练（自练）+ 自练日志；"date" 可补记最近 7 天
+    POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  演武（自练做题）+ 日志；"date" 可补记最近 7 天
     POST /api/practice/delete      {"id"}  删掉记错的一笔自练
+    POST /api/selfstudy            {"board"?, "minutes", "topic"?, "note"?, "date"?}  静修（自己复习）
+    POST /api/selfstudy/delete     {"id"}
     POST /api/bank/add             {"board", "topic", "source", "stem", "options": {A..D}, "answer", "analysis"}  自练好题收进题库
     GET  /api/import               导入真题页：各季模考（已导入数）、待修文件、待分类知识点数
     POST /api/import/preview       {"kind": "season"|"text"|"fix", ...}  拆题预览（不写文件）
@@ -442,6 +444,25 @@ def practice(body):
             raise ApiError(str(e))
 
 
+def selfstudy_add(body):
+    with open_game() as g:
+        try:
+            ev = g.add_selfstudy(str(body.get("board") or ""), body.get("minutes") or 0, str(body.get("topic") or "").strip(),
+                                 str(body.get("note") or "").strip(), body.get("date") or None)
+        except (ValueError, TypeError) as e:
+            raise ApiError(str(e))
+        return {"events": tutor.enrich(g, ev)}
+
+
+def selfstudy_delete(body):
+    with open_game() as g:
+        try:
+            g.delete_selfstudy(str(body.get("id") or ""))
+        except ValueError as e:
+            raise ApiError(str(e))
+        return {"ok": True}
+
+
 def practice_delete(body):
     with open_game() as g:
         try:
@@ -531,6 +552,8 @@ ROUTES = {
     ("POST", "/api/boss"): boss,
     ("POST", "/api/practice"): practice,
     ("POST", "/api/practice/delete"): practice_delete,
+    ("POST", "/api/selfstudy"): selfstudy_add,
+    ("POST", "/api/selfstudy/delete"): selfstudy_delete,
     ("POST", "/api/bank/add"): bank_add,
     ("GET", "/api/settings"): settings_get,
     ("POST", "/api/settings"): settings_set,

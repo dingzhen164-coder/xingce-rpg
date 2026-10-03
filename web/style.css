@@ -550,6 +550,7 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 /* 听道 · 闻法记 与 红尘历练 · 自练日志：同一个模板，颜色对应三才时辰（听课青、做题朱、复习金） */
 .tone-lecture { --tone: var(--c-lecture); }
 .tone-practice { --tone: var(--c-practice); }
+.tone-review { --tone: var(--c-review); }
 .lecture-card { border-top: 3px solid var(--tone, var(--gold));
   background: linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--gold)) 7%, transparent), transparent 90px), var(--panel); }
 .lecture-card h3 { color: var(--tone, inherit); }
@@ -562,6 +563,7 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .tri-bar .seg-practice { background: linear-gradient(90deg, color-mix(in srgb, var(--c-practice) 70%, #fff), var(--c-practice)); }
 .tri-bar .seg-review { background: linear-gradient(90deg, color-mix(in srgb, var(--c-review) 70%, #fff), var(--c-review)); }
 .tri-bar .seg-drill { background: color-mix(in srgb, var(--c-practice) 35%, transparent); }
+.tri-bar .seg-rdrill { background: color-mix(in srgb, var(--c-review) 35%, transparent); }
 .pr-note-label { display: block; margin-top: 8px; }
 .pr-note-label textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; resize: vertical; }
 .pr-row + .pr-note { padding: 2px 0 6px 46px; white-space: pre-wrap; font-size: 13px; color: var(--muted); border-bottom: 1px dashed var(--line); }

@@ -238,6 +238,7 @@ const views = {
     ${boardTimeCard(d)}
     ${lectureCard(d)}
     ${practiceCard(d)}
+    ${selfstudyCard(d)}
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
         <div id="tasks">${tasks.map(taskRow).join("") || `<div class="muted">今天没有功课。去“${esc(NAV("skeleton"))}”编撰${esc(W("skeleton"))}。</div>`}</div>
@@ -344,7 +345,7 @@ const views = {
     const d = DASH;
     const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
     const opts = boardOptions(boards);
-    return `<div class="card hongchen"><h3>📥 好题收进题库玉简 <small>纸质资料、其他 App 上碰到的好题收进来；自练日志在${esc(NAV("home"))}的「${esc(W("practice"))}」里记</small></h3>
+    return `<div class="card hongchen"><h3>📥 好题收进题库玉简 <small>纸质资料、其他 App 上碰到的好题收进来；做题记录在${esc(NAV("home"))}的「${esc(W("practice_title"))}」里记</small></h3>
       <div class="hc-grid">
         <div>
           <div class="row"><select id="aqBoard" style="flex:1">${opts}</select><input id="aqTopic" placeholder="知识点，如 削弱-他因" style="flex:1.4"><input id="aqSrc" placeholder="出处（可空）" style="flex:1.2"></div>
@@ -456,7 +457,7 @@ function timeCard(d) {
   const orbs = [
     ["lecture", "闻", "听课", "闻法", `网课、讲座（${W("lecture")}）`],
     ["practice", "历", "做题", "历练", `试炼、${W("kill")}、试剑、炼丹${t.self ? ` · 自练 ${t.self} 分` : " · 含自练"}`],
-    ["review", "温", "复习", "温养", "传授、背诵口诀、论道、温养"],
+    ["review", "温", "复习", "温养", `传授、背诵口诀、论道、温养${t.self_review ? ` · ${W("selfstudy")} ${t.self_review} 分` : ` · 含${W("selfstudy")}`}`],
   ].map(([k, seal, name, alias, hint]) => {
     const share = total ? t[k] / total : 0;
     return `<div class="orb orb-${k}" style="--share:${(share * 360).toFixed(1)}deg">
@@ -527,7 +528,7 @@ function bindBoardTime() {
     if (el) { el.outerHTML = boardTimeCard(DASH); bindBoardTime(); }
   }));
 }
-// ------------------------------------------------------------ 红尘历练：首页记自练日志（好题收进题库在修仙录）
+// ------------------------------------------------------------ 演武 · 历练记：首页记自己做题（好题收进题库在修仙录）
 function lastDays() {
   return [0, 1, 2, 3, 4, 5, 6].map((k) => { const t = new Date(Date.now() - k * 864e5); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); });
 }
@@ -561,9 +562,9 @@ function practiceCard(d) {
       ${x.note ? `<div class="pr-note">${esc(x.note)}</div>` : ""}`;
   }).join("");
   return `<div class="card lecture-card tone-practice" style="margin-top:14px">
-    <h3>🌲 ${esc(W("practice"))} · 自练日志 <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题 · 正确率 ${rate(ok, n)}` : ""}</small></h3>
+    <h3>⚔ ${esc(W("practice_title"))} <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题 · 正确率 ${rate(ok, n)}` : ""}</small></h3>
     ${sancaiBar({ practice: t.self, drill: t.practice - t.self }, goal, ["practice", "drill"])}
-    <p class="small muted">纸质资料、其他 App 上的自练也是历练。练完来此记一笔：分钟算进「做题」，心得写进 训练/${esc(W("practice"))}/${esc((d.today || "").slice(0, 7))}.md。</p>
+    <p class="small muted">纸质资料、其他 App 上自己刷题，也是演武。练完来此记一笔：分钟算进「做题」，心得写进 训练/演武录/${esc((d.today || "").slice(0, 7))}.md。</p>
     <div class="row lec-form">
       <label>板块 <select id="prBoard">${boardOptions(boards)}<option>其他</option></select></label>
       <label>题数 <input type="number" id="prTotal" min="0" placeholder="如 20"></label>
@@ -572,9 +573,55 @@ function practiceCard(d) {
       <label style="flex:1">资料（可不填） <input id="prSrc" maxlength="60" placeholder="如：粉笔980 P120"></label>
       <label style="flex:2">心得（可不填） <input id="prNote" maxlength="500" placeholder="错在哪、悟到了什么；只写心得题数留空"></label>
       <label>哪天 <select id="prDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
-      <button class="primary" id="prBtn">🌲 记入</button></div>
+      <button class="primary" id="prBtn">⚔ 记入</button></div>
     <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("practice"))}记录 <span class="muted small">· ${list.length} 次 · ${wn} 题 · 正确率 ${rate(wok, wn)} · ${wmin} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("practice"))}记录：记一笔就会出现在这里</div>`}</details>
   </div>`;
+}
+// ------------------------------------------------------------ 静修 · 温养记：首页记自己复习（背口诀、看笔记、整理错题本……）
+function selfstudyCard(d) {
+  const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
+  const goal = d.minutes.goal || 300, t = d.timesplit?.today || { review: 0, self_review: 0 };
+  const list = d.selfstudy || [];
+  const w7 = list.reduce((a, x) => a + x.minutes, 0);
+  const days = lastDays();
+  const rows = list.map((x) => `<div class="lec-row pr-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
+      ${x.board ? `<span class="tag">${esc(x.board)}</span>` : ""}<span>${esc(x.topic || "")}</span><span class="spacer"></span>
+      <button class="ghost small" data-ss-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>
+      ${x.note ? `<div class="pr-note">${esc(x.note)}</div>` : ""}`).join("");
+  return `<div class="card lecture-card tone-review" style="margin-top:14px">
+    <h3>🪷 ${esc(W("selfstudy_title"))} <small>今日${esc(W("selfstudy"))} ${t.self_review || 0} 分钟 · 今日复习共 ${t.review} 分钟 · 近 7 天${esc(W("selfstudy"))} ${w7} 分钟</small></h3>
+    ${sancaiBar({ review: t.self_review || 0, rdrill: Math.max(0, t.review - (t.self_review || 0)) }, goal, ["review", "rdrill"])}
+    <p class="small muted">不在程序里、自己闭门复习（背口诀、看笔记、整理错题本、回看网课笔记……）也是温养。复习完来此记一笔：分钟算进「复习」，写进 训练/静修录/${esc((d.today || "").slice(0, 7))}.md。</p>
+    <div class="row lec-form">
+      <label>${esc(W("selfstudy"))}几分钟 <input type="number" id="ssMin" min="1" max="600" placeholder="如 60"></label>
+      <span class="lec-quick">${[30, 60, 90].map((n) => `<button class="ghost small" data-ss-q="${n}">${n}</button>`).join("")}</span>
+      <label>模块（可不选） <select id="ssBoard"><option value="">不分模块</option>${boardOptions(boards)}</select></label>
+      <label style="flex:1.2">复习了什么（可不填） <input id="ssTopic" maxlength="60" placeholder="如：削弱题口诀、错题本"></label>
+      <label style="flex:1.6">心得（可不填） <input id="ssNote" maxlength="500" placeholder="哪里还不熟、下次怎么练"></label>
+      <label>哪天 <select id="ssDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
+      <button class="primary" id="ssBtn">🪷 记入</button></div>
+    <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("selfstudy"))}记录 <span class="muted small">· ${list.length} 次 · ${w7} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("selfstudy"))}记录：记一笔就会出现在这里</div>`}</details>
+  </div>`;
+}
+function bindSelfstudy() {
+  const b = $("#ssBtn"); if (!b) return;
+  document.querySelectorAll("[data-ss-q]").forEach((x) => (x.onclick = () => { $("#ssMin").value = x.dataset.ssQ; }));
+  b.onclick = async () => {
+    const minutes = Number($("#ssMin").value);
+    if (!minutes) return toast(`先填${W("selfstudy")}了几分钟`);
+    try {
+      const s0 = SETTLE.snap(), day = $("#ssDay");
+      const body = { minutes, board: $("#ssBoard").value, topic: $("#ssTopic").value.trim(), note: $("#ssNote").value.trim(), date: day.value };
+      const r = await api("/api/selfstudy", body);
+      handleEvents(r.events); await refresh(); render();
+      SETTLE.show({ kind: "review", title: `${W("selfstudy")} ${minutes} 分钟`, sub: body.topic, before: s0,
+        lines: [body.board, day.selectedIndex ? `补记 ${day.options[day.selectedIndex].text}` : ""].filter(Boolean) });
+    } catch (e) { showError(e); }
+  };
+  document.querySelectorAll("[data-ss-del]").forEach((x) => (x.onclick = async () => {
+    if (!confirm("删掉这笔记录？（那次的分钟和修为会扣回；静修录文件里的那段请在 Obsidian 里自己删）")) return;
+    try { await api("/api/selfstudy/delete", { id: x.dataset.ssDel }); await refresh(); render(); } catch (e) { showError(e); }
+  }));
 }
 function bindPractice() {
   const b = $("#prBtn"); if (!b) return;
@@ -623,6 +670,7 @@ function bindHome() {
   bindTaskClicks($("#view"));
   bindLecture();
   bindPractice();
+  bindSelfstudy();
   bindTimeCard();
   bindBoardTime();
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };

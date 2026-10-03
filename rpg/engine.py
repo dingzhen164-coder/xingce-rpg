@@ -205,7 +205,7 @@ class Game:
         return sum(x["minutes"] for x in self.state.setdefault("lectures", []) if x["d"] == ds)
 
     def time_split(self, days=None):
-        """三才时辰：听课（听道）、做题（试炼/斩心魔/试剑/炼丹/渡劫 + 红尘历练自练）、复习（传授/背诵/论道/温养…）。
+        """三才时辰：听课（听道）、做题（试炼/斩心魔/试剑/炼丹/渡劫 + 演武自练）、复习（传授/背诵/论道/温养…）。
         days=None 为累计；否则是日期字符串的集合。旧存档没分类的修炼时间都算复习。"""
         keep = (lambda d: True) if days is None else (lambda d: d in days)
         lecture = sum(x["minutes"] for x in self.state.setdefault("lectures", []) if keep(x["d"]))
@@ -213,9 +213,10 @@ class Game:
         kinds = self.state.setdefault("seconds_kind", {})
         drill = sum(v.get("practice", 0) for d, v in kinds.items() if keep(d)) / 60
         total = sum(v for d, v in self.state["seconds"].items() if keep(d)) / 60
-        review = max(0.0, total - self_practice - drill)
+        self_review = sum(x["minutes"] for x in self.state.setdefault("selfstudy", []) if keep(x["d"]))
+        review = max(0.0, total - self_practice - drill)       # 静修的分钟也在 seconds 里，归复习
         return {"lecture": int(round(lecture)), "practice": int(round(drill + self_practice)), "review": int(round(review)),
-                "self": int(self_practice)}
+                "self": int(self_practice), "self_review": int(self_review)}
 
     # 听道记录没选模块时，从“讲的什么”里认（写了“图形推理”“图推”“资料”之类）
     BOARD_ALIAS = (("图推", "图形推理"), ("图形", "图形推理"), ("资料", "资料分析"), ("资分", "资料分析"), ("数量", "数量关系"),
@@ -249,7 +250,7 @@ class Game:
         x["board"] = board or "none"
 
     _PRACTICE_EV = ("wrong", "apply", "bank", "bank_clear", "pill", "tribulation", "practice")
-    _REVIEW_EV = ("recite", "review", "speedrun", "feynman", "example", "master")
+    _REVIEW_EV = ("recite", "review", "speedrun", "feynman", "example", "master", "selfstudy")
 
     def _day_weights(self, boards):
         """每天每个模块练了几次（修炼记录里的段落 + 修炼事件），用来把没记模块的旧时间按比例分到模块"""
@@ -294,6 +295,10 @@ class Game:
             if b:
                 add(x["d"], b, "lecture", x["minutes"])
         self_min = {}
+        for x in self.state.setdefault("selfstudy", []):
+            self_min[x["d"]] = self_min.get(x["d"], 0) + x["minutes"]
+            if x.get("board") in boards:
+                add(x["d"], x["board"], "review", x["minutes"])
         for x in self.state["practice"]:
             self_min[x["d"]] = self_min.get(x["d"], 0) + x.get("minutes", 0)
             if x["board"] in boards:
@@ -1134,12 +1139,24 @@ class Game:
                                      "board": x["board"], "item": "", "ok": True, "xp": -x.get("xp", 0),
                                      "note": "删除%s记录 %s %d/%d" % (self.T("practice"), x["board"], x["correct"], x["total"])})
 
+    PRACTICE_DIR, SELFSTUDY_DIR = "演武录", "静修录"
+
+    def _log_folder(self, name):
+        folder = self.paths.train / name
+        old = self.paths.train / "红尘历练"          # 旧版的自练日志文件夹：改名后搬过去
+        if name == self.PRACTICE_DIR and old.is_dir() and not folder.exists():
+            try:
+                old.rename(folder)
+            except OSError:
+                return old
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
     def _practice_log(self, rec):
-        """自练日志写进库里：训练/红尘历练/年-月.md，一次一节，Obsidian 里能直接看"""
+        """演武（自练做题）日志写进库里：训练/演武录/年-月.md，一次一节，Obsidian 里能直接看"""
         if not self.paths.train:
             return
-        folder = self.paths.train / "红尘历练"
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = self._log_folder(self.PRACTICE_DIR)
         f = folder / f"{rec['d'][:7]}.md"
         bits = [rec["board"]] + ([rec["source"]] if rec.get("source") else [])
         if rec["total"]:
@@ -1150,12 +1167,69 @@ class Game:
         if rec.get("note"):
             text += "\n" + rec["note"].strip() + "\n"
         if not f.exists():
-            text = f"# 红尘历练 · {rec['d'][:7]}\n\n纸质资料、其他 App 上的自练记录（修仙录里录入）。\n" + text
+            text = f"# {self.T('practice_title')} · {rec['d'][:7]}\n\n纸质资料、其他 App 上的自练做题记录（洞府里录入）。\n" + text
         with f.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
 
+    # ---------------------------------------------------------------- 静修：自己复习（背口诀、看笔记、整理错题本……）
+    def add_selfstudy(self, board, minutes, topic="", note="", day=None):
+        from . import question_bank
+        minutes = int(minutes)
+        cap = int(self.rules.num("听道单次上限") or 600)
+        if not 1 <= minutes <= cap:
+            raise ValueError("静修分钟要在 1–%d 之间" % cap)
+        d = D(day) if day else self.today
+        if not (self.today - dt.timedelta(days=7) <= d <= self.today):
+            raise ValueError("只能补记最近 7 天的静修")
+        ds = d.isoformat()
+        board = board if board in question_bank.boards(self) else ""
+        rec = {"id": "%s-%d" % (ds, int(time.time() * 1000) % 10 ** 9), "d": ds, "board": board,
+               "minutes": minutes, "topic": str(topic)[:60], "note": str(note)[:2000]}
+        goal, before = self.rules.num("每日目标分钟"), self.minutes(ds)
+        self.state.setdefault("selfstudy", []).append(rec)
+        self.state["seconds"][ds] = self.state["seconds"].get(ds, 0) + minutes * 60
+        xp = int(round(minutes * self.rules.xp("静修每分钟")))
+        head = f"{self.T('selfstudy')} {board or ''}".strip()
+        ev = self._award(xp, "selfstudy", board, note=f"{head} {minutes} 分钟" + (f"：{rec['topic']}" if rec["topic"] else ""),
+                         bonus=False) if xp else []
+        rec["xp"] = sum(e.get("v", 0) for e in ev if e.get("kind") == "xp")
+        if ds == self.t and before < goal <= self.minutes(ds):
+            ev.append(self._npc("今日达标"))
+        self._selfstudy_log(rec)
+        return ev
+
+    def delete_selfstudy(self, sid):
+        ls = self.state.setdefault("selfstudy", [])
+        x = next((x for x in ls if x.get("id") == sid), None)
+        if not x:
+            raise ValueError("找不到这条记录")
+        ls.remove(x)
+        self.state["seconds"][x["d"]] = max(0, self.state["seconds"].get(x["d"], 0) - x["minutes"] * 60)
+        self.state["xp"] = max(0, self.state["xp"] - x.get("xp", 0))
+        self.state["events"].append({"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "selfstudy",
+                                     "board": x["board"], "item": "", "ok": True, "xp": -x.get("xp", 0),
+                                     "note": "删除%s记录 %d 分钟" % (self.T("selfstudy"), x["minutes"])})
+
+    def _selfstudy_log(self, rec):
+        if not self.paths.train:
+            return
+        f = self._log_folder(self.SELFSTUDY_DIR) / f"{rec['d'][:7]}.md"
+        bits = [rec["board"] or "不分模块"] + ([rec["topic"]] if rec["topic"] else []) + [f"{rec['minutes']} 分钟"]
+        text = f"\n## {rec['d']} {dt.datetime.now().strftime('%H:%M')} · " + " · ".join(bits) + "\n"
+        if rec.get("note"):
+            text += "\n" + rec["note"].strip() + "\n"
+        if not f.exists():
+            text = f"# {self.T('selfstudy_title')} · {rec['d'][:7]}\n\n自己复习（背口诀、看笔记、整理错题本……）的记录（洞府里录入）。\n" + text
+        with f.open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def selfstudy_list(self, days=7):
+        since = (self.today - dt.timedelta(days=days - 1)).isoformat()
+        return sorted((x for x in self.state.setdefault("selfstudy", []) if x["d"] >= since),
+                      key=lambda x: (x["d"], x.get("id", "")), reverse=True)
+
     def practice_list(self, days=7):
-        """近 7 天的自练（新的在前），首页红尘历练的记录"""
+        """近 7 天的自练（新的在前），首页演武 · 历练记的记录"""
         since = (self.today - dt.timedelta(days=days - 1)).isoformat()
         return sorted((x for x in self.state["practice"] if x["d"] >= since), key=lambda x: (x["d"], x.get("id", "")), reverse=True)
 
@@ -1526,5 +1600,6 @@ class Game:
             "greeting": self.say(scene), "scene": scene,
             "recent": self.state["events"][-12:][::-1],
             "practice": self.practice_list(),
+            "selfstudy": self.selfstudy_list(),
         }
 

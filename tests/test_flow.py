@@ -307,7 +307,7 @@ class FlowTest(unittest.TestCase):
         r = api.practice({"board": "资料分析", "source": "粉笔980 P12", "total": "10", "correct": "8", "minutes": "20",
                           "note": "增长率估算又慢了，下次先截位"})
         self.assertTrue(r["events"])
-        logs = list((self.vault / "训练/红尘历练").glob("*.md"))
+        logs = list((self.vault / "训练/演武录").glob("*.md"))
         self.assertEqual(len(logs), 1)
         text = logs[0].read_text(encoding="utf-8")
         self.assertIn("资料分析 · 粉笔980 P12 · 8/10（80%） · 20 分钟", text)
@@ -356,7 +356,7 @@ class FlowTest(unittest.TestCase):
         api.practice({"board": "资料分析", "total": "5", "correct": "4", "minutes": "30"})
         api.lecture_add({"minutes": 20})
         d = api.dashboard({})
-        self.assertEqual(d["timesplit"]["today"], {"lecture": 20, "practice": 40, "review": 20, "self": 30})
+        self.assertEqual(d["timesplit"]["today"], {"lecture": 20, "practice": 40, "review": 20, "self": 30, "self_review": 0})
         self.assertEqual(d["timesplit"]["all"]["review"], 25)
         self.assertEqual(d["timesplit"]["week"]["review"], 20)
         trainer.SESSIONS["x"] = {"type": "bank"}
@@ -400,6 +400,33 @@ class FlowTest(unittest.TestCase):
             del trainer.SESSIONS["y"]
             self.assertEqual(trainer.study_board(g, "y"), "论证逻辑")
             self.assertEqual(trainer.study_board(g, "nope"), "")
+
+    def test_selfstudy(self):
+        old = self.vault / "训练/红尘历练"               # 旧版自练日志文件夹：第一次记演武时搬到 演武录
+        old.mkdir(parents=True)
+        (old / "2026-09.md").write_text("# 旧日志\n", encoding="utf-8")
+        api.practice({"board": "论证逻辑", "total": "5", "correct": "5", "minutes": "10"})
+        self.assertFalse(old.exists())
+        self.assertTrue((self.vault / "训练/演武录/2026-09.md").exists())
+        xp0 = self.state()["xp"]
+        api.selfstudy_add({"board": "论证逻辑", "minutes": 40, "topic": "削弱题口诀", "note": "他因还不熟"})
+        api.selfstudy_add({"minutes": 20})
+        d = api.dashboard({})
+        self.assertEqual([x["minutes"] for x in d["selfstudy"]], [20, 40])
+        self.assertEqual(d["timesplit"]["today"]["self_review"], 60)
+        self.assertEqual(d["timesplit"]["today"]["review"], 60)
+        self.assertEqual(d["timesplit"]["today"]["practice"], 10)
+        bt = {b["board"]: b for b in d["boardtime"]["today"]["boards"]}
+        self.assertEqual(bt["论证逻辑"]["review"], 40)
+        self.assertEqual(d["boardtime"]["today"]["loose"], 0)          # 不分模块的 20 分钟静修不再被分摊
+        self.assertGreater(self.state()["xp"], xp0)
+        text = next((self.vault / "训练/静修录").glob("*.md")).read_text(encoding="utf-8")
+        self.assertIn("论证逻辑 · 削弱题口诀 · 40 分钟", text)
+        self.assertIn("他因还不熟", text)
+        api.selfstudy_delete({"id": d["selfstudy"][1]["id"]})
+        self.assertEqual(api.dashboard({})["timesplit"]["today"]["self_review"], 20)
+        with self.assertRaises(api.ApiError):
+            api.selfstudy_add({"minutes": 0})
 
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
