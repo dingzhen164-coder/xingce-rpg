@@ -655,3 +655,23 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .st-ribbon.r { animation-direction: reverse; transform-origin: 126px 120px; }
 @keyframes st-ribbon { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-4deg) translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .st-halo, .st-ribbon { animation: none; } }
+
+/* 首页 · 十二经：同三才法印，小一号，一排四枚 */
+.orbs.orbs4 { grid-template-columns: repeat(4, 1fr); row-gap: 18px; }
+.orb.mini .orb-ring { width: min(150px, 19vw); padding: 5px; }
+.orb.mini .orb-ring::before { inset: -7px; animation-duration: 80s; }
+.orb.mini .orb-seal { font-size: min(92px, 12vw); }
+.orb.mini .orb-name { font-size: clamp(14px, 1.7vw, 19px); letter-spacing: .12em; }
+.orb.mini .orb-num { margin-top: 3px; }
+.orb.mini .orb-num b { font-size: clamp(17px, 2.2vw, 24px); }
+.orb.mini .orb-num i { font-size: 11px; }
+.orb.mini .orb-pct { font-size: 11px; }
+.orb-split { display: flex; gap: 6px; font-size: 11px; color: var(--muted); }
+.orb-split .l { color: var(--c-lecture); } .orb-split .p { color: var(--c-practice); } .orb-split .r { color: var(--c-review); }
+@media (max-width: 640px) {
+  .orbs.orbs4 { grid-template-columns: repeat(2, 1fr); }
+  .orb.mini .orb-ring { width: 36vw; }
+  .orb.mini .orb-seal { font-size: 22vw; }
+  .orb.mini .orb-name { font-size: 16px; }
+  .orb.mini .orb-num b { font-size: 22px; }
+}

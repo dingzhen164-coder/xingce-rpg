@@ -41,6 +41,28 @@ def study_kind(sid):
     return "practice" if typ in PRACTICE_TYPES else "review"
 
 
+LAST_BOARD = {}   # 会话 → 最近一次心跳时在练的模块（结束后看解析的几分钟也记到它）
+
+
+def study_board(g, sid):
+    """这个会话在练哪个模块（板块）：知识点试炼 点:板块:考点 → 板块；整套试炼按当前这道题的板块；不认识的返回空"""
+    s = SESSIONS.get(sid or "")
+    if not s:
+        return LAST_BOARD.get(sid or "", "")
+    b = s.get("board") or (s.get("task") or {}).get("board") or ""
+    if b.startswith(question_bank.POINT_PREFIX):
+        b = b[len(question_bank.POINT_PREFIX):].split(":", 1)[0]
+    elif b.startswith(question_bank.SET_PREFIX):
+        run = question_bank.state(g)["runs"].get(b) or {}
+        qs = run.get("questions") or []
+        b = qs[min(run.get("pos", 0), len(qs) - 1)]["board"] if qs else ""
+    b = b if b in question_bank.boards(g) else ""
+    if len(LAST_BOARD) > 300:
+        LAST_BOARD.clear()
+    LAST_BOARD[sid] = b
+    return b
+
+
 def is_studying(sid):
     """这个会话是否在“修炼”：正在进行的功课，或刚结束 3 分钟内（在看解析）。闲聊、编撰功法不算。"""
     s = SESSIONS.get(sid or "")

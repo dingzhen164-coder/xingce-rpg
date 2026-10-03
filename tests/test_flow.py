@@ -364,6 +364,28 @@ class FlowTest(unittest.TestCase):
         trainer.SESSIONS["x"] = {"type": "recite"}
         self.assertEqual(trainer.study_kind("x"), "review")
 
+    def test_board_time(self):
+        from rpg import question_bank
+        with api.open_game() as g:
+            g.add_seconds(600, "practice", "论证逻辑")
+            g.add_seconds(300, "review", "论证逻辑")
+            g.add_seconds(120, "review")                             # 不知道模块的不计入
+            boards = question_bank.boards(g)
+        api.lecture_add({"minutes": 30, "board": "论证逻辑"})
+        api.lecture_add({"minutes": 20})
+        api.practice({"board": "论证逻辑", "total": "5", "correct": "4", "minutes": "15"})
+        d = api.dashboard({})
+        bt = {b["board"]: b for b in d["boardtime"]["today"]}
+        self.assertEqual(list(bt), boards)
+        self.assertEqual(bt["论证逻辑"], {"board": "论证逻辑", "lecture": 30, "practice": 25, "review": 5, "total": 60})
+        # 知识点试炼 点:板块:考点 → 板块；会话结束后沿用最后的模块
+        trainer.SESSIONS["y"] = {"type": "bank", "board": "点:论证逻辑:削弱", "task": {}}
+        with api.open_game() as g:
+            self.assertEqual(trainer.study_board(g, "y"), "论证逻辑")
+            del trainer.SESSIONS["y"]
+            self.assertEqual(trainer.study_board(g, "y"), "论证逻辑")
+            self.assertEqual(trainer.study_board(g, "nope"), "")
+
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

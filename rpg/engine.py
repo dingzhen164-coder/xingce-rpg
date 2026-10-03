@@ -217,11 +217,33 @@ class Game:
         return {"lecture": int(round(lecture)), "practice": int(round(drill + self_practice)), "review": int(round(review)),
                 "self": int(self_practice)}
 
+    def board_time(self, days=None):
+        """十二模块的时辰：每个板块的听课（听道记录里选了模块的）、做题（含自练）、复习分钟。
+        修炼时间从加上模块统计那天起才分模块，之前的不计入。"""
+        from . import question_bank
+        keep = (lambda d: True) if days is None else (lambda d: d in days)
+        out = {b: {"lecture": 0.0, "practice": 0.0, "review": 0.0} for b in question_bank.boards(self)}
+        def add(b, k, m):
+            if b in out:
+                out[b][k] += m
+        for x in self.state.setdefault("lectures", []):
+            if keep(x["d"]) and x.get("board"):
+                add(x["board"], "lecture", x["minutes"])
+        for x in self.state["practice"]:
+            if keep(x["d"]):
+                add(x["board"], "practice", x.get("minutes", 0))
+        for d, per in self.state.setdefault("seconds_board", {}).items():
+            if keep(d):
+                for b, v in per.items():
+                    for k, sec in v.items():
+                        add(b, k, sec / 60)
+        return [{"board": b, **{k: int(round(v)) for k, v in m.items()}, "total": int(round(sum(m.values())))} for b, m in out.items()]
+
     def minutes(self, day):
         """每日功行 = 修炼 + 听道；每日目标、打卡、道心、周常都按这个算"""
         return self.study_minutes(day) + self.lecture_minutes(day)
 
-    def add_lecture(self, minutes, note="", day=None):
+    def add_lecture(self, minutes, note="", day=None, board=""):
         """记一笔听道。day 可以是最近 7 天内（忘了记可以补）；给少量修为（经验.听道每分钟）"""
         minutes = int(minutes)
         cap = int(self.rules.num("听道单次上限") or 600)
@@ -236,8 +258,11 @@ class Game:
         xp = int(round(minutes * self.rules.xp("听道每分钟")))
         ev = self._award(xp, "lecture", note="%s %d 分钟%s" % (self.T("lecture"), minutes, ("：" + note) if note else ""),
                          bonus=False) if xp else []
-        self.state["lectures"].append({"id": "%s-%d" % (ds, int(time.time() * 1000) % 10 ** 9), "d": ds,
-                                       "minutes": minutes, "note": str(note)[:40], "xp": xp})
+        rec = {"id": "%s-%d" % (ds, int(time.time() * 1000) % 10 ** 9), "d": ds,
+               "minutes": minutes, "note": str(note)[:40], "xp": xp}
+        if board:
+            rec["board"] = board[:20]
+        self.state["lectures"].append(rec)
         if ds == self.t and before < goal <= self.minutes(ds):
             ev.append(self._npc("今日达标"))
         return ev
@@ -1029,7 +1054,7 @@ class Game:
         since = (self.today - dt.timedelta(days=days - 1)).isoformat()
         return sorted((x for x in self.state["practice"] if x["d"] >= since), key=lambda x: (x["d"], x.get("id", "")), reverse=True)
 
-    def add_seconds(self, sec, kind="review"):
+    def add_seconds(self, sec, kind="review", board=""):
         """网页心跳：累加今天的修炼时间；跨过达标 / 超额线时导师说话；连续修炼太久触发走火入魔。
         kind：practice（做题）/ review（复习），给首页的三才时辰分类用"""
         before = self.minutes(self.t)
@@ -1037,6 +1062,9 @@ class Game:
         if kind == "practice":
             k = self.state.setdefault("seconds_kind", {}).setdefault(self.t, {})
             k["practice"] = k.get("practice", 0) + sec
+        if board:
+            b = self.state.setdefault("seconds_board", {}).setdefault(self.t, {}).setdefault(board, {})
+            b[kind] = b.get(kind, 0) + sec
         after = self.minutes(self.t)
         goal = self.rules.num("每日目标分钟")
         ev = []
@@ -1375,6 +1403,9 @@ class Game:
                         if retreat and time.time() < retreat["end"] else None),
             "rest": self.resting(),
             "lectures": [x for x in self.state.setdefault("lectures", []) if x["d"] >= (self.today - dt.timedelta(days=6)).isoformat()][::-1],
+            "boardtime": {"today": self.board_time({self.t}),
+                          "week": self.board_time({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}),
+                          "all": self.board_time()},
             "timesplit": {"today": self.time_split({self.t}),
                           "week": self.time_split({(self.today - dt.timedelta(days=k)).isoformat() for k in range(7)}),
                           "all": self.time_split()},

@@ -235,6 +235,7 @@ const views = {
       <div class="stat"><div class="k">🎯 预计 ${I.target_score} 分</div><div class="v">${I.eta || "—"}</div><div class="d">目标日 ${I.target}</div></div>
     </div>
     ${trib}
+    ${boardTimeCard(d)}
     ${lectureCard(d)}
     ${practiceCard(d)}
     <div class="grid g2" style="margin-top:14px">
@@ -425,7 +426,7 @@ function lectureCard(d) {
   const m = d.minutes, goal = m.goal || 300;
   const lec7 = (d.lectures || []).reduce((a, x) => a + x.minutes, 0);
   const days = lastDays();
-  const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
+  const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>${x.board ? `<span class="tag">${esc(x.board)}</span>` : ""}
       <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span><button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
   return `<div class="card lecture-card tone-lecture" style="margin-top:14px">
     <h3>📿 ${esc(W("lecture_title"))} <small>今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟 · 近 7 天 ${lec7} 分钟</small></h3>
@@ -434,6 +435,7 @@ function lectureCard(d) {
     <div class="row lec-form">
       <label>${esc(W("lecture"))}几分钟 <input type="number" id="lecMin" min="1" max="600" placeholder="如 90"></label>
       <span class="lec-quick">${[30, 60, 90, 120].map((n) => `<button class="ghost small" data-lec-q="${n}">${n}</button>`).join("")}</span>
+      <label>模块（可不选） <select id="lecBoard"><option value="">不分模块</option>${boardOptions(d.tree.map((t) => t.board).concat(d.side.map((s) => s.board)))}</select></label>
       <label style="flex:2">讲的什么（可不填） <input id="lecNote" maxlength="40" placeholder="如：粉笔 判断推理 第3讲"></label>
       <label>哪天 <select id="lecDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
       <button class="primary" id="lecGo">📿 记入</button></div>
@@ -486,6 +488,39 @@ function bindTimeCard() {
     try { localStorage.setItem("timeSpan", TIME_SPAN); } catch {}
     const el = document.querySelector(".sancai");
     if (el) { el.outerHTML = timeCard(DASH); bindTimeCard(); }
+  }));
+}
+// ------------------------------------------------------------ 十二经：各模块的时辰（同三才法印，一排四枚，每个模块一种颜色）
+const BOARD_COLORS = ["#c2463a", "#d9822b", "#c9a227", "#6e9f3a", "#2e9d6b", "#b03a5b", "#3f9e8f", "#2f7fb8", "#5b5fc7", "#8a4fbf", "#b85fa6", "#8c6d46"];
+let BOARD_SPAN = (() => { try { return localStorage.getItem("boardSpan") || "week"; } catch { return "week"; } })();
+function boardTimeCard(d) {
+  const bt = d.boardtime; if (!bt) return "";
+  const list = bt[BOARD_SPAN] || bt.week;
+  const total = list.reduce((a, b) => a + b.total, 0);
+  const top = Math.max(1, ...list.map((b) => b.total));
+  const orbs = list.map((b, i) => {
+    const share = total ? b.total / total : 0;
+    return `<div class="orb mini" style="--c:${BOARD_COLORS[i % BOARD_COLORS.length]};--share:${(share * 360).toFixed(1)}deg">
+      <div class="orb-ring"><div class="orb-core">
+        <div class="orb-seal">${esc(b.board.slice(0, 1))}</div>
+        <div class="orb-name">${esc(b.board)}</div>
+        <div class="orb-num">${hm(b.total)}</div>
+        <div class="orb-pct">${total ? Math.round(share * 100) + "%" : "—"}${b.total === top && total ? " · 最勤" : ""}</div>
+      </div></div>
+      <div class="orb-split"><span class="l" title="听课">听 ${b.lecture}</span><span class="p" title="做题（含自练）">题 ${b.practice}</span><span class="r" title="复习">复 ${b.review}</span></div></div>`;
+  }).join("");
+  return `<div class="card sancai shier" style="margin-top:14px">
+    <div class="sancai-head"><h3>☸ 十二经 · 各模块时辰 <small>听课（记听道时选了模块的）· 做题（含自练）· 复习，单位分钟</small></h3><span class="spacer"></span>
+      <div class="sancai-tabs">${[["today", "今日"], ["week", "近七日"], ["all", "累计"]].map(([k, n]) => `<a data-bspan="${k}" class="${k === BOARD_SPAN ? "on" : ""}">${n}</a>`).join("")}</div></div>
+    <div class="orbs orbs4">${orbs}</div>
+    <p class="small muted" style="margin:6px 0 0">共 ${Math.round(total)} 分钟。修炼里的时间从这一版起按模块记，之前的没分模块，不计入这里（三才时辰里照算）。</p></div>`;
+}
+function bindBoardTime() {
+  document.querySelectorAll("[data-bspan]").forEach((a) => (a.onclick = () => {
+    BOARD_SPAN = a.dataset.bspan;
+    try { localStorage.setItem("boardSpan", BOARD_SPAN); } catch {}
+    const el = document.querySelector(".shier");
+    if (el) { el.outerHTML = boardTimeCard(DASH); bindBoardTime(); }
   }));
 }
 // ------------------------------------------------------------ 红尘历练：首页记自练日志（好题收进题库在修仙录）
@@ -564,10 +599,11 @@ function bindLecture() {
     if (!minutes) return toast(`先填${W("lecture")}了几分钟`);
     try {
       const s0 = SETTLE.snap(), note = $("#lecNote").value.trim(), day = $("#lecDay");
-      const r = await api("/api/lecture", { minutes, note, date: day.value });
+      const lb = $("#lecBoard").value;
+      const r = await api("/api/lecture", { minutes, note, date: day.value, board: lb });
       handleEvents(r.events); await refresh(); render();
       SETTLE.show({ kind: "lecture", title: `${W("lecture")} ${minutes} 分钟`, sub: note, before: s0,
-        lines: day.selectedIndex ? [`补记 ${day.options[day.selectedIndex].text}`] : [] });
+        lines: [lb, day.selectedIndex ? `补记 ${day.options[day.selectedIndex].text}` : ""].filter(Boolean) });
     } catch (e) { showError(e); }
   };
   document.querySelectorAll("[data-lec-del]").forEach((b) => (b.onclick = async () => {
@@ -580,6 +616,7 @@ function bindHome() {
   bindLecture();
   bindPractice();
   bindTimeCard();
+  bindBoardTime();
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
   $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
   const gp = $("#goPill"); if (gp) gp.onclick = () => go("pill");

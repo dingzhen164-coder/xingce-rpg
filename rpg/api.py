@@ -34,7 +34,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/import/split         {"file"}  运行 xingce-mokao-split 拆分并导入那一季
     POST /api/import/install_pymupdf  用户点按钮才运行 pip install pymupdf
     GET  /api/appearance           背景 / 语录 / 音乐的可选项和当前选择；POST 同路径保存选择
-    POST /api/lecture              {"minutes", "note"?, "date"?}  记一笔听道（其他平台看网课），计入每日功行
+    POST /api/lecture              {"minutes", "note"?, "date"?, "board"?}  记一笔听道（其他平台看网课），计入每日功行
     POST /api/lecture/delete       {"id"}  删掉记错的一笔
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
@@ -320,7 +320,8 @@ def heartbeat(body):
     sec = max(0, min(90, int(body.get("seconds", 0))))
     studying = trainer.is_studying(body.get("session"))
     with open_game() as g:
-        ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(body.get("session")))) if studying and sec else []
+        sid = body.get("session")
+        ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(sid), trainer.study_board(g, sid))) if studying and sec else []
         return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 
@@ -363,7 +364,8 @@ def lecture_add(body):
     """记一笔听道（其他平台看网课的时间）"""
     with open_game() as g:
         try:
-            ev = g.add_lecture(body.get("minutes") or 0, str(body.get("note") or "").strip(), body.get("date") or None)
+            ev = g.add_lecture(body.get("minutes") or 0, str(body.get("note") or "").strip(), body.get("date") or None,
+                               str(body.get("board") or "").strip())
         except (ValueError, TypeError) as e:
             raise ApiError(str(e))
         return {"events": tutor.enrich(g, ev)}
