@@ -56,6 +56,16 @@ def main():
         for name in up:
             print(f"配置文件已升级到新版本：训练/{name}（旧文件备份为 训练/{name[:-3]}.旧版.md）")
         print(f"训练数据：{vault / '训练'}")
+        try:   # 一次性：修掉旧版转换时串进逻辑填空等题干的材料（只动对得上指纹的题干）
+            from rpg import api, zhenti
+            r = zhenti.fix_material_leak(Paths(vault))
+            if not r.get("done_before"):
+                with api.open_game() as g:
+                    n = zhenti.fix_material_state(g.state)
+                if r["fixed"] or n:
+                    print(f"已修复题干里串进的材料：题库 {r['fixed']} 题，作答记录 {n} 条")
+        except Exception as e:      # 修不了不影响启动
+            print(f"（修复材料串题时出错，已跳过：{e}）")
     else:
         print("还没找到行测库：打开网页后在“设置”里填写库的路径（含 copilot/skills 的那个文件夹）")
 

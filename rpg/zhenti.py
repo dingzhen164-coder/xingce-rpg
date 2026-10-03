@@ -353,17 +353,27 @@ RAW_MODULES = {'01-政治理论': '政治理论', '02-常识判断': '常识判�
 RAW_BOARD = {'政治理论': '政治理论', '常识判断': '常识判断', '数量关系': '数量关系'}
 VERBAL_BOARD = {'逻辑填空': '逻辑填空', '片段阅读': '片段阅读', '语句表达': '片段阅读'}
 BLANK = re.compile(r'(?<=\S)[ \u3000\u00a0]{3,}(?=\S)')   # 句子中间一串空格 = 原卷的填空横线
+# 材料管几道题：原题副本里材料下面的题和后面独立的题都是 ### 第 N 题，没有分界。
+# 统计全部 173 个材料：相邻两段材料之间最多 5 道题，所以一段材料最多管 5 道；
+# 不到 5 道就结束的，靠“自带一大段题干、又不提材料”认出后面的独立题（第 1 道总归是材料题）。
+MATERIAL_MAX = 5
+MATERIAL_REF = re.compile(r'材料|文中|上文|文段|本文|该文|画线|划线|横线|根据')
+
+
+def _own_passage(stem):
+    plain = re.sub(r'<[^>]+>|!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)', '', stem).strip()
+    return len(plain) >= 80 and not MATERIAL_REF.search(plain[:300])
 
 
 def parse_raw(path, module):
     t = path.read_text(encoding='utf-8')
     meta = dict(re.findall(r'^(\S+): "(.*)"$', t.split('\n---', 1)[0], re.M))
     base = str(path.parent)
-    out, material = [], ''
+    out, material, under = [], '', 0
     parts = re.split(r'^(#{2,3} (?:材料 \d+|第 \d+ 题.*))$', t, flags=re.M)
     for head, body in zip(parts[1::2], parts[2::2]):
         if head.startswith('## 材料'):
-            material = body.split('\n---')[0]
+            material, under = body.split('\n---')[0], 0
             continue
         if head.startswith('## '):
             material = ''
@@ -373,6 +383,10 @@ def parse_raw(path, module):
         images = set()
         body = body.split('\n---\n')[0]
         stem, _, rest = body.partition('\n- **A**')
+        if material:
+            under += 1
+            if under > MATERIAL_MAX or (under > 1 and _own_passage(stem)):
+                material = ''
         rest = '- **A**' + rest
         opts, answer = {}, ''
         for o in re.finditer(r'^- \*\*([A-H])\*\*[.．]\s*(.*)$', rest, re.M):
@@ -392,6 +406,135 @@ def parse_raw(path, module):
                     'module': module, 'board': board, 'topic': kind or module, 'stem': BLANK.sub('____', text),
                     'options': opts, 'answer': answer, 'analysis': to_text(ana, base, images), 'images': images})
     return out
+
+
+# ---------------------------------------------------------------- 修旧题库：材料串到后面的独立题上
+# 旧版 parse_raw 把一段材料接到了它后面所有 ### 题上（材料只管它下面那几道）。题库已经生成并合并过蒸馏解析，
+# 不能整份重转，所以只修题干：data/material_fix.json 记着每道受影响的题“正确题干”的长度和指纹，
+# 题干末尾正好是这段、前面多出一截的，才把多出的那截删掉；自己改过的题干对不上指纹，不动。
+FIX_FILE = Path(__file__).parent / 'data' / 'material_fix.json'
+FIX_MARK = '.材料串题已修复-v1'
+
+
+def _fp(text):
+    import hashlib
+    return hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]
+
+
+def _clean_stem(s):
+    return re.sub(r'^(#+)\s', lambda m: '＃' * len(m.group(1)) + ' ', s, flags=re.M)
+
+
+def build_material_fix(src, old_parse):
+    """生成修复表：{qid: [正确题干长度, 指纹]}（old_parse 是旧版 parse_raw，只收新旧不同的题）"""
+    out, seen = {}, set()
+    for folder, module in RAW_MODULES.items():
+        for f in sorted((Path(src) / folder).glob('*.md')):
+            if f.name == 'README.md':
+                continue
+            new = {q['qid']: q for q in parse_raw(f, module)}
+            for q in old_parse(f, module):
+                if q['qid'] in seen:
+                    continue
+                seen.add(q['qid'])
+                n = new.get(q['qid'])
+                if n and n['stem'] != q['stem']:
+                    good = _clean_stem(n['stem'])
+                    out[q['qid']] = [len(good), _fp(good)]
+    return out
+
+
+def _source_tag(stem):
+    """题干开头的来源括号（可能套括号：（2018年黑龙江省公务员考试（公检法）题（网友回忆版））"""
+    if not stem.startswith('（'):
+        return ''
+    depth = 0
+    for i, c in enumerate(stem[:120]):
+        depth += c == '（'
+        depth -= c == '）'
+        if depth == 0:
+            return stem[:i + 1]
+        if c == '\n':
+            break
+    return ''
+
+
+def trim_stem(stem, fix):
+    """题干末尾正好是正确题干（长度 + 指纹对得上）且前面多一截：返回修好的（保留来源括号），否则 None"""
+    prefix = _source_tag(stem)
+    rest = stem[len(prefix):]
+    L, fp = fix
+    if len(rest) > L and _fp(rest[-L:]) == fp:
+        return prefix + rest[-L:]
+    return None
+
+
+def fix_material_state(state):
+    """存档里的题目快照（作答记录、没做完的组）也修：回炉、续闯用的是快照"""
+    import json
+    if not FIX_FILE.is_file():
+        return 0
+    table = json.loads(FIX_FILE.read_text(encoding='utf-8'))
+    bank = state.get('bank') or {}
+    qs = [r.get('question') for r in (bank.get('records') or {}).values()]
+    qs += [q for run in (bank.get('runs') or {}).values() for q in run.get('questions', [])]
+    n = 0
+    for q in qs:
+        if not q or not str(q.get('id', '')).startswith('真题-'):
+            continue
+        fix = table.get(q['id'][3:])
+        good = trim_stem(q.get('stem', ''), fix) if fix else None
+        if good is not None:
+            q['stem'] = good
+            n += 1
+    return n
+
+
+def fix_material_leak(paths, force=False):
+    """按修复表删掉串进题干的材料。返回 {"fixed", "files"}；做过一次留个标记，下次启动不再扫"""
+    import json
+    folder = paths.train / '题库' if paths.train else None
+    if not folder or not folder.is_dir() or not FIX_FILE.is_file():
+        return {'fixed': 0, 'files': []}
+    mark = folder / FIX_MARK
+    if mark.exists() and not force:
+        return {'fixed': 0, 'files': [], 'done_before': True}
+    table = json.loads(FIX_FILE.read_text(encoding='utf-8'))
+    head = re.compile(r'^## 题目 真题-(\d+)[ \t]*$', re.M)
+    fixed, files = 0, []
+    for f in sorted(folder.glob('*真题*.md')):
+        text = f.read_text(encoding='utf-8')
+        if '真题-' not in text:
+            continue
+        out, pos, n = [], 0, 0
+        for m in head.finditer(text):
+            fix = table.get(m.group(1))
+            if not fix:
+                continue
+            start = text.find('\n### 题干\n', m.end())
+            nxt = head.search(text, m.end())
+            if start < 0 or (nxt and start > nxt.start()):
+                continue
+            body_start = start + len('\n### 题干\n')
+            body_end = text.find('\n### ', body_start)
+            if body_end < 0:
+                continue
+            stem = text[body_start:body_end]
+            good = trim_stem(stem, fix)
+            if good is not None:
+                out.append(text[pos:body_start] + good)
+                pos = body_end
+                n += 1
+        if n:
+            out.append(text[pos:])
+            f.write_text(''.join(out), encoding='utf-8', newline='\n')
+            fixed += n
+            files.append(f.name)
+    try:
+        mark.write_text('材料串题修复：%d 题（%s）\n' % (fixed, '、'.join(files)), encoding='utf-8')
+    except OSError:
+        pass
+    return {'fixed': fixed, 'files': files}
 
 
 def convert_raw(src, out, skip_ids=()):

@@ -210,6 +210,53 @@ class RawTest(unittest.TestCase):
             self.assertEqual([b['t'] for b in trainer._bank_blocks(g, '逻辑填空', q['analysis'])], ['text'])
 
 
+    def test_material_only_covers_its_questions(self):
+        def q(n, stem):
+            return ('### 第 %d 题　<sub>qid %d · 片段阅读</sub>\n\n%s\n\n- **A**. 甲　✅\n- **B**. 乙\n- **C**. 丙\n- **D**. 丁\n\n'
+                    '**答案**：A\n\n**官方解析**\n\n无\n\n---\n\n' % (n, 900 + n, stem))
+        long_ = '“致天下之治者在人才。”在当今人才竞争日趋激烈的背景下，如何网罗天下英才为我所用？如何让专家人才地贡献才智、施展才华、创新创业？' * 2
+        t = ('---\n试卷: "卷"\n年份: "2020"\n---\n\n## 材料 1\n\n①一段关于算法的材料。\n\n'
+             + q(1, '这段文字意在说明：') + q(2, long_) + '## 材料 2\n\n第二段材料。\n\n'
+             + ''.join(q(k, '根据材料，下列说法正确的是：') for k in range(3, 9)))
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'x.md'
+            f.write_text(t, encoding='utf-8')
+            got = {x['num']: x['stem'] for x in zhenti.parse_raw(f, '言语理解与表达')}
+        self.assertIn('算法的材料', got[1])
+        self.assertNotIn('算法的材料', got[2])            # 自带一大段、不提材料：独立题
+        self.assertTrue(all('第二段材料' in got[k] for k in range(3, 8)))
+        self.assertNotIn('第二段材料', got[8])           # 一段材料最多管 5 道
+
+    def test_fix_leaked_material_in_old_bank(self):
+        good = '“致天下之治者在人才。”如何让专家人才____地贡献才智？\n填入画横线部分最恰当的一项是'
+        table = {'2453277': [len(good), zhenti._fp(good)], '1': [len(good), zhenti._fp(good)]}
+        blk = lambda qid, stem: '## 题目 真题-%s\n### 知识点\n逻辑填空\n### 题干\n%s\n### 选项\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n### 答案\nA\n### 解析\n原解析\n\n' % (qid, stem)
+        src = '（2020年北京市公务员录用考试（乡镇卷）题（网友回忆版））'
+        with tempfile.TemporaryDirectory() as d:
+            p = paths.Paths(Path(d))
+            (p.train / '题库').mkdir(parents=True)
+            fx = Path(d) / 'fix.json'
+            fx.write_text(__import__('json').dumps(table), encoding='utf-8')
+            old, zhenti.FIX_FILE = zhenti.FIX_FILE, fx
+            try:
+                f = p.train / '题库' / '逻辑填空真题-2020.md'
+                f.write_text('# 头\n\n' + blk('2453277', src + '①算法材料。\n②更多。\n\n' + good)
+                             + blk('1', '我自己改过的' + good + '！'), encoding='utf-8')
+                r = zhenti.fix_material_leak(p)
+                self.assertEqual((r['fixed'], r['files']), (1, ['逻辑填空真题-2020.md']))
+                text = f.read_text(encoding='utf-8')
+                self.assertIn('### 题干\n' + src + good + '\n### 选项', text)
+                self.assertNotIn('算法材料', text)
+                self.assertIn('我自己改过的', text)          # 指纹对不上的不动
+                self.assertTrue(zhenti.fix_material_leak(p).get('done_before'))
+                state = {'bank': {'records': {'逻辑填空::真题-2453277': {'question': {'id': '真题-2453277', 'stem': src + '材料\n\n' + good}}},
+                                  'runs': {}}}
+                self.assertEqual(zhenti.fix_material_state(state), 1)
+                self.assertEqual(state['bank']['records']['逻辑填空::真题-2453277']['question']['stem'], src + good)
+            finally:
+                zhenti.FIX_FILE = old
+
+
 if __name__ == '__main__':
     unittest.main()
 
