@@ -24,7 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import question_bank, ai, prompts, skeleton, tutor, vault
+from . import question_bank, ai, idioms, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
 FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
@@ -1110,6 +1110,14 @@ def _settle(g, s, run, keep=False):
         main = max(group['boards'], key=lambda b: sum(q['board'] == b for q in run['questions']))
         events = g._award(base, 'bank_clear', main if question_bank.is_set(s['board']) else s['board'], ok=True,
                           note='%s · %s 通关' % (g.T('bank'), question_bank.label(s['board'])))
+    # 逻辑填空：正确选项里的成语 / 实词收进藏经阁·成语实词录
+    try:
+        new = idioms.harvest(g, [q for q, _ in zip(run['questions'], run['results'])])
+    except Exception:     # 收录出错不影响交卷
+        new = []
+    if new:
+        events = list(events) + [{'kind': 'info', 'msg': '📗 成语实词录新收 %d 个：%s%s' % (
+            len(new), '、'.join(new[:8]), ' 等' if len(new) > 8 else '')}]
     return group, events
 
 

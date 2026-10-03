@@ -316,6 +316,42 @@ class BankTest(unittest.TestCase):
         self.assertNotIn('类比推理', bank.state(self.g)['runs'])
         self.assertEqual(bank.summary(self.g)['groups'][0]['correct'], 2)
 
+    def test_idiom_book_from_logic_fill(self):
+        from rpg import idioms
+        fill = ('\n## 题目 F1\n### 知识点\n逻辑填空-成语辨析\n### 题干\n这种理念____，乡村游____。\n### 选项\n'
+                'A. 主张  如火如荼\nB. 强调  此起彼伏\nC. 遵循  崭露头角\nD. 蕴含  方兴未艾\n### 答案\nD\n### 解析\n'
+                '第一空，搭配“农业文明”，A项“主张”的主语通常是人，排除；D项“蕴含”指包含，放入此处恰当，当选。\n'
+                '第二空，A项“如火如荼”形容气势旺盛、热烈或激烈，D项“方兴未艾”形容形势或事物正在蓬勃发展，均能体现，保留。B项“此起彼伏”形容此处起来，彼处落下，排除。\n'
+                '故正确答案为D。\n【文段出处】《某文》\n'
+                '\n## 题目 F2\n### 知识点\n逻辑填空\n### 题干\n只有____才____。\n### 选项\nA. 只有 才\nB. 只要 就\nC. 无论 都\nD. 即使 也\n### 答案\nA\n### 解析\n关联词。\n')
+        (self.paths.train / '题库/逻辑填空真题.md').write_text(fill, encoding='utf-8')
+        self.assertEqual([idioms.letter(w) for w in ('蕴含', '方兴未艾', '长治久安', '龃龉')], ['Y', 'F', 'C', '#'])
+        task = {'type': 'bank', 'board': '逻辑填空', 'title': '实战', 'target': '逻辑填空', 'id': 'bank:逻辑填空'}
+        sid = trainer.start(self.g, task)['session']
+        trainer.action(self.g, sid, 'exam_pick:0:D')
+        r = trainer.action(self.g, sid, 'exam_pick:1:B')
+        r = trainer.action(self.g, sid, 'exam_submit')
+        self.assertIn('成语实词录新收 2 个：蕴含、方兴未艾', str(r['events']))      # 关联词不收
+        book = idioms.listing(self.g)
+        self.assertEqual([e['word'] for e in book['entries']], ['方兴未艾', '蕴含'])
+        self.assertEqual(book['letters'], {'F': 1, 'Y': 1})
+        e = next(x for x in book['entries'] if x['word'] == '方兴未艾')
+        s = e['sources'][0]
+        self.assertEqual(s['meaning'], '形容形势或事物正在蓬勃发展')
+        self.assertEqual([(o['option'], o['word'], o['meaning']) for o in s['others']],
+                         [('A', '如火如荼', '形容气势旺盛、热烈或激烈'), ('B', '此起彼伏', '形容此处起来，彼处落下'), ('C', '崭露头角', '')])
+        self.assertTrue(s['compare'].startswith('第二空'))
+        self.assertEqual((s['key'], s['blank'], s['answer'], s['source']), ('逻辑填空::F1', 2, 'D', '逻辑填空真题.md'))
+        self.assertEqual(next(x for x in book['entries'] if x['word'] == '蕴含')['sources'][0]['meaning'], '指包含')
+        text = (self.paths.train / '成语实词录.md').read_text(encoding='utf-8')
+        self.assertIn('## F\n\n### 方兴未艾', text)
+        self.assertIn('[[逻辑填空真题#题目 F1|F1]]', text)
+        self.assertIn('如火如荼（A项）：形容气势旺盛、热烈或激烈', text)
+        # 补收以前做过的：不重复
+        r = idioms.backfill(self.g)
+        self.assertEqual((r['new'], r['total']), ([], 2))
+        self.assertEqual(len(idioms.data(self.g)['方兴未艾']['sources']), 1)
+
     def test_exam_timing_table_and_log(self):
         f = self.paths.train / '题库/类比推理真题.md'
         f.write_text(''.join(question(x) for x in ('01', '02')), encoding='utf-8')

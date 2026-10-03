@@ -19,6 +19,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
+    GET  /api/idioms               藏经阁·成语实词录：按首字拼音首字母排的词条
+    POST /api/idioms/backfill      把以前做过的逻辑填空题一次收进成语实词录
     GET  /api/mock                 宗门大比：各季模考成绩、六大模块正确率 / 得分 / 用时、走势
     POST /api/mock/save            {"season", "score", "avg", "top", "beat", "rank", "people", "date", "minutes": {模块}, "scores": {模块}}
     POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  演武（自练做题）+ 日志；"date" 可补记最近 7 天
@@ -56,7 +58,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, importer, library, mock, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, idioms, importer, library, mock, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -230,6 +232,17 @@ def import_upload_pdf(body):
 def import_split(body):
     rep = _import_call(importer.split_pdf, body)
     return _mock_imported(rep, rep.get("season"))
+
+
+def idioms_list(body):
+    with open_game(save=False) as g:
+        return idioms.listing(g)
+
+
+def idioms_backfill(body):
+    with open_game() as g:
+        r = idioms.backfill(g)
+        return dict(r, **idioms.listing(g))
 
 
 def mock_summary(body):
@@ -583,6 +596,8 @@ ROUTES = {
     ("POST", "/api/boss"): boss,
     ("POST", "/api/practice"): practice,
     ("GET", "/api/mock"): mock_summary,
+    ("GET", "/api/idioms"): idioms_list,
+    ("POST", "/api/idioms/backfill"): idioms_backfill,
     ("POST", "/api/mock/save"): mock_save,
     ("POST", "/api/practice/delete"): practice_delete,
     ("POST", "/api/selfstudy"): selfstudy_add,

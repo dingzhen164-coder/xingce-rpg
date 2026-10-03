@@ -283,7 +283,9 @@ const views = {
   async skeleton() {
     const tabs = `<div class="lib-head"><h2>${esc(NAV('skeleton'))}</h2><div class="lib-tabs">
       <button class="${LIB.tab === 'gongfa' ? 'on' : ''}" data-libtab="gongfa">📜 功法</button>
-      <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">💠 玉简 · 题库</button></div></div>`;
+      <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">💠 玉简 · 题库</button>
+      <button class="${LIB.tab === 'idioms' ? 'on' : ''}" data-libtab="idioms">📗 成语实词录</button></div></div>`;
+    if (LIB.tab === 'idioms') return tabs + `<div class="id-root">${await IDIOMS.render()}</div>`;
     if (LIB.tab === 'yujian') return tabs + await yujianHtml() + importCardHtml();
     const sk = await api("/api/skeletons");
     if (LIB.open) {
@@ -1194,6 +1196,15 @@ async function yjList() {
     if ($('#yjPrev')) $('#yjPrev').onclick = () => { y.page--; yjList(); };
     if ($('#yjNext')) $('#yjNext').onclick = () => { y.page++; yjList(); };
     box.querySelectorAll('.yj-row').forEach(row => row.onclick = (e) => { if (!e.target.closest('.yj-detail')) yjOpen(row); });
+    if (y.from === 'idioms') {       // 从成语实词录跳过来的：给个回去的按钮
+      box.insertAdjacentHTML('afterbegin', '<button class="ghost small" id="yjBackIdioms">← 回成语实词录</button>');
+      $('#yjBackIdioms').onclick = () => { Object.assign(y, { q: '', board: '', from: '' }); LIB.tab = 'idioms'; render(); };
+    }
+    if (y.openKey) {                 // 跳转过来要直接展开的那道题
+      const row = [...box.querySelectorAll('.yj-row')].find(r => r.dataset.key === y.openKey);
+      y.openKey = '';
+      if (row) { await yjOpen(row); row.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    }
   } catch (e) { box.innerHTML = `<p>⚠ ${esc(e.message)}</p>`; }
 }
 async function yjOpen(row) {
@@ -1220,6 +1231,7 @@ function bindLibrary() {
   document.querySelectorAll('[data-slip]').forEach(t => t.onclick = () => { Object.assign(y, { board: t.dataset.slip, topic: '', page: 0 }); render(); });
   document.querySelectorAll('[data-topic]').forEach(t => t.onclick = () => { y.topic = t.dataset.topic; y.page = 0; render(); });
   if ($('#yjHome')) $('#yjHome').onclick = () => { Object.assign(y, { q: '', board: '', topic: '', status: '', page: 0 }); render(); };
+  if (LIB.tab === 'idioms') IDIOMS.bind();
   yjList();
 }
 function bindSkeleton() {
