@@ -32,7 +32,9 @@ FUNCTION = set('就 才 也 都 而 且 却 但 则 并 又 还 更 再 已 及 
 
 
 def is_word(w):
-    return bool(w) and '…' not in w and '...' not in w and w not in FUNCTION and not re.fullmatch(r'[\W\d_]+', w)
+    return bool(re.fullmatch(r'[\u4e00-\u9fff]{2,12}', w or '')) and w not in FUNCTION   # 只收汉字词（排序题的③①②、字母数字不收）
+
+
 STOP = re.compile(r'；|。|\n|“|，(?:[A-D](?:项|、)|均|都|皆|符合|不符合|与文|与语|与后|与前|与“|与大|与上|与下|置于|用于此|填入|放到|放于|体现|说明|对应|和文|同文|这里|此处|放在|放入|用在|代入|搭配|故|保留|排除|当选|文段|可以|能够|不能|无法|没有|而文|但文|且)')
 
 
@@ -226,6 +228,8 @@ def harvest(g, questions):
         if words is None:
             words = vocab(g)
         for w, src in entries_of(q, words):
+            if w in deleted(g):
+                continue
             e = book.get(w)
             if not e:
                 e = book[w] = {'word': w, 'letter': letter(w), 'added': g.t, 'sources': []}
@@ -233,6 +237,7 @@ def harvest(g, questions):
             old = next((s for s in e['sources'] if s['key'] == src['key'] and s['blank'] == src['blank']), None)
             src['date'] = old['date'] if old else g.t
             if old:
+                _keep_mine(old, src)
                 e['sources'][e['sources'].index(old)] = src     # 题库解析更新过：用新的
             else:
                 e['sources'].append(src)
@@ -241,7 +246,7 @@ def harvest(g, questions):
     return new
 
 
-VERSION = 2   # 2：粉笔模考选项连在一起时按空数切词
+VERSION = 3   # 2：粉笔模考选项连在一起时按空数切词；3：只收汉字词
 
 
 def migrate(g):
@@ -257,8 +262,12 @@ def migrate(g):
         qs = []
         for b in {s['board'] for e in book.values() for s in e['sources']}:
             qs += [q for q in question_bank.read_all(g.paths, b)[0] if q['key'] in dates]
+        kept = {w: e for w, e in book.items() if any(s.get('edited') or s.get('tutor') for s in e['sources'])}
         book.clear()
         harvest(g, qs)
+        for w, e in kept.items():          # 改过的、师傅答过的词条原样留着
+            if is_word(w) or any(s.get('edited') for s in e['sources']):
+                book[w] = e
         for e in book.values():
             for s in e['sources']:
                 s['date'] = dates.get(s['key'], s['date'])
@@ -266,6 +275,88 @@ def migrate(g):
         write_file(g)
     g.state['idioms_ver'] = VERSION
     return True
+
+
+def _keep_mine(old, src):
+    """同一题再收一次（题库解析更新过）：自己改过的、师傅答过的、师傅补的释义留着"""
+    if old.get('edited'):
+        src.update(meaning=old.get('meaning', ''), compare=old.get('compare', ''), edited=True)
+    elif old.get('tutor'):
+        src.update(compare=old.get('compare', ''), tutor=True)
+        if not src['meaning'] and old.get('meaning'):
+            src['meaning'] = old['meaning']
+    for o in src['others']:
+        om = next((x for x in old.get('others', []) if x['word'] == o['word']), None)
+        if om and om.get('meaning') and not o['meaning']:
+            o['meaning'] = om['meaning']
+
+
+def deleted(g):
+    return g.state.setdefault('idioms_deleted', [])
+
+
+def _entry(g, word):
+    e = data(g).get(word)
+    if not e:
+        raise ValueError('找不到词条「%s」' % word)
+    return e
+
+
+def edit(g, word, body):
+    """修改词条：词本身（改名，和已有的同名词条合并）、每条出处的释义和辨析"""
+    e = _entry(g, word)
+    for i, s in enumerate(e['sources']):
+        mine = (body.get('sources') or {}).get(str(i)) or {}
+        for k in ('meaning', 'compare'):
+            if k in mine:
+                s[k] = str(mine[k] or '').strip()[:900]
+                s['edited'] = True
+    new = str(body.get('word') or word).strip()
+    if new and new != word:
+        if len(new) > 12:
+            raise ValueError('词条名太长')
+        book = data(g)
+        book.pop(word)
+        if new in book:
+            book[new]['sources'] += e['sources']
+        else:
+            e.update(word=new, letter=letter(new))
+            book[new] = e
+        if word not in deleted(g):
+            deleted(g).append(word)        # 以后收录不再按旧名字收回来
+        if new in deleted(g):
+            deleted(g).remove(new)
+    write_file(g)
+    return data(g)[new or word]
+
+
+def delete(g, word):
+    _entry(g, word)
+    data(g).pop(word)
+    if word not in deleted(g):
+        deleted(g).append(word)
+    write_file(g)
+
+
+def ask_tutor(g, word):
+    """师傅答疑：每条出处让 AI 写一句话辨析，替换原来的辨析；解析没给的释义补上（标“师傅补”）"""
+    from . import ai, prompts
+    e = _entry(g, word)
+    for s in e['sources']:
+        r = ai.chat_json(prompts.idiom_compare(g.persona, word, s), temperature=0.4, max_tokens=600)
+        text = str(r.get('辨析') or '').strip()
+        if text:
+            s['compare'] = text
+            s['tutor'] = True
+        means = r.get('释义') or {}
+        if isinstance(means, dict):
+            if not s.get('meaning') and means.get(word):
+                s['meaning'] = '（师傅补）' + str(means[word]).strip()[:60]
+            for o in s.get('others', []):
+                if not o.get('meaning') and means.get(o['word']):
+                    o['meaning'] = '（师傅补）' + str(means[o['word']]).strip()[:60]
+    write_file(g)
+    return e
 
 
 def backfill(g):
@@ -309,7 +400,7 @@ def write_file(g):
                 out.append('- **本题其他选项**：' + '；'.join('%s（%s项）%s' % (o['word'], o['option'], '：' + o['meaning'] if o['meaning'] else '')
                                                        for o in s['others']))
             if s['compare']:
-                out.append('- **辨析**：' + s['compare'].replace('\n', ' '))
+                out.append('- **%s**：' % ('辨析（🧙 师傅）' if s.get('tutor') and not s.get('edited') else '辨析') + s['compare'].replace('\n', ' '))
             out.append('- **真题**：%s%s · 第 %d 空 · 正确选项 %s「%s」 · 收于 %s' % (
                 link, ('（%s）' % s['paper']) if s['paper'] else '', s['blank'], s['answer'], s['option_text'], s['date']))
             out.append('')

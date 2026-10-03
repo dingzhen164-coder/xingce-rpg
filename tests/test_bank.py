@@ -351,6 +351,30 @@ class BankTest(unittest.TestCase):
         r = idioms.backfill(self.g)
         self.assertEqual((r['new'], r['total']), ([], 2))
         self.assertEqual(len(idioms.data(self.g)['方兴未艾']['sources']), 1)
+        # 师傅答疑：一句话辨析替换原辨析，解析没写的释义补上
+        reply = {'辨析': '方兴未艾重“正在兴起”，如火如荼重“热烈”，此处写发展势头，选方兴未艾。', '释义': {'崭露头角': '比喻初显才能'}}
+        with patch.object(trainer.ai, 'chat_json', return_value=reply) as m:
+            idioms.ask_tutor(self.g, '方兴未艾')
+        self.assertIn('方兴未艾', m.call_args[0][0][-1]['content'])
+        s = idioms.data(self.g)['方兴未艾']['sources'][0]
+        self.assertEqual((s['compare'], s['tutor']), (reply['辨析'], True))
+        self.assertEqual(s['others'][2]['meaning'], '（师傅补）比喻初显才能')
+        self.assertIn('辨析（🧙 师傅）', (self.paths.train / '成语实词录.md').read_text(encoding='utf-8'))
+        idioms.backfill(self.g)                                                    # 再收一次不覆盖师傅的
+        self.assertEqual(idioms.data(self.g)['方兴未艾']['sources'][0]['compare'], reply['辨析'])
+        # 修改：释义自己写，改名
+        idioms.edit(self.g, '蕴含', {'word': '蕴涵', 'sources': {'0': {'meaning': '包含（自己写的）'}}})
+        book = idioms.data(self.g)
+        self.assertNotIn('蕴含', book)
+        self.assertEqual((book['蕴涵']['letter'], book['蕴涵']['sources'][0]['meaning']), ('Y', '包含（自己写的）'))
+        idioms.backfill(self.g)                                                    # 旧名字不会被收回来
+        self.assertNotIn('蕴含', idioms.data(self.g))
+        # 删除：以后也不收回来
+        idioms.delete(self.g, '方兴未艾')
+        self.assertEqual(idioms.backfill(self.g)['new'], [])
+        self.assertEqual(sorted(idioms.data(self.g)), ['蕴涵'])
+        with self.assertRaises(ValueError):
+            idioms.delete(self.g, '方兴未艾')
 
     def test_idiom_book_splits_joined_options(self):
         from rpg import idioms

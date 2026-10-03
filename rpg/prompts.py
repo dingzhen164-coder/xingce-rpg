@@ -226,3 +226,16 @@ def teach(p, board, item, content, digest, examples):
                 "不用 Markdown 标题，可以用编号；1200 字以内。\n"
                 f"这一项在骨架里的内容：\n{content or '（空）'}\n\n例题：\n{ex}\n\n"
                 f"skill资料：\n{digest or '（这个板块还没有 skill 资料，按通用方法讲）'}")}]
+
+
+def idiom_compare(p, word, src):
+    """成语实词录·师傅答疑：这个空的几个选项词，一句话说清区别；解析没给的释义顺手补上"""
+    others = "\n".join(f"- {o['word']}（{o['option']}项）：{o.get('meaning') or '（解析没写）'}" for o in src.get("others", []))
+    return [{"role": "system", "content": persona_system(p) + "\n你在给弟子整理逻辑填空的成语实词录。只输出 JSON，不要别的文字。"},
+            {"role": "user", "content": (
+                f"这道逻辑填空第 {src.get('blank', 1)} 空，正确答案是「{word}」（{src.get('answer', '')}项），释义：{src.get('meaning') or '（解析没写）'}\n"
+                f"同一空的其他选项：\n{others or '（无）'}\n"
+                f"原解析里讲这一空的话（参考）：{src.get('compare') or '（无）'}\n\n"
+                "请输出 JSON：{\"辨析\": \"一句话说清这几个词的区别（各自侧重 / 语义轻重 / 搭配对象 / 感情色彩），"
+                "60 字以内，点明为什么这里选「" + word + "」\", "
+                "\"释义\": {\"词\": \"不超过 25 字的释义\"}（只给上面写着“解析没写”的词）}")}]

@@ -774,3 +774,10 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .id-cmp summary { cursor: pointer; color: var(--muted); }
 .id-cmp div { margin-top: 4px; color: var(--muted); line-height: 1.7; }
 .id-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.id-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.id-tutor { margin-left: auto; border-color: color-mix(in srgb, var(--gold) 60%, transparent); color: var(--gold); }
+.id-cmp-short { margin-top: 6px; font-size: 13px; line-height: 1.7; padding: 6px 8px; border-radius: 8px;
+  background: color-mix(in srgb, var(--gold) 9%, transparent); }
+.id-card.editing { border-left-color: var(--accent); }
+.id-card.editing label { display: block; margin-top: 6px; }
+.id-card.editing textarea, .id-card.editing input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; resize: vertical; }

@@ -4,6 +4,7 @@
 (function () {
   let DATA = null;
   let Q = "";          // 词条搜索
+  let EDIT = "";       // 正在修改的词条
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const LETTERS = "ABCDEFGHJKLMNOPQRSTWXYZ#".split("");
 
@@ -11,12 +12,26 @@
     const srcs = e.sources.map((s) => `<div class="id-src">
         <div class="id-mean"><span class="id-k">释义</span>${s.meaning ? esc(s.meaning) : '<span class="faint">解析里没有单独解释，看下面的辨析</span>'}</div>
         ${s.others.length ? `<div class="id-others"><span class="id-k">本题其他选项</span>${s.others.map((o) => `<span class="id-other" title="${esc(o.meaning || "解析里没有单独解释")}"><b>${esc(o.option)}</b> ${esc(o.word)}${o.meaning ? `<i>：${esc(o.meaning)}</i>` : ""}</span>`).join("")}</div>` : ""}
-        ${s.compare ? `<details class="id-cmp"><summary><span class="id-k">辨析</span>（本题解析里讲第 ${s.blank} 空的那段）</summary><div>${esc(s.compare).replace(/\n/g, "<br>")}</div></details>` : ""}
+        ${s.compare ? (s.tutor || s.edited
+          ? `<div class="id-cmp-short"><span class="id-k">${s.tutor && !s.edited ? "🧙 师傅辨析" : "辨析"}</span>${esc(s.compare).replace(/\n/g, "<br>")}</div>`
+          : `<details class="id-cmp"><summary><span class="id-k">辨析</span>（本题解析里讲第 ${s.blank} 空的那段）</summary><div>${esc(s.compare).replace(/\n/g, "<br>")}</div></details>`) : ""}
         <div class="id-foot"><button class="ghost small id-jump" data-idkey="${esc(s.key)}" data-idq="${esc(s.id)}" data-idboard="${esc(s.board)}">↗ ${esc(s.id)}</button>
           <span class="faint small">${esc(s.paper || "")}${s.blanks > 1 ? ` · 第 ${s.blank} 空` : ""} · 正确选项 ${esc(s.answer)}「${esc(s.option_text)}」 · 收于 ${esc(s.date)}</span></div>
       </div>`).join("");
+    if (EDIT === e.word) return editCard(e);
     return `<div class="id-card" id="idw-${esc(e.word)}"><div class="id-head"><span class="id-word">${esc(e.word)}</span><span class="id-letter">${esc(e.letter)}</span>
-        ${e.sources.length > 1 ? `<span class="tag">考过 ${e.sources.length} 次</span>` : ""}</div>${srcs}</div>`;
+        ${e.sources.length > 1 ? `<span class="tag">考过 ${e.sources.length} 次</span>` : ""}</div>${srcs}
+      <div class="id-acts"><button class="ghost small" data-idedit="${esc(e.word)}">✏ 修改</button><button class="ghost small" data-iddel="${esc(e.word)}">🗑 删除</button>
+        <button class="small id-tutor" data-idtutor="${esc(e.word)}" title="让师傅把这几个词的区别用一句话讲清，替换上面的辨析">🧙 师傅答疑</button></div></div>`;
+  }
+
+  function editCard(e) {
+    return `<div class="id-card editing" id="idw-${esc(e.word)}"><div class="id-head"><label class="small muted">词条 <input id="idEdWord" value="${esc(e.word)}" maxlength="12"></label></div>
+      ${e.sources.map((s, i) => `<div class="id-src"><div class="small faint">${esc(s.id)}${s.blanks > 1 ? ` · 第 ${s.blank} 空` : ""}</div>
+        <label class="small muted">释义<textarea rows="2" data-edmean="${i}">${esc(s.meaning)}</textarea></label>
+        <label class="small muted">辨析<textarea rows="4" data-edcmp="${i}">${esc(s.compare)}</textarea></label></div>`).join("")}
+      <div class="id-acts"><button class="primary small" id="idEdSave">保存</button><button class="ghost small" id="idEdCancel">取消</button>
+        <span class="small muted">改过的不会被以后的收录覆盖</span></div></div>`;
   }
 
   function html() {
@@ -65,6 +80,29 @@
       const el = document.getElementById("idl-" + a.dataset.idletter);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
+    document.querySelectorAll("[data-idedit]").forEach((b) => (b.onclick = () => { EDIT = b.dataset.idedit; rerender(); scrollTo(EDIT); }));
+    if ($("#idEdCancel")) $("#idEdCancel").onclick = () => { const w = EDIT; EDIT = ""; rerender(); scrollTo(w); };
+    if ($("#idEdSave")) $("#idEdSave").onclick = async () => {
+      const sources = {};
+      document.querySelectorAll("[data-edmean]").forEach((t) => { (sources[t.dataset.edmean] ||= {}).meaning = t.value; });
+      document.querySelectorAll("[data-edcmp]").forEach((t) => { (sources[t.dataset.edcmp] ||= {}).compare = t.value; });
+      const nw = $("#idEdWord").value.trim();
+      try {
+        DATA = await api("/api/idioms/edit", { word: EDIT, new_word: nw, sources });
+        toast("已保存「" + nw + "」"); EDIT = ""; rerender(); scrollTo(nw);
+      } catch (e) { showError(e); }
+    };
+    document.querySelectorAll("[data-iddel]").forEach((b) => (b.onclick = async () => {
+      const w = b.dataset.iddel;
+      if (!confirm(`删除词条「${w}」？以后收录也不会再把它收回来。`)) return;
+      try { DATA = await api("/api/idioms/delete", { word: w }); toast("已删除「" + w + "」"); rerender(); } catch (e) { showError(e); }
+    }));
+    document.querySelectorAll("[data-idtutor]").forEach((b) => (b.onclick = async () => {
+      const w = b.dataset.idtutor;
+      b.disabled = true; b.textContent = "🧙 师傅思考中…";
+      try { DATA = await api("/api/idioms/tutor", { word: w }); toast("师傅答疑好了：「" + w + "」的辨析已更新"); rerender(); scrollTo(w); }
+      catch (e) { showError(e); b.disabled = false; b.textContent = "🧙 师傅答疑"; }
+    }));
     // 真题跳转：切到玉简，搜这道题的编号并直接展开
     document.querySelectorAll(".id-jump").forEach((b) => (b.onclick = () => {
       LIB.tab = "yujian";
@@ -72,6 +110,10 @@
       window.scrollTo(0, 0);
       window.render();
     }));
+  }
+  function scrollTo(w) {
+    const el = document.getElementById("idw-" + w);
+    if (el) el.scrollIntoView({ block: "center" });
   }
   function rerender() {
     const v = document.getElementById("view");

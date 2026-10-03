@@ -21,6 +21,9 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
     GET  /api/idioms               藏经阁·成语实词录：按首字拼音首字母排的词条
     POST /api/idioms/backfill      把以前做过的逻辑填空题一次收进成语实词录
+    POST /api/idioms/edit          {"word", "new_word"?, "sources": {"0": {"meaning", "compare"}}}  修改词条
+    POST /api/idioms/delete        {"word"}  删除词条（以后收录也不再收回来）
+    POST /api/idioms/tutor         {"word"}  师傅答疑：AI 写一句话辨析，替换原辨析
     GET  /api/mock                 宗门大比：各季模考成绩、六大模块正确率 / 得分 / 用时、走势
     POST /api/mock/save            {"season", "score", "avg", "top", "beat", "rank", "people", "date", "minutes": {模块}, "scores": {模块}}
     POST /api/practice             {"board", "total", "correct", "minutes", "source", "note"}  演武（自练做题）+ 日志；"date" 可补记最近 7 天
@@ -244,6 +247,31 @@ def idioms_backfill(body):
     with open_game() as g:
         r = idioms.backfill(g)
         return dict(r, **idioms.listing(g))
+
+
+def _idiom_call(fn, *args):
+    with open_game() as g:
+        try:
+            fn(g, *args)
+        except ValueError as e:
+            raise ApiError(str(e))
+        except ai.AIError as e:
+            raise ApiError("师傅没回话：%s" % e)
+        return idioms.listing(g)
+
+
+def idioms_edit(body):
+    return _idiom_call(idioms.edit, str(body.get("word") or ""), {"word": body.get("new_word"), "sources": body.get("sources") or {}})
+
+
+def idioms_delete(body):
+    return _idiom_call(idioms.delete, str(body.get("word") or ""))
+
+
+def idioms_tutor(body):
+    if not ai.available():
+        raise ApiError("师傅答疑要用 AI：先在“设置”里填 AI 的 API key")
+    return _idiom_call(idioms.ask_tutor, str(body.get("word") or ""))
 
 
 def mock_summary(body):
@@ -599,6 +627,9 @@ ROUTES = {
     ("GET", "/api/mock"): mock_summary,
     ("GET", "/api/idioms"): idioms_list,
     ("POST", "/api/idioms/backfill"): idioms_backfill,
+    ("POST", "/api/idioms/edit"): idioms_edit,
+    ("POST", "/api/idioms/delete"): idioms_delete,
+    ("POST", "/api/idioms/tutor"): idioms_tutor,
     ("POST", "/api/mock/save"): mock_save,
     ("POST", "/api/practice/delete"): practice_delete,
     ("POST", "/api/selfstudy"): selfstudy_add,
