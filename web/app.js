@@ -423,13 +423,13 @@ function bindRetreatTimer() {
 // ------------------------------------------------------------ 听道（其他平台看网课）：首页记录，计入每日功行
 function lectureCard(d) {
   const m = d.minutes, goal = m.goal || 300;
-  const left = Math.max(0, goal - m.today);
+  const lec7 = (d.lectures || []).reduce((a, x) => a + x.minutes, 0);
   const days = lastDays();
   const rows = (d.lectures || []).map((x) => `<div class="lec-row"><span class="faint">${esc(x.d.slice(5))}</span><b>${x.minutes} 分钟</b>
       <span class="muted">${esc(x.note || "")}</span><span class="spacer"></span><button class="ghost small" data-lec-del="${esc(x.id)}" title="记错了，删掉这笔">删</button></div>`).join("");
   return `<div class="card lecture-card tone-lecture" style="margin-top:14px">
-    <h3>📿 ${esc(W("lecture_title"))} <small>今日功行 ${m.today} / ${goal} 分钟 · ${esc(W("study"))} ${m.study ?? 0} · ${esc(W("lecture"))} ${m.lecture ?? 0}${left ? ` · 还差 ${left} 分钟` : " · 已圆满 ✦"}</small></h3>
-    <div title="做题 ${d.timesplit?.today?.practice ?? 0} · 复习 ${d.timesplit?.today?.review ?? 0} · ${esc(W("lecture"))} ${m.lecture ?? 0} 分钟">${sancaiBar(d.timesplit?.today || { review: m.study ?? 0, lecture: m.lecture ?? 0 }, goal)}</div>
+    <h3>📿 ${esc(W("lecture_title"))} <small>今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟 · 近 7 天 ${lec7} 分钟</small></h3>
+    <div title="今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟（占每日目标 ${goal} 分钟）">${sancaiBar({ lecture: m.lecture ?? 0 }, goal, ["lecture"])}</div>
     <p class="small muted">${esc(W("lecture_hint"))}</p>
     <div class="row lec-form">
       <label>${esc(W("lecture"))}几分钟 <input type="number" id="lecMin" min="1" max="600" placeholder="如 90"></label>
@@ -437,7 +437,7 @@ function lectureCard(d) {
       <label style="flex:2">讲的什么（可不填） <input id="lecNote" maxlength="40" placeholder="如：粉笔 判断推理 第3讲"></label>
       <label>哪天 <select id="lecDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
       <button class="primary" id="lecGo">📿 记入</button></div>
-    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录 <span class="muted small">· ${d.lectures.length} 次 · ${d.lectures.reduce((a, x) => a + x.minutes, 0)} 分钟</span></summary>${rows}</details>` : ""}
+    <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录 <span class="muted small">· ${(d.lectures || []).length} 次 · ${lec7} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("lecture"))}记录</div>`}</details>
   </div>`;
 }
 // ------------------------------------------------------------ 三才时辰：听课 / 做题 / 复习，以听课为 1 看比例
@@ -534,7 +534,7 @@ function practiceCard(d) {
       <label style="flex:2">心得（可不填） <input id="prNote" maxlength="500" placeholder="错在哪、悟到了什么；只写心得题数留空"></label>
       <label>哪天 <select id="prDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
       <button class="primary" id="prBtn">🌲 记入</button></div>
-    ${rows ? `<details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("practice"))}记录 <span class="muted small">· ${list.length} 次 · ${wn} 题 · 正确率 ${rate(wok, wn)} · ${wmin} 分钟</span></summary>${rows}</details>` : ""}
+    <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("practice"))}记录 <span class="muted small">· ${list.length} 次 · ${wn} 题 · 正确率 ${rate(wok, wn)} · ${wmin} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("practice"))}记录：记一笔就会出现在这里</div>`}</details>
   </div>`;
 }
 function bindPractice() {
