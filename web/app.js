@@ -286,6 +286,7 @@ const views = {
         ${inp.buttons ? inp.buttons.map((b) => `<button class="ghost" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")
           : `<button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button>`}<button class="primary" id="send">${inp.buttons ? "问师傅" : "提交"}</button></div>`;
     else if (inp.mode === "buttons") composer = `<div class="row">${inp.buttons.map((b) => `<button class="${b.id === "skip" ? "ghost" : "primary"}" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
+    else if (T.finished && T_TYPE === "mock_review") composer = `<div class="row"><button class="primary" id="backContest">回${esc(NAV("contest"))}</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     return `<div class="train">
       <div class="card"><h3>📜 师尊荐课</h3>${tasks.map(taskRow).join("")}<button class="ghost small" id="toHall" style="margin-top:8px">↩ 回修炼殿</button></div>
@@ -786,6 +787,7 @@ function bindTrain() {
     Object.assign(T, { session: null, msgs: [], battle: null }); clearInterval(TIMER); renderTrain();
   };
   const bh = $("#backHome"); if (bh) bh.onclick = () => { Object.assign(T, { session: null, msgs: [], battle: null }); renderTrain(); };
+  const bc = $("#backContest"); if (bc) bc.onclick = () => { Object.assign(T, { session: null, msgs: [], battle: null }); go("contest"); };
 }
 async function submitText() {
   const text = $("#answer").value.trim();
@@ -1311,7 +1313,7 @@ function bindSettings() {
 // 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
 // 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
 const BEAT = 30;
-const STUDY = ["teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review"];
+const STUDY = ["teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review", "mock_review"];
 let lastActive = Date.now();
 let T_TYPE = "";
 ["mousemove", "keydown", "click", "scroll", "input"].forEach((ev) => addEventListener(ev, () => (lastActive = Date.now()), { passive: true }));
@@ -1362,6 +1364,8 @@ function startTimer() {
 function battlePanel() {
   const b = T.battle;
   if (!b) return '';
+  if (b.label) return `<div class="battle-panel"><div class="row"><b>📜 ${esc(b.label)}</b><span class="spacer"></span><span>复盘 第 ${b.position}/${b.total} 题</span></div>
+    ${bar(b.position / b.total, 'thin yellow')}<div class="bank-counters"><span>✓ 答对 ${b.ok}</span><span>✗ 答错 ${b.wrong}</span>${b.blank ? `<span>○ 没做 ${b.blank}</span>` : ''}<span>本板块复盘过 ${b.reviewed} 题</span></div></div>`;
   return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>${b.phase === 'review' ? '复盘 ' : ''}第 ${b.position}/${b.total} 关</span></div>
     ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.timer ? `<span>⏱ 本题 <b id="tQ">${clock(b.timer.question)}</b> · 总 <b id="tT">${clock(b.timer.total)}</b></span>` : ''}${b.correct === null
       ? '<span>交卷后揭晓对错</span>' : `<span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span>`}</div></div>`;

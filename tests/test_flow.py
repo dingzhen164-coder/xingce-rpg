@@ -642,6 +642,51 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(api.heartbeat({"seconds": 60, "session": s["session"]})["minutes"], 3)   # 刚做完看解析也算
         self.assertFalse(api.heartbeat({"seconds": 60, "session": "不存在"})["studying"])
 
+    def test_mock_review(self):
+        """宗门大比 · 大比复盘：按板块逐题复盘一季模考，师傅解惑写进复盘笔记，时间记进“复习”"""
+        sd = self.vault / "FB模考试卷复盘/板块复盘/第36季"
+        (sd / "03-逻辑填空.md").write_text(BOARD_MD.replace("论证逻辑", "逻辑填空").replace("### 2. ❌", "### 2. ⚪")
+                                           .replace("我的答案：**A**　错误", "我的答案：**—**　未作答"), encoding="utf-8")
+        (sd / "00-第36季总览.md").write_text("# 总览\n", encoding="utf-8")
+        d = api.mock_summary({})
+        rv = d["seasons"][0]["review"]
+        self.assertEqual([b["board"] for b in rv], ["逻辑填空", "论证逻辑"])          # 总览没有题，不算板块
+        self.assertEqual((rv[1]["ok"], rv[1]["wrong"], rv[1]["blank"], rv[1]["reviewed"]), (1, 1, 0, 0))
+        r = api.session_start({"task": {"type": "mock_review", "season": 36, "board": "论证逻辑"}})
+        self.assertEqual(r["type"], "mock_review")
+        self.assertIn("答对 1/2", r["messages"][0]["text"])
+        self.assertEqual(r["messages"][0]["blocks"][0]["rows"][1], ["2", "A", "B", "✗ 答错"])
+        self.assertEqual(r["battle"]["position"], 1)
+        ids = [b["id"] for b in r["input"]["buttons"]]
+        self.assertIn("mr_wrong", ids)
+        self.assertNotIn("mr_board:逻辑填空", ids)                                     # 论证逻辑是最后一个板块
+        sid = r["session"]
+        r = api.session_action({"session": sid, "action": "mr_wrong"})
+        self.assertEqual(r["battle"]["position"], 2)
+        self.assertTrue(any(b.get("t") == "img" for m in r["messages"] for b in m.get("blocks", [])))   # 题干里的图
+        self.assertTrue(any("否定论点" in m["text"] or any("否定论点" in b.get("v", "") for b in m.get("blocks", [])) for m in r["messages"]))
+        r = api.session_action({"session": sid, "action": "mr_explain:1"})
+        self.assertIn("复盘笔记", r["messages"][-1]["text"])
+        self.assertIn("🧙 师傅解惑", (sd / "10-论证逻辑.md").read_text(encoding="utf-8"))
+        r = api.session_reply({"session": sid, "text": "为什么不选A"})
+        self.assertEqual(r["messages"][-2]["text"], "为什么不选A")
+        # 时间：大比复盘算“修炼”，记进复习，也记到论证逻辑这个模块
+        self.assertTrue(api.heartbeat({"seconds": 60, "session": sid})["studying"])
+        self.assertEqual(trainer.study_kind(sid), "review")
+        with api.open_game(save=False) as g:
+            self.assertEqual(trainer.study_board(g, sid), "论证逻辑")
+        r = api.session_action({"session": sid, "action": "mr_close"})
+        self.assertTrue(r["finished"])
+        self.assertEqual(api.mock_summary({})["seasons"][0]["review"][1]["reviewed"], 2)
+        # 只复盘错题：逻辑填空只剩那道没做的，结尾能接下一板块
+        r = api.session_start({"task": {"type": "mock_review", "season": 36, "only_wrong": True}})
+        self.assertEqual(r["battle"]["total"], 1)
+        self.assertIn("mr_board:论证逻辑", [b["id"] for b in r["input"]["buttons"]])
+        r = api.session_action({"session": r["session"], "action": "mr_board:论证逻辑"})
+        self.assertIn("论证逻辑", r["title"])
+        with self.assertRaises(Exception):
+            api.session_start({"task": {"type": "mock_review", "season": 99}})
+
     def test_qi_deviation_after_repeated_failures(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

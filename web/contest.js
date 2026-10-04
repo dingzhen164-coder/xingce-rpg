@@ -2,6 +2,7 @@
    - 顶上一排数字：模考总平均分、最近一次、最高、大比平均分、平均击败、最近排名、平均正确率
    - 分数走势（我的 / 大比平均 / 最高分）、六大模块正确率走势：折线图，悬停看每一季的数，下面可展开数据表
    - 六大模块：选一季或“历次平均”，看得分（没录就估）、正确率、用时
+   - 大比复盘：选一季，按板块逐题复盘（和试炼交卷后的复盘一样；时间记进“修炼 · 复习”，见 rpg/trainer.py mock_review）
    - 历次模考一览 + 录入成绩单（粉笔成绩单上的数字照抄） */
 (function () {
   let MOCK = null;
@@ -13,6 +14,8 @@
   let MK = null;             // 答题卡截图识别结果 {season, marks, sections, images, ...}
   let MK_SEASON = null;
   let REPORT = null;         // 成绩截图认出来的各模块答对数（保存时一起存）
+  let RV = null;             // 大比复盘看哪一季
+  let RV_WRONG = false;      // 只复盘错题和没做的
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const f1 = (x) => (x == null ? "—" : (Math.round(x * 10) / 10).toString());
   const pc = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
@@ -159,6 +162,45 @@
         <button class="primary" id="mkMarksScan">识别</button></div>${preview}</div>`;
   }
 
+  // ---------------------------------------------------------------- 大比复盘
+  function reviewCard(d) {
+    const ss = d.seasons.filter((s) => (s.review || []).length);
+    if (!ss.length) return "";
+    if (RV == null || !ss.some((s) => s.season === RV)) RV = ss[ss.length - 1].season;
+    const cur = ss.find((s) => s.season === RV);
+    const opts = ss.slice().reverse().map((s) => `<option value="${s.season}" ${s.season === RV ? "selected" : ""}>第 ${s.season} 季${s.date ? "（" + esc(s.date) + "）" : ""}</option>`).join("");
+    const all = cur.review.reduce((a, b) => a + b.total, 0), seen = cur.review.reduce((a, b) => a + b.reviewed, 0);
+    const tiles = cur.review.map((b) => {
+      const bad = b.wrong + b.blank, full = b.reviewed >= b.total;
+      return `<button class="rv-board ${full ? "done" : ""}" data-rv="${esc(b.board)}" ${RV_WRONG && !bad ? "disabled" : ""}>
+        <b>${esc(b.board)}</b><span class="rv-cnt"><i class="ok">✓ ${b.ok}</i><i class="bad">✗ ${b.wrong}</i>${b.blank ? `<i class="blank">○ ${b.blank}</i>` : ""}</span>
+        <span class="rv-bar"><i style="width:${Math.round(100 * b.reviewed / b.total)}%"></i></span>
+        <small>${full ? "已复盘完" : b.reviewed ? `已复盘 ${b.reviewed}/${b.total}` : `${b.total} 题 · 未复盘`}</small></button>`;
+    }).join("");
+    return `<div class="card contest-card rv-card"><div class="row" style="flex-wrap:wrap;gap:10px"><h3 style="margin:0">📜 大比复盘
+        <small>像刷完一组题那样，把这一季模考逐题过一遍：看题 → 对答案 → 读解析 → 不懂就问师傅。复盘时间记进「修炼 · 复习」</small></h3>
+        <span class="spacer"></span><select id="rvPick" style="width:auto">${opts}</select></div>
+      <div class="row" style="gap:12px;margin:8px 0 4px;align-items:center"><span class="small muted">这一季已复盘 <b>${seen}</b>/${all} 题</span>
+        <label class="small" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="rvWrong" style="width:auto" ${RV_WRONG ? "checked" : ""}> 只复盘错题和没做的</label>
+        <span class="spacer"></span><button class="primary" id="rvStart">${seen ? "从第一个板块复盘" : "开始复盘"}</button></div>
+      <div class="rv-grid">${tiles}</div></div>`;
+  }
+  function startReview(board) {
+    startTask({ task: { type: "mock_review", season: RV, board, only_wrong: RV_WRONG, title: `大比复盘 · 第${RV}季` } });
+  }
+  function bindReview() {
+    const pick = document.getElementById("rvPick");
+    if (!pick) return;
+    pick.onchange = () => { RV = Number(pick.value); rerender(); };
+    document.getElementById("rvWrong").onchange = (e) => { RV_WRONG = e.target.checked; rerender(); };
+    document.getElementById("rvStart").onclick = () => {
+      const cur = MOCK.seasons.find((s) => s.season === RV);
+      const first = (cur?.review || []).find((b) => !RV_WRONG || b.wrong + b.blank);
+      if (first) startReview(first.board); else toast("这一季没有错题，全对！");
+    };
+    document.querySelectorAll("[data-rv]").forEach((b) => (b.onclick = () => startReview(b.dataset.rv)));
+  }
+
   function html(d) {
     const o = d.overall, ss = d.seasons;
     if (!ss.length) {
@@ -196,7 +238,7 @@
         <td class="num">${s.beat == null ? "—" : f1(s.beat) + "%"}</td><td class="num">${s.rank ? `${s.rank}/${s.people || "?"}` : "—"}</td>
         <td class="num">${s.ok}/${s.total}（${pc(s.acc)}）</td><td class="num">${s.minutes == null ? "—" : s.minutes + " 分"}</td>
         <td><button class="ghost small" data-mk-edit="${s.season}">${s.score == null ? "录入" : "改"}</button></td></tr>`).join("");
-    return head + analysisCard(d) + `
+    return head + reviewCard(d) + analysisCard(d) + `
       <div class="grid g2 contest-grid" style="margin-top:14px">
         <div class="card contest-card"><h3>📈 分数走势 <small>我的分数 · 大比平均分 · 最高分（满分 100，y 轴从 ${lo} 起）</small></h3>${scoreChart}</div>
         <div class="card contest-card"><h3>🎯 各模块正确率走势 <small>点图例看各条线；悬停看每一季</small></h3>${accChart}</div>
@@ -207,7 +249,7 @@
         <tbody>${rows}</tbody></table></div></div>
       ${marksCard(d)}
       ${form(d)}
-      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里导入答题卡截图（对错）→ ③ 录成绩单 → ④ 点「🧙 师傅大比分析」→ ⑤ 去心魔录斩错题。</p>`;
+      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里导入答题卡截图（对错）→ ③ 录成绩单 → ④ 「📜 大比复盘」逐题复盘 → ⑤ 点「🧙 师傅大比分析」→ ⑥ 去心魔录斩错题。</p>`;
   }
 
   async function loadConv(season) {
@@ -301,6 +343,7 @@
   function bind() {
     bindCharts();
     bindExtra();
+    bindReview();
     // 点图例：隐藏 / 显示那条线（颜色跟着线走，不重排）
     document.querySelectorAll(".chart .lg").forEach((lg, k) => (lg.onclick = () => {
       const chart = lg.closest(".chart");

@@ -122,11 +122,20 @@ def summary(g):
                          "minutes": (rec.get("minutes") or {}).get(m),
                          "boards": [{"board": b, "ok": v[0], "wrong": v[1], "blank": v[2], "total": v[3]} for b, v in c["boards"].items()]})
         mins = [x["minutes"] for x in mods if x["minutes"] is not None]
+        rv = rec.get("reviewed") or {}             # 大比复盘：各板块复盘过哪些题（trainer.mock_review）
+        review = []
+        for f in sorted(d.glob("[0-9][0-9]-*.md")):
+            qs = vault.parse_board_file(f)
+            if qs:
+                b = f.stem[3:]
+                review.append({"board": b, "total": len(qs), "ok": sum(q["icon"] == "✅" for q in qs),
+                               "wrong": sum(q["icon"] == "❌" for q in qs), "blank": sum(q["icon"] == "⚪" for q in qs),
+                               "reviewed": len(set(rv.get(b, [])) & {q["num"] for q in qs})})
         seasons.append({"season": n, "date": rec.get("date", ""), "score": score, "score_from_boss": rec.get("score") is None and score is not None,
                         **{k: rec.get(k) for k in FIELDS[1:]},
                         "ok": ok_all, "total": total_q, "acc": ok_all / total_q,
                         "minutes": sum(mins) if mins else None, "modules": mods,
-                        "imported": str(n) in g.state.get("mock_practice", [])})
+                        "imported": str(n) in g.state.get("mock_practice", []), "review": review})
     scored = [s for s in seasons if s["score"] is not None]
     mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
     overall = {

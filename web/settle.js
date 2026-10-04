@@ -158,7 +158,7 @@
 
   // 修炼里的会话类型 → 结算种类（和后端 trainer.PRACTICE_TYPES 对应；聊天、编撰功法不结算）
   const PRACTICE = ["bank", "bank_review", "wrong", "apply", "tribulation", "alchemy"];
-  const REVIEW = ["teach", "recite", "review", "speedrun", "feynman", "example"];
+  const REVIEW = ["teach", "recite", "review", "speedrun", "feynman", "example", "mock_review"];
   function kindOf(type) { return PRACTICE.includes(type) ? "practice" : REVIEW.includes(type) ? "review" : null; }
 
   window.SETTLE = { snap, show, close, kindOf };

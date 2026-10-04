@@ -28,11 +28,12 @@ from . import question_bank, ai, idioms, prompts, skeleton, tutor, vault
 
 SESSIONS = {}
 FINISHED = {}   # 刚结束的会话 {id: (类型, 结束时间)}：结束后看解析的几分钟也算修炼时间
-STUDY_TYPES = ("teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review")
+STUDY_TYPES = ("teach", "recite", "review", "speedrun", "feynman", "example", "apply", "wrong", "tribulation", "alchemy", "bank", "bank_review",
+               "mock_review")
 REVIEW_GRACE = 180  # 秒
 
 
-PRACTICE_TYPES = ("bank", "bank_review", "wrong", "apply", "tribulation", "alchemy")   # 计入“做题”，其余修炼计入“复习”
+PRACTICE_TYPES = ("bank", "bank_review", "wrong", "apply", "tribulation", "alchemy")   # 计入“做题”，其余修炼计入“复习”（大比复盘 mock_review 也算复习）
 
 
 def study_kind(sid):
@@ -342,6 +343,8 @@ def _start(g, task):
         raise TrainError(f"{g.T('qi')}预警：还需调息 {g.resting()} 分钟。去喝口水、走两步，回来再修炼。")
     if typ in ("bank", "bank_review"):
         return _start_bank(g, task)
+    if typ == "mock_review":
+        return _start_mreview(g, task)
     if typ == "teach":
         return _start_teach(g, task)
     if typ in ("recite", "review", "speedrun"):
@@ -411,6 +414,8 @@ def _reply(g, sid, text):
     if s.get("discuss"):
         return _discuss_reply(g, s, text)
     typ = s["type"]
+    if typ == "mock_review":
+        return _mreview_chat(g, s, text)
     if typ in ("recite", "review", "speedrun"):
         return _grade_recite(g, s, text)
     if typ in ("tribulation", "alchemy"):
@@ -435,6 +440,8 @@ def _action(g, sid, act):
     s = get(sid)
     if s["type"] in ("bank", "bank_review"):
         return _bank_action(g, s, act)
+    if s["type"] == "mock_review":
+        return _mreview_action(g, s, act)
     if s.get("discuss"):
         return _discuss_action(g, s, act)
     if act == "skip":
@@ -1431,3 +1438,181 @@ def _bank_reply(g, s, text):
     except question_bank.BankError as e:
         raise TrainError(str(e))
     return _bank_show(g, s, run, ev)
+
+
+# ---------------------------------------------------------------- 大比复盘：一次模考按板块逐题复盘（界面同试炼交卷后的复盘；时间计入“复习”）
+MOCK_TIME_BOARD = {"类比关系": "类比推理", "中心理解": "片段阅读", "语句排序": "语句表达", "形式逻辑": "论证逻辑"}
+MOCK_ICON = {"✅": "✓ 答对", "❌": "✗ 答错", "⚪": "⚪ 没做"}
+
+
+def mock_boards(g, season):
+    """这一季模考拆出来的各板块（按文件顺序），只要有题的"""
+    d = next((d for n, d in vault.seasons(g.paths) if n == season), None)
+    if not d:
+        return None, []
+    return d, [f.stem[3:] for f in sorted(d.glob("[0-9][0-9]-*.md")) if vault.parse_board_file(f)]
+
+
+def mock_reviewed(g, season):
+    return g.state.setdefault("mocks", {}).setdefault(str(season), {}).setdefault("reviewed", {})
+
+
+def _time_board(g, src):
+    """复盘时间记到哪个修炼板块（首页“各模块学习时间”用）：同名的；拆试卷时的叫法换成修炼里的叫法；都没有就记总时间"""
+    bs = question_bank.boards(g)
+    for b in (src, MOCK_TIME_BOARD.get(src, "")):
+        if b in bs:
+            return b
+    return ""
+
+
+def _mreview_load(g, s, src):
+    d, boards = mock_boards(g, s["season"])
+    if not d or src not in boards:
+        raise TrainError("第%s季没有「%s」的复盘" % (s["season"], src))
+    qs = [dict(q, season=s["season"], source=src, dir=str(d), key="%s|%s|%s" % (s["season"], src, q["num"]))
+          for q in vault.parse_board_file(vault.board_file(d, src))]
+    picked = [q for q in qs if q["icon"] != "✅"] if s["only_wrong"] else qs
+    s["all_correct"] = s["only_wrong"] and not picked
+    s.update(source=src, board=_time_board(g, src), boards=boards, qs=picked or qs, rpos=0, explain={}, chat={},
+             title="📜 大比复盘 · 第%s季 · %s" % (s["season"], src))
+
+
+def _start_mreview(g, task):
+    try:
+        season = int(task.get("season"))
+    except (TypeError, ValueError):
+        raise TrainError("选一季模考再复盘")
+    d, boards = mock_boards(g, season)
+    if not boards:
+        raise TrainError("第%s季还没有板块复盘：先到藏经阁 → 玉简 · 题库 → 导入真题，导入这一季的模考 PDF" % season)
+    src = task.get("board") if task.get("board") in boards else boards[0]
+    s = new_session("mock_review", "", task, season=season, only_wrong=bool(task.get("only_wrong")))
+    _mreview_load(g, s, src)
+    return _mreview_show(g, s, head=True)
+
+
+def _mreview_counts(qs):
+    return {k: sum(q["icon"] == k for q in qs) for k in ("✅", "❌", "⚪")}
+
+
+def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False):
+    qs, i = s["qs"], s["rpos"]
+    q = qs[i]
+    done = mock_reviewed(g, s["season"]).setdefault(s["source"], [])
+    if q["num"] not in done:
+        done.append(q["num"])
+    msgs = []
+    if head:
+        c = _mreview_counts(qs)
+        ok, n = c["✅"], len(qs)
+        rows = [[str(x["num"]), x["mine"] or "—", x["correct"] or "?", MOCK_ICON.get(x["icon"], x["icon"])] for x in qs]
+        note = ("（这个板块全对，没有错题，下面复盘全部题目）" if s.get("all_correct")
+                else "（只看错题和没做的）" if s["only_wrong"] else "")
+        msgs.append(_msg("sys", "📜 第%s季大比复盘 · %s%s\n答对 %d/%d（%.0f%%）· 答错 %d · 没做 %d\n\n下面逐题复盘：看题 → 对答案 → 读解析，看不懂的点「师傅解惑」。" % (
+            s["season"], s["source"], note, ok, n, 100 * ok / n, c["❌"], c["⚪"]),
+            [{"t": "table", "head": ["题号", "我选", "答案", "结果"], "rows": rows}]))
+        rate = ok / n
+        scene = "试炼·全对" if ok == n else "试炼·上品" if rate >= 0.8 else "试炼·中品" if rate >= 0.6 else "试炼·下品"
+        line = _say(g, scene, 正确率="%.0f%%" % (100 * rate), 对题数=ok, 总题数=n, 错题数=n - ok)
+        if line:
+            msgs.append(_msg("npc", line))
+    msgs.append(_msg("sys", "复盘 第 %d/%d 题 · 第%s季第 %s 题 · %s · %s" % (
+        i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])), vault.render_blocks(g.paths, q)))
+    msgs.append(_msg("sys", "你的答案：%s · 正确答案：%s\n\n复盘解析：" % (q["mine"] or "没做", q["correct"] or "?"),
+                     vault.render_blocks(g.paths, {"body": q["analysis"] or "（这题还没写复盘解析，点「师傅解惑」让师傅讲；讲完自动写进这题的复盘笔记）",
+                                                   "dir": q["dir"]})))
+    if q["icon"] != "✅" and not head:
+        line = _say(g, "试炼·复盘错题", 你的答案=q["mine"] or "没做", 正确答案=q["correct"])
+        if line:
+            msgs.append(_msg("npc", line))
+    if str(i) in s["explain"]:
+        msgs.append(_msg("npc", s["explain"][str(i)]))
+    for h in s["chat"].get(str(i), []):
+        msgs.append(_msg("me" if h["role"] == "user" else "npc", h["content"]))
+    msgs += extra or []
+    btns = [("mr_explain:%d" % i, "🧙 师傅解惑" if str(i) not in s["explain"] else "🧙 再问师傅")]
+    if i > 0:
+        btns.append(("mr_prev", "← 上一题"))
+    if i + 1 < len(qs):
+        btns.append(("mr_next", "下一题 →"))
+    if any(x["icon"] != "✅" for x in qs[i + 1:]):
+        btns.append(("mr_wrong", "下一道错题"))
+    k = s["boards"].index(s["source"])
+    if k + 1 < len(s["boards"]) and (i + 1 == len(qs) or head):
+        btns.append(("mr_board:" + s["boards"][k + 1], "下一板块：%s →" % s["boards"][k + 1]))
+    btns.append(("mr_close", "结束复盘"))
+    inp = {"mode": "text", "placeholder": "对这道题还有疑问？直接问师傅（Ctrl+Enter 发送）；「🧙 师傅解惑」按功法 skill 把整题讲透",
+           "buttons": [{"id": a, "label": b} for a, b in btns]}
+    r = _resp(s, msgs, events, input=_remember(s, inp))
+    c = _mreview_counts(qs)
+    r["battle"] = {"label": "大比复盘 · 第%s季 · %s" % (s["season"], s["source"]), "total": len(qs), "position": i + 1,
+                   "ok": c["✅"], "wrong": c["❌"], "blank": c["⚪"], "reviewed": len(done), "phase": "review"}
+    r["replace"] = True
+    if scroll_bottom:
+        r["scroll"] = "bottom"
+    return r
+
+
+def _mreview_pq(s, q):
+    """按试炼题的样子给师傅看：材料 + 题干（含选项）、答案、复盘解析"""
+    stem = "\n".join(q.get("material_lines") or []) + ("\n\n" if q.get("material_lines") else "") + q["body"]
+    return {"board": s["board"] or s["source"], "topic": s["source"], "stem": stem, "options": "（见题目）",
+            "answer": q["correct"], "analysis": q["analysis"]}
+
+
+def _mreview_action(g, s, act):
+    qs, i = s["qs"], s["rpos"]
+    if act == "mr_prev":
+        s["rpos"] = max(0, i - 1)
+    elif act == "mr_next":
+        s["rpos"] = min(len(qs) - 1, i + 1)
+    elif act == "mr_wrong":
+        s["rpos"] = next((k for k in range(i + 1, len(qs)) if qs[k]["icon"] != "✅"), i)
+    elif act.startswith("mr_board:"):
+        _mreview_load(g, s, act.split(":", 1)[1])
+        r = _mreview_show(g, s, head=True)
+        r["title"] = s["title"]
+        return r
+    elif act.startswith("mr_explain:"):
+        if act.split(":")[1] != str(i):
+            raise TrainError("题目已经切换，请重新点")
+        if not ai.available():
+            return _mreview_show(g, s, extra=[_msg("npc", (_say(g, "试炼·解惑没AI") or "为师今日闭关（没连上 AI）。先把解析读三遍。")
+                                                     + "\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）")])
+        q = qs[i]
+        text, skill, used = _explain(g, _mreview_pq(s, q), {"answer": q["mine"] or "未作答"})
+        s["explain"][str(i)] = text
+        where = vault.save_tutor_note(g.paths, q["key"], text, g.t)
+        note = ("📌 已写进这题的复盘笔记：%s 第 %s 题（再问一次会换成新的）" % (where, q["num"]) if where
+                else "📌 没找到这道题的复盘文件，讲解没存下来")
+        note += ("\n📜 依据 skill「%s」：%s" % (skill, "、".join(used[:8]) + (" 等 %d 个文件" % len(used) if len(used) > 8 else ""))
+                 if used else "\n⚠ 这个板块没找到 skill 资料（%s），师傅只能按通用方法讲" % (skill or "未配置"))
+        return _mreview_show(g, s, extra=[_msg("sys", note)], scroll_bottom=True)
+    elif act in ("mr_close", "skip", "bank_pause"):
+        c = _mreview_counts(qs)
+        done = mock_reviewed(g, s["season"]).get(s["source"], [])
+        text = "第%s季 · %s 复盘结束：这个板块复盘过 %d 题（这次看的 %d 题里答对 %d、答错 %d、没做 %d）。错题都在%s里，接着去%s。" % (
+            s["season"], s["source"], len(done), len(qs), c["✅"], c["❌"], c["⚪"], g.T("nav.wrong")[2:], g.T("kill") + g.T("wrong"))
+        return _resp(s, [_msg("sys", text), _msg("npc", _say(g, "试炼·复盘结束") or "复盘完了就去把错题斩干净。")], finished=True)
+    else:
+        raise TrainError("这一步请使用当前题目的按钮")
+    return _mreview_show(g, s)
+
+
+def _mreview_chat(g, s, text):
+    i = s["rpos"]
+    q = s["qs"][i]
+    hist = s["chat"].setdefault(str(i), [])
+    if not ai.available():
+        return _mreview_show(g, s, extra=[_msg("me", text), _msg("npc", (_say(g, "试炼·解惑没AI") or "为师今日闭关（没连上 AI）。")
+                                                                 + "\n（在“设置”里填 AI 的 API key 后才能追问。）")], scroll_bottom=True)
+    pq = _mreview_pq(s, q)
+    ctx = {"kind": "大比复盘", "title": "第%s季第%s题" % (s["season"], q["num"]), "board": pq["board"], "history": hist[-10:],
+           "question": pq["stem"], "answer": q["correct"], "mine": q["mine"] or "没做", "reference": q["analysis"][:3000]}
+    try:
+        reply = ai.chat(prompts.discuss(g.persona, ctx, _skill_digest(g, pq["board"]), text), temperature=0.6, max_tokens=1500)
+    except ai.AIError as e:
+        raise TrainError("师傅没回话：%s" % e)
+    hist += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
+    return _mreview_show(g, s, scroll_bottom=True)

@@ -924,3 +924,17 @@ html.touch .today-pill { white-space: nowrap; overflow: hidden; text-overflow: e
 html.touch .bgm-btn { width: 40px; height: 40px; flex: none; font-size: 18px; }
 html.in-app .topbar { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
 html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
+
+/* 宗门大比 · 大比复盘（contest.js reviewCard） */
+.rv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+.rv-board { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; text-align: left; border-radius: 12px;
+  background: color-mix(in srgb, var(--panel2) 70%, transparent); }
+.rv-board b { font-family: var(--display); font-size: 16px; letter-spacing: .08em; }
+.rv-board small { color: var(--muted); font-size: 12px; }
+.rv-board.done { border-color: color-mix(in srgb, var(--gold) 60%, transparent); }
+.rv-board.done small { color: var(--gold); }
+.rv-board:disabled { opacity: .45; cursor: default; }
+.rv-cnt { display: flex; gap: 8px; font-size: 13px; font-style: normal; }
+.rv-cnt i { font-style: normal; } .rv-cnt .ok { color: var(--green); } .rv-cnt .bad { color: var(--red); } .rv-cnt .blank { color: var(--muted); }
+.rv-bar { width: 100%; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.rv-bar i { display: block; height: 100%; background: var(--gold); }
