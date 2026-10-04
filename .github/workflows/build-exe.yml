@@ -1,0 +1,56 @@
+# 改 rpg/version.py 的版本号推到 main → 在 Windows 上打包 xingce-xiuxian.exe，发到 Releases（tag v<版本>）
+# 程序里「设置 → 🆕 版本与更新 → 检查更新」读的就是这里发的 Release
+name: build-exe
+
+on:
+  push:
+    branches: [main]
+    paths: [rpg/version.py]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install pyinstaller pywebview segno pymupdf
+
+      - name: Tests
+        run: python -m unittest discover -s tests
+
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --name xingce-xiuxian
+          --icon web/icons/app.ico
+          --add-data "web;web" --add-data "defaults;defaults" --add-data "rpg/data;rpg/data"
+          --hidden-import server --collect-submodules rpg
+          --hidden-import segno --collect-all pymupdf --collect-all webview
+          app.py
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $out = & dist/xingce-xiuxian.exe --run-script tests/smoke_frozen.py | Out-String
+          Write-Output $out
+          if ($out -notmatch "SMOKE-OK") { throw "frozen smoke test failed" }
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(python -c "import re;print(re.search(r'VERSION = \"(.+?)\"', open('rpg/version.py', encoding='utf-8').read()).group(1))")
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" dist/xingce-xiuxian.exe --clobber
+          else
+            gh release create "v$V" dist/xingce-xiuxian.exe --title "行测修仙传 v$V" --notes "$(git log -1 --pretty=%B)"
+          fi

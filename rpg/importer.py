@@ -668,7 +668,11 @@ def split_pdf(paths, body):
     if not has_pymupdf():
         raise ImportError_("缺少 pymupdf：点下面的“安装拆分组件”，或在 PowerShell 运行 pip install pymupdf")
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    r = subprocess.run([sys.executable, str(script), str(f)], capture_output=True, timeout=600, env=env)
+    from .paths import FROZEN
+    # 打包成 exe 时 sys.executable 就是 exe 本身：让它带 --run-script 去跑拆分脚本（exe 里带着 pymupdf）
+    cmd = [sys.executable, "--run-script", str(script), str(f)] if FROZEN else [sys.executable, str(script), str(f)]
+    r = subprocess.run(cmd, capture_output=True, timeout=600, env=env,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     log = (r.stdout + r.stderr).decode("utf-8", errors="replace")
     if r.returncode != 0:
         raise ImportError_("拆分失败：\n" + log[-800:])
@@ -685,6 +689,9 @@ def install_pymupdf(paths, body):
     """用户在网页上点了“安装拆分组件”才运行：pip install pymupdf"""
     import subprocess
     import sys
+    from .paths import FROZEN
+    if FROZEN:      # exe 里已经带着 pymupdf
+        return {"ok": has_pymupdf(), "log": "exe 版自带拆分组件，不用安装"}
     r = subprocess.run([sys.executable, "-m", "pip", "install", "pymupdf"], capture_output=True, timeout=600)
     log = (r.stdout + r.stderr).decode("utf-8", errors="replace")
     if r.returncode != 0:

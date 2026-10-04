@@ -28,6 +28,7 @@ for _s in (sys.stdout, sys.stderr):
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 from http.server import ThreadingHTTPServer  # noqa: E402
 
@@ -43,12 +44,8 @@ def free_port(start):
     return start
 
 
-def main():
-    ap = argparse.ArgumentParser(description="行测 RPG 训练网页")
-    ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--no-browser", action="store_true")
-    a = ap.parse_args()
-
+def prepare():
+    """找库、升级配置、一次性修复；返回库路径（可能是 None）"""
     vault = find_vault()
     if vault:
         up = Paths(vault).ensure_train_dir()
@@ -68,10 +65,32 @@ def main():
             print(f"（修复材料串题时出错，已跳过：{e}）")
     else:
         print("还没找到行测库：打开网页后在“设置”里填写库的路径（含 copilot/skills 的那个文件夹）")
+    return vault
 
-    port = free_port(a.port)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+
+def start_server(port=8765, lan_mode=None):
+    """起服务。lan_mode 为 None 时按本机设置（设置 → 手机 / 平板）决定是否让局域网里的设备连进来。返回 (服务, 本机网址)"""
+    from rpg import api, lan
+    if lan_mode is None:
+        lan_mode = lan.settings()["enabled"]
+    port = free_port(port)
+    srv = ThreadingHTTPServer(("0.0.0.0" if lan_mode else "127.0.0.1", port), Handler)
+    api.RUNTIME.update(port=port, lan=bool(lan_mode))
     url = f"http://127.0.0.1:{port}/"
+    if lan_mode:
+        st = lan.status(port, True)
+        print("局域网模式已开：手机 / 平板连同一个 Wi-Fi，浏览器打开 " + "、".join(st["urls"] or ["（没找到局域网地址）"]) + f"，访问口令 {st['code']}")
+    return srv, url
+
+
+def main():
+    ap = argparse.ArgumentParser(description="行测 RPG 训练网页")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--lan", action="store_true", help="让同一 Wi-Fi 下的手机、平板也能打开（要输访问口令）")
+    a = ap.parse_args()
+    prepare()
+    srv, url = start_server(a.port, True if a.lan else None)
     print(f"\n行测 RPG 已启动：{url}\n关掉这个窗口就会退出。")
     if not a.no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

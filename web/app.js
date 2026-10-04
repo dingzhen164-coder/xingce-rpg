@@ -379,7 +379,7 @@ const views = {
     const s = await api("/api/settings");
     const cur = DASH?.theme?.name;
     const cp = chatPrefs();
-    return AMB.settingsHtml() + `<div class="card"><h3>🪟 对话框大小 <small>做功课时的对话框；只存在这台电脑的浏览器里</small></h3>
+    return (await DEVICE.html()) + AMB.settingsHtml() + `<div class="card"><h3>🪟 对话框大小 <small>做功课时的对话框；只存在这台电脑的浏览器里</small></h3>
       <div class="row"><label style="flex:1">宽度 <b id="cwV">${cp.w}%</b><input type="range" id="cwR" min="40" max="100" step="5" value="${cp.w}" style="width:100%"></label>
         <label style="flex:1">高度 <b id="chV">${cp.h}%</b><input type="range" id="chR" min="40" max="100" step="5" value="${cp.h}" style="width:100%"></label></div>
       <div class="row"><label><input type="checkbox" id="csideR" ${cp.side ? "checked" : ""}> 左边显示“师尊荐课”栏</label><span class="spacer"></span>
@@ -1271,6 +1271,7 @@ function bindLog() {
   };
 }
 function bindSettings() {
+  DEVICE.bind();
   const saveChat = (p) => { try { localStorage.setItem("chatLayout", JSON.stringify(p)); } catch {} };
   const readChat = () => ({ w: Number($("#cwR").value), h: Number($("#chR").value), side: $("#csideR").checked });
   if ($("#cwR")) {

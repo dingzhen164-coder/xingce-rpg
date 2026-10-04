@@ -66,7 +66,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, idioms, importer, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -725,6 +725,49 @@ def _music_file(paths, rel):
 
 
 # ---------------------------------------------------------------- HTTP
+# ---------------------------------------------------------------- 局域网（手机 / 平板）与更新
+RUNTIME = {"port": 0, "lan": False}      # server.py 启动时填：端口、是否监听局域网
+
+
+def lan_get(body):
+    return lan.status(RUNTIME["port"], RUNTIME["lan"])
+
+
+def lan_set(body):
+    lan.update(body.get("enabled") if "enabled" in body else None, bool(body.get("new_code")))
+    return lan.status(RUNTIME["port"], RUNTIME["lan"])
+
+
+def update_check(body):
+    from . import update
+    try:
+        return update.check()
+    except update.UpdateError as e:
+        raise ApiError(str(e))
+
+
+def update_apply(body):
+    from . import update
+    try:
+        return update.apply()
+    except update.UpdateError as e:
+        raise ApiError(str(e))
+
+
+def version_get(body):
+    from .paths import FROZEN
+    from .version import VERSION
+    return {"version": VERSION, "frozen": FROZEN}
+
+
+ROUTES[("GET", "/api/version")] = version_get
+ROUTES[("GET", "/api/update/check")] = update_check
+ROUTES[("POST", "/api/update/apply")] = update_apply
+ROUTES[("GET", "/api/lan")] = lan_get
+ROUTES[("POST", "/api/lan")] = lan_set
+LOCAL_ONLY = {"/api/lan", "/api/settings", "/api/update/apply"}     # 只有电脑本机能改的
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 不在终端刷屏
         pass
@@ -762,8 +805,35 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _gate(self, method, url):
+        """局域网里别的设备：没输过口令先输口令。返回 True 表示这次请求已经处理完了"""
+        addr = self.client_address[0]
+        if url.path == "/lan/login" and method == "POST":
+            n = int(self.headers.get("Content-Length") or 0)
+            code = parse_qs(self.rfile.read(n).decode("utf-8", errors="ignore")).get("code", [""])[0].strip()
+            if code and code == lan.settings()["code"]:
+                self.send_response(303)
+                self.send_header("Set-Cookie", "%s=%s; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax" % (lan.COOKIE, lan.token(code)))
+                self.send_header("Location", "/")
+                self.end_headers()
+            else:
+                self._send(200, lan.login_page("口令不对，再看一眼电脑上的口令"), "text/html; charset=utf-8")
+            return True
+        if lan.authorized(addr, self.headers.get("Cookie")):
+            if not lan.is_local(addr) and url.path in LOCAL_ONLY and method == "POST":
+                self._send(403, {"error": "这项设置只能在电脑上改"})
+                return True
+            return False
+        if url.path.startswith("/api/") or url.path == "/vault-file":
+            self._send(401, {"error": "先输入访问口令（刷新页面）"})
+        else:
+            self._send(200, lan.login_page(), "text/html; charset=utf-8")
+        return True
+
     def _handle(self, method):
         url = urlparse(self.path)
+        if self._gate(method, url):
+            return
         fn = ROUTES.get((method, url.path))
         if fn:
             try:

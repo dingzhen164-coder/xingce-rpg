@@ -12,11 +12,16 @@
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
-APP_DIR = Path(__file__).resolve().parent.parent          # 程序根目录（server.py 所在）
-WEB_DIR = APP_DIR / "web"
-DEFAULTS_DIR = APP_DIR / "defaults"                       # 首次运行时复制到 训练/ 的默认配置
+# 打包成 exe（PyInstaller）时：网页、默认配置在 exe 解出的临时目录里（sys._MEIPASS）；
+# 找库从 exe 所在目录往上找（把 exe 放在 <库>/训练/程序/ 里就能自己找到库）
+FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent   # 程序根目录
+RES_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)) if FROZEN else APP_DIR                               # 网页、默认配置所在
+WEB_DIR = RES_DIR / "web"
+DEFAULTS_DIR = RES_DIR / "defaults"                       # 首次运行时复制到 训练/ 的默认配置
 SETTINGS_DIR = Path.home() / ".xingce-rpg"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 

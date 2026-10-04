@@ -7,9 +7,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>行测修仙传</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☯</text></svg>">
+<!-- 手机 / 平板“添加到主屏幕”后像 App 一样全屏打开（安卓看 manifest，苹果看 apple-* 这几行） -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1412">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="修仙传">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="xiuxian">
@@ -38,6 +46,7 @@
 <script src="ambience.js"></script>
 <script src="settle.js"></script>
 <script src="ceremony.js"></script>
+<script src="device.js"></script>
 <script src="app.js"></script>
 <script src="contest.js"></script>
 <script src="idioms.js"></script>

@@ -901,3 +901,15 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .cer-title { font-size: min(16vh, 160px, 21vw); }
 .cer-title.long { font-size: min(10vh, 104px, 13vw); }
 @media (max-width: 640px) { .cer-fish.f2 { top: 60%; left: 2%; width: 80px; } }
+
+/* 设置 · 📱 手机 / 平板、🆕 版本与更新（device.js） */
+.dev-card .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.dev-card .switch input { width: 18px; height: 18px; padding: 0; accent-color: var(--accent); flex: none; }
+.dev-lan { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+.dev-qr { flex: none; background: #fffaf0; border-radius: 10px; padding: 6px; line-height: 0; }
+.dev-qr svg { display: block; max-width: 200px; height: auto; }
+.dev-info { flex: 1; min-width: 240px; }
+.dev-info details.fold { margin-top: 6px; }
+.dev-url { color: var(--gold); font-family: ui-monospace, Consolas, monospace; user-select: all; }
+.dev-code { font-size: 22px; letter-spacing: .25em; color: var(--gold); font-family: ui-monospace, Consolas, monospace; }
+.upd-new { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--panel2); border-left: 3px solid var(--gold); }
