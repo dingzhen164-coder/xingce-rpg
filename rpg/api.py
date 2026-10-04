@@ -26,6 +26,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/idioms/tutor         {"word"}  师傅答疑：AI 写一句话辨析，替换原辨析
     GET  /api/mock                 宗门大比：各季模考成绩、六大模块正确率 / 得分 / 用时、走势
     POST /api/mock/marks/scan      {"season", "images": [base64]}  读答题卡截图（绿对红错）→ 每题对错
+    POST /api/mock/report/scan     {"images": [base64], "text"?}  读粉笔成绩截图（Windows OCR）或粘贴的报告文字 → 成绩单各项
     POST /api/mock/marks/save      {"season", "marks": {题号: ok/bad}}  写回这一季的板块复盘
     POST /api/mock/analysis        {"season"}  这一季的考情分析对话
     POST /api/mock/analyze         {"season", "text"?, "fresh"?}  师傅大比分析（无 text 先做完整分析；有 text 接着追问）
@@ -65,7 +66,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, idioms, importer, library, marks, mock, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appearance, idioms, importer, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -290,6 +291,13 @@ def mock_marks_scan(body):
             return marks.scan(g.paths, season, marks.decode(body.get("images")))
         except marks.MarksError as e:
             raise ApiError(str(e))
+
+
+def mock_report_scan(body):
+    try:
+        return report.scan(marks.decode(body.get("images")), body.get("text") or "")
+    except (report.ReportError, marks.MarksError) as e:
+        raise ApiError(str(e))
 
 
 def mock_marks_save(body):
@@ -691,6 +699,7 @@ ROUTES = {
     ("POST", "/api/idioms/tutor"): idioms_tutor,
     ("POST", "/api/mock/save"): mock_save,
     ("POST", "/api/mock/marks/scan"): mock_marks_scan,
+    ("POST", "/api/mock/report/scan"): mock_report_scan,
     ("POST", "/api/mock/marks/save"): mock_marks_save,
     ("POST", "/api/mock/analysis"): mock_analysis_get,
     ("POST", "/api/mock/analyze"): mock_analyze,

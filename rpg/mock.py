@@ -39,21 +39,43 @@ def _num(v, lo=None, hi=None, integer=False):
     return x
 
 
+# 粉笔模考的题型分布是固定的：言语 30 题 = 逻辑填空 15 + 片段阅读 10 + 语句表达 5；
+# 判断 35 题 = 图形推理 10 + 定义判断 10 + 类比推理 5 + 论证逻辑 5 + 一拖五 5。拆试卷时按题干猜的题型会有出入，
+# 统计各小板块就按题号位置算（题数对得上才这样算，对不上按拆出来的文件）
+FIXED = {"言语理解": (("逻辑填空", 15), ("片段阅读", 10), ("语句表达", 5)),
+         "判断推理": (("图形推理", 10), ("定义判断", 10), ("类比推理", 5), ("论证逻辑", 5), ("一拖五", 5))}
+
+
 def season_counts(paths, season_dir):
-    """{模块: {"boards": {板块: [对, 错, 没做, 总]}, "ok", "total"}}"""
-    out = {m: {"boards": {}, "ok": 0, "total": 0} for m in MODULE_NAMES}
+    """{模块: {"boards": {小板块: [对, 错, 没做, 总]}, "ok", "total", "done"}}"""
+    out = {m: {"boards": {}, "ok": 0, "total": 0, "done": 0} for m in MODULE_NAMES}
+    icons = {m: {} for m in MODULE_NAMES}      # 模块 → {题号: 图标}
     for f in sorted(season_dir.glob("[0-9][0-9]-*.md")):
         board = f.stem[3:]
         m = MODULE_OF.get(board)
         if not m:
             continue
         qs = vault.parse_board_file(f)
-        ok = sum(q["icon"] == "✅" for q in qs)
-        bad = sum(q["icon"] == "❌" for q in qs)
-        blank = sum(q["icon"] == "⚪" for q in qs)
-        out[m]["boards"][board] = [ok, bad, blank, len(qs)]
-        out[m]["ok"] += ok
-        out[m]["total"] += len(qs)
+        for q in qs:
+            icons[m][q["num"]] = q["icon"]
+        v = out[m]["boards"].setdefault(board, [0, 0, 0, 0])
+        v[0] += sum(q["icon"] == "✅" for q in qs)
+        v[1] += sum(q["icon"] == "❌" for q in qs)
+        v[2] += sum(q["icon"] == "⚪" for q in qs)
+        v[3] += len(qs)
+    for m, nums in icons.items():
+        c = out[m]
+        c["ok"] = sum(i == "✅" for i in nums.values())
+        c["done"] = sum(i != "⚪" for i in nums.values())
+        c["total"] = len(nums)
+        fixed = FIXED.get(m)
+        if fixed and len(nums) == sum(n for _, n in fixed):
+            order = sorted(nums)
+            c["boards"], k = {}, 0
+            for name, n in fixed:
+                part = [nums[x] for x in order[k:k + n]]
+                c["boards"][name] = [part.count("✅"), part.count("❌"), part.count("⚪"), n]
+                k += n
     return out
 
 
@@ -77,8 +99,15 @@ def summary(g):
         score = rec.get("score")
         if score is None:
             score = _boss_score(g, n)
-        ok_all = sum(c["ok"] for c in counts.values())
         mods = []
+        report = rec.get("report") or {}
+        for m, r in report.get("modules", {}).items():          # 没导入答题卡截图的模块：用成绩截图里的“共几题、答对几题”
+            c = counts.get(m)
+            if c and c["total"] and not c["done"] and r.get("total") == c["total"]:
+                c["ok"] = r["ok"]
+                c["done"] = r["total"]
+                c["boards"] = {b: [x["ok"], x["total"] - x["ok"], 0, x["total"]] for b, x in report.get("sub", {}).get(m, {}).items()} or c["boards"]
+        ok_all = sum(c["ok"] for c in counts.values())
         for m in MODULE_NAMES:
             c = counts[m]
             if not c["total"]:
@@ -140,6 +169,11 @@ def save(g, body):
     rec["date"] = str(body.get("date") or rec.get("date") or g.t)[:10]
     rec["minutes"] = {m: v for m in MODULE_NAMES
                       if (v := _num((body.get("minutes") or {}).get(m), 0, 300)) is not None}
+    rep = body.get("report")
+    if isinstance(rep, dict) and (rep.get("modules") or rep.get("sub")):    # 成绩截图里认出的各模块“共几题、答对几题”
+        clean = lambda d: {k: {"total": int(v["total"]), "ok": int(v["ok"]), "minutes": v.get("minutes")}
+                           for k, v in (d or {}).items() if isinstance(v, dict) and str(v.get("total", "")).isdigit()}
+        rec["report"] = {"modules": clean(rep.get("modules")), "sub": {m: clean(x) for m, x in (rep.get("sub") or {}).items()}}
     rec["scores"] = {m: v for m in MODULE_NAMES
                      if (v := _num((body.get("scores") or {}).get(m), 0, 100)) is not None}
     ev = []

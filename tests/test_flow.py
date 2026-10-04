@@ -529,6 +529,39 @@ class FlowTest(unittest.TestCase):
         f = self.vault / "训练/宗门大比/第38季考情分析.md"
         self.assertIn("政治怎么补？", f.read_text(encoding="utf-8"))
 
+    def test_report_text_autofill_and_fixed_sub_boards(self):
+        ocr = ("得 分\n64.5\n/100\n模 考 试 卷 ： 粉 笔 2027 国 考 行 测 模 考 大 赛 （ 第 三 十 九 季 ）\n模 考 时 间 ： 2026.10.04 09:00 - 11:00\n"
+               "93.7 56 71.5 %\n最 高 分 平 均 分 已 击 败 考 生\n10791/41103 93.7 56\n排 名 最 高 分 平 均 分\n"
+               "言 语 理 解 与 表 达\n共 30 题 ， 答 对 25 题 ， 正 确 率 83% ， 用 时 30 分 钟\n"
+               "判 断 推 理\n共 35 题 ， 答 对 23 题 ， 正 确 率 66% ， 用 时 38 分 钟\n"
+               "图 形 推 理\n共 10 题 ， 答 对 5 题 ， 正 确 率 50% ， 用 时 14 分 钟\n"
+               "逻 辑 判 断\n共 10 题 ， 答 对 8 题 ， 正 确 率 80% ， 用 时 6 分 钟")
+        r = api.mock_report_scan({"text": ocr})
+        self.assertEqual(r["fields"], {"score": "64.5", "top": "93.7", "avg": "56", "beat": "71.5", "rank": "10791",
+                                       "people": "41103", "date": "2026-10-04", "season": 39})
+        self.assertEqual(r["modules"]["言语理解"], {"total": 30, "ok": 25, "minutes": 30})
+        self.assertEqual(r["sub"]["判断推理"]["逻辑判断"], {"total": 10, "ok": 8, "minutes": 6})
+        # 第 39 季：言语 30 题拆成 逻辑填空 13 / 中心理解 15 / 语句排序 2（拆试卷时猜的），统计按位置 15 / 10 / 5
+        def q(n, icon):
+            return "### %d. %s\n\n题干\n\n> [!check]- 答案\n> 正确答案：**A**　我的答案：**A**\n\n---\n\n" % (n, icon)
+        sd = self.vault / "FB模考试卷复盘/板块复盘/第39季"
+        sd.mkdir(parents=True)
+        ic = lambda n: "❌" if n in (40, 52, 64) else "✅"
+        (sd / "03-逻辑填空.md").write_text("".join(q(n, ic(n)) for n in range(36, 49)), encoding="utf-8")
+        (sd / "04-中心理解.md").write_text("".join(q(n, ic(n)) for n in range(49, 64)), encoding="utf-8")
+        (sd / "05-语句排序.md").write_text("".join(q(n, ic(n)) for n in range(64, 66)), encoding="utf-8")
+        (sd / "07-图形推理.md").write_text("".join(q(n, "⚪") for n in range(76, 111)), encoding="utf-8")
+        api.dashboard({})
+        d = api.mock_save({"season": 39, "score": "64.5", "minutes": {"判断推理": "38"},
+                           "report": {"modules": r["modules"], "sub": r["sub"]}})["summary"]
+        s39 = next(s for s in d["seasons"] if s["season"] == 39)
+        mods = {m["name"]: m for m in s39["modules"]}
+        self.assertEqual([(b["board"], b["ok"], b["total"]) for b in mods["言语理解"]["boards"]],
+                         [("逻辑填空", 14, 15), ("片段阅读", 9, 10), ("语句表达", 4, 5)])
+        # 判断推理没导入答题卡（全是 ⚪）：用成绩截图里的答对数
+        self.assertEqual((mods["判断推理"]["ok"], mods["判断推理"]["total"]), (23, 35))
+        self.assertEqual([(b["board"], b["ok"]) for b in mods["判断推理"]["boards"]], [("图形推理", 5), ("逻辑判断", 8)])
+
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

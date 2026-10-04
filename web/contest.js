@@ -12,6 +12,7 @@
   let AN_BUSY = false;
   let MK = null;             // 答题卡截图识别结果 {season, marks, sections, images, ...}
   let MK_SEASON = null;
+  let REPORT = null;         // 成绩截图认出来的各模块答对数（保存时一起存）
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const f1 = (x) => (x == null ? "—" : (Math.round(x * 10) / 10).toString());
   const pc = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
@@ -97,6 +98,11 @@
       return `<label>${esc(m)} <input type="number" step="0.1" min="0" data-mk-${key}="${esc(m)}" value="${val == null ? "" : val}" placeholder="${ph}"></label>`;
     }).join("");
     return `<div class="card contest-card" id="mkForm"><h3>📝 录入成绩单 <small>照抄粉笔模考报告上的数字；空着的不算。第一次录分数时也记进${esc(W("boss"))}（修为、悟道、突破丹照旧）</small></h3>
+      <div class="rp-auto"><b>📷 从成绩截图自动填</b> <span class="small muted">粉笔模考报告里“得分 / 最高分 / 平均分 / 排名”和“各模块共几题、答对几题、用时”那两张截图（Windows 自带 OCR 认字）</span>
+        <div class="row mk-row"><input type="file" id="rpFiles" accept="image/png,image/jpeg" multiple><button class="primary small" id="rpScan">识别并填入</button></div>
+        <details class="fold"><summary>不是 Windows / 认不出：把报告文字粘贴进来（手机相册、微信“提取文字”都行）</summary>
+          <textarea id="rpText" rows="4" placeholder="得分 64.5 … 最高分 93.7 平均分 56 已击败考生 71.5% … 政治理论 共20题，答对11题，正确率55%，用时8分钟 …"></textarea></details>
+        <div id="rpResult" class="small"></div></div>
       <div class="row mk-row">
         <label>哪一季 <select id="mkSeason">${opts}</select></label>
         <label>考试日期 <input type="date" id="mkDate" value="${esc(s.date || "")}"></label>
@@ -107,7 +113,7 @@
         <label>排名 <input type="number" id="mkRank" value="${v("rank")}" placeholder="如 38580"></label>
         <label>总人数 <input type="number" id="mkPeople" value="${v("people")}" placeholder="如 44774"></label>
       </div>
-      <details class="fold" ${s.minutes != null ? "open" : ""}><summary>各模块用时（分钟）· 各模块得分（报告里有就填，没有会按答对题数估）</summary>
+      <details class="fold" id="mkModsFold" ${s.minutes != null ? "open" : ""}><summary>各模块用时（分钟）· 各模块得分（报告里有就填，没有会按答对题数估）</summary>
         <div class="row mk-row">${modIn("minutes", "用时")}</div>
         <div class="row mk-row">${modIn("score", "得分")}</div></details>
       <div class="row" style="margin-top:8px"><button class="primary" id="mkSave">保存这一季</button><span class="small muted">对错题数从「FB模考试卷复盘/板块复盘/第N季」自动统计，不用填</span></div></div>`;
@@ -216,7 +222,39 @@
     const last = [...document.querySelectorAll(".an-msg")].pop();
     if (last) last.scrollIntoView({ block: "start" });
   }
+  function bindReport() {
+    const btn = document.getElementById("rpScan");
+    if (!btn) return;
+    btn.onclick = async () => {
+      const files = [...document.getElementById("rpFiles").files], text = document.getElementById("rpText").value;
+      if (!files.length && !text.trim()) return toast("先选成绩截图，或者粘贴报告文字");
+      btn.disabled = true; btn.textContent = "识别中…";
+      try {
+        const images = await Promise.all(files.map((f) => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); })));
+        const r = await api("/api/mock/report/scan", { images, text });
+        const f = r.fields || {};
+        const sel = document.getElementById("mkSeason");
+        if (f.season && [...sel.options].some((o) => o.value === String(f.season))) sel.value = String(f.season);
+        const set = (id, v) => { if (v != null && v !== "") document.getElementById(id).value = v; };
+        set("mkScore", f.score); set("mkAvg", f.avg); set("mkTop", f.top); set("mkBeat", f.beat);
+        set("mkRank", f.rank); set("mkPeople", f.people); set("mkDate", f.date);
+        let mins = 0;
+        for (const [m, v] of Object.entries(r.modules || {})) {
+          const inp = document.querySelector(`[data-mk-minutes="${m}"]`);
+          if (inp && v.minutes != null) { inp.value = v.minutes; mins++; }
+        }
+        if (mins) document.getElementById("mkModsFold").open = true;
+        REPORT = { season: sel.value, modules: r.modules || {}, sub: r.sub || {} };
+        const got = ["score:得分", "avg:平均分", "top:最高分", "beat:已击败", "rank:排名", "date:日期"].filter((x) => f[x.split(":")[0]] != null).map((x) => x.split(":")[1]);
+        const mods = Object.entries(r.modules || {}).map(([m, v]) => `${esc(m)} ${v.ok}/${v.total}${v.minutes != null ? ` · ${v.minutes}分` : ""}`).join("；");
+        document.getElementById("rpResult").innerHTML = `✅ 认出（${esc(r.engine)}）：${got.join("、") || "（成绩数字没认出）"}${f.season ? ` · 第 ${f.season} 季` : ""}<br>${mods || "（各模块没认出）"}
+          <br><span class="muted">已填进下面的表，核对一下再点「保存这一季」。各模块答对数会一起存（没导入答题卡截图时用它算正确率）。</span>`;
+      } catch (e) { showError(e); }
+      btn.disabled = false; btn.textContent = "识别并填入";
+    };
+  }
   function bindExtra() {
+    bindReport();
     const an = document.getElementById("anSeason");
     if (an) an.onchange = async () => { AN = Number(an.value); await loadConv(AN); rerender(); };
     const go = document.getElementById("anGo");
@@ -289,7 +327,9 @@
       const pickMods = (key) => Object.fromEntries([...document.querySelectorAll(`[data-mk-${key}]`)].map((i) => [i.getAttribute(`data-mk-${key}`), i.value]));
       try {
         const r = await api("/api/mock/save", { season: g("mkSeason"), date: g("mkDate"), score: g("mkScore"), avg: g("mkAvg"), top: g("mkTop"),
-          beat: g("mkBeat"), rank: g("mkRank"), people: g("mkPeople"), minutes: pickMods("minutes"), scores: pickMods("score") });
+          beat: g("mkBeat"), rank: g("mkRank"), people: g("mkPeople"), minutes: pickMods("minutes"), scores: pickMods("score"),
+          report: REPORT && String(REPORT.season) === String(g("mkSeason")) ? REPORT : null });
+        REPORT = null;
         MOCK = r.summary; EDIT = g("mkSeason");
         handleEvents(r.events);
         toast(`第 ${EDIT} 季成绩单已保存`);

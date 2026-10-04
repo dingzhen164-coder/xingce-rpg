@@ -800,3 +800,7 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 @media (max-width: 520px) { .mk-dots { grid-template-columns: repeat(8, 30px); } .mk-dot { width: 30px; height: 30px; } }
 #anSeason, #mkMarksSeason { width: auto; }
 .an-card .row h3 { flex: 1 1 420px; }
+.rp-auto { border: 1px dashed color-mix(in srgb, var(--gold) 55%, transparent); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+  background: color-mix(in srgb, var(--gold) 6%, transparent); }
+.rp-auto textarea { width: 100%; box-sizing: border-box; margin-top: 4px; }
+.rp-auto #rpResult { margin-top: 6px; line-height: 1.7; }
