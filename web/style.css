@@ -1,5 +1,5 @@
 /*
-  行测 RPG 样式。颜色全部用 :root 里的变量，暗色 / 亮色主题跟随系统。
+  行测 RPG 样式。颜色全部用 :root 里的变量；亮色 / 暗色看 <html data-theme>（默认亮色，设置 → 外观里可改，每台设备各自记）。
   改配色只改变量；组件类名见 app.js 里的模板。
 */
 :root {
@@ -12,15 +12,13 @@
   --radius: 14px;
   --display: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Songti SC", "STSong", "SimSun", serif;
 }
-@media (prefers-color-scheme: light) {
-  :root {
-    /* 亮色：羊皮纸 */
-    --bg: #f3ead6; --panel: #fbf6ea; --panel2: #efe4cc; --line: #d8c7a2;
-    --text: #2e2418; --muted: #6f5f47; --faint: #a3927a;
-    --accent: #7b4fd0; --accent2: #2f78b8; --gold: #b07d12; --green: #2f8f57;
-    --red: #b83a36; --orange: #c0661d; --purple: #7a45c9;
-    --shadow: 0 6px 22px rgba(90,60,20,.14);
-  }
+:root[data-theme="light"] {
+  /* 亮色：羊皮纸 */
+  --bg: #f3ead6; --panel: #fbf6ea; --panel2: #efe4cc; --line: #d8c7a2;
+  --text: #2a2016; --muted: #5c4e3a; --faint: #85755f;
+  --accent: #7b4fd0; --accent2: #2f78b8; --gold: #b07d12; --green: #2f8f57;
+  --red: #b83a36; --orange: #c0661d; --purple: #7a45c9;
+  --shadow: 0 6px 22px rgba(90,60,20,.14);
 }
 /* 东方修仙：暗色 = 墨色夜空 + 青玉 + 鎏金；亮色 = 宣纸 + 墨 + 朱砂 */
 body.xiuxian {
@@ -30,13 +28,11 @@ body.xiuxian {
   --red: #e0674f; --orange: #e79a52; --purple: #9ad7c4;
   --display: "STKaiti", "KaiTi", "Kaiti SC", "楷体", "Songti SC", "SimSun", serif;
 }
-@media (prefers-color-scheme: light) {
-  body.xiuxian {
-    --bg: #f3efe4; --panel: #fbf8f0; --panel2: #ede6d5; --line: #d6ccb4;
-    --text: #1f2421; --muted: #5d665f; --faint: #9a9f93;
-    --accent: #2f8f78; --accent2: #2f6fa8; --gold: #a8791c; --green: #2f8a57;
-    --red: #b8412d; --orange: #c0661d; --purple: #2f8f78;
-  }
+html[data-theme="light"] body.xiuxian {
+  --bg: #f3efe4; --panel: #fbf8f0; --panel2: #ede6d5; --line: #d6ccb4;
+  --text: #1a1f1c; --muted: #47504a; --faint: #747a70;
+  --accent: #2f8f78; --accent2: #2f6fa8; --gold: #a8791c; --green: #2f8a57;
+  --red: #b8412d; --orange: #c0661d; --purple: #2f8f78;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; color: var(--text);
@@ -682,9 +678,7 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 /* ------------------------------------------------------------ 宗门大比（web/contest.js） */
 /* 折线颜色：数据可视化参考色板 1–6 位（亮 / 暗各一套，已过色盲与相邻区分校验） */
 :root { --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; }
-@media (prefers-color-scheme: light) {
-  :root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; }
-}
+:root[data-theme="light"] { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; }
 .contest-hero { background: radial-gradient(ellipse at 15% 0%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 60%), var(--panel);
   border-top: 3px solid var(--gold); }
 .contest-hero h2 { margin: 0; font-family: var(--display); letter-spacing: .2em; color: var(--gold); }

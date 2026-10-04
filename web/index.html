@@ -4,7 +4,7 @@
   导航文字、标题、配色由 app.js 按当前风格（修仙 / 玄幻）替换。
   页面结构：背景层 + 语录层（ambience.js） + 顶栏（标志 / 导航 / 今日时长 / ♪ 背景音乐） + 主视图 + 右下角提示层 + 升级弹窗。
 -->
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -19,6 +19,10 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="stylesheet" href="style.css">
+<!-- 亮色 / 暗色：默认亮色（宣纸），设置 → 外观里可改成暗色或跟随系统；每台设备各记各的。先于页面画出来就定好，免得闪一下 -->
+<script>(function () { var m = "light"; try { m = localStorage.getItem("xrpg-theme") || "light"; } catch (e) {}
+  if (m === "auto") m = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.dataset.theme = m; document.documentElement.style.colorScheme = m; })();</script>
 </head>
 <body class="xiuxian">
 <div id="bgLayer"></div>

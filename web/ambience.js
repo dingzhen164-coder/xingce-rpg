@@ -8,7 +8,15 @@
 const AMB = (() => {
   let DATA = null;            // /api/appearance 的返回
   let QUOTE = "";             // 本次打开显示的语录（随机模式每次打开换一句）
-  const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = () => document.documentElement.dataset.theme === "dark";
+  // 明暗：每台设备各自记（localStorage），默认亮色；"auto" = 跟随系统
+  const themeMode = () => { try { return localStorage.getItem("xrpg-theme") || "light"; } catch (e) { return "light"; } };
+  function setTheme(mode) {
+    try { localStorage.setItem("xrpg-theme", mode); } catch (e) { /* 存不了就只管这一次 */ }
+    const m = mode === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : mode;
+    document.documentElement.dataset.theme = m;
+    document.documentElement.style.colorScheme = m;
+  }
   const svgUrl = (svg) => `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 
   // 可复现的伪随机数：同一张背景每次画出来一样
@@ -134,7 +142,7 @@ const AMB = (() => {
   async function load() {
     try { DATA = await fetch("/api/appearance").then((r) => r.json()); apply(); } catch (e) { /* 没有库时不影响使用 */ }
   }
-  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => apply());
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { if (themeMode() === "auto") { setTheme("auto"); apply(); } });
 
   async function save(patch) {
     const r = await fetch("/api/appearance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then((x) => x.json());
@@ -195,7 +203,11 @@ const AMB = (() => {
     const builtins = Object.keys(BUILTIN_BG).map((n) => tile("builtin:" + n, `${n}${THEME_OF[n] === "玄幻" ? "（玄幻）" : ""}`)).join("");
     const files = DATA.backgrounds.map((p) => tile("file:" + p, p.split("/").pop())).join("");
     const qOpt = (v, t) => `<option value="${v}" ${c.quote === v ? "selected" : ""}>${t}</option>`;
-    return `<div class="card"><h3>🌄 外观与音乐 <small>选择会同步到另一台电脑</small></h3>
+    const tm = themeMode(), tOpt = (v, t) => `<option value="${v}" ${tm === v ? "selected" : ""}>${t}</option>`;
+    return `<div class="card"><h3>🌄 外观与音乐 <small>选择会同步到另一台电脑（明暗除外）</small></h3>
+      <div class="row" style="align-items:center;gap:10px;margin-bottom:8px"><label>明暗 <select id="ambTheme" style="width:auto">
+        ${tOpt("light", "浅色 · 宣纸（默认）")}${tOpt("dark", "深色 · 墨夜")}${tOpt("auto", "跟随系统")}</select></label>
+        <span class="small muted">只影响这台设备（电脑、平板各选各的）</span></div>
       <label class="small muted">背景（点一下立即换）</label>
       <div class="bg-grid">${tile("none", "不用背景")}${builtins}${files}</div>
       <p class="small muted">自己的图片：放进库里的 <b>${esc2(DATA.folders.bg)}</b>（jpg / png / webp），刷新本页就会出现在上面。</p>
@@ -217,6 +229,8 @@ const AMB = (() => {
     document.querySelectorAll("[data-bg]").forEach((b) => (b.onclick = () => guard(save({ bg: b.dataset.bg }).then(() => {
       document.querySelectorAll("[data-bg]").forEach((x) => x.classList.toggle("sel", x === b));
     }))));
+    const th = document.getElementById("ambTheme");
+    if (th) th.onchange = () => { setTheme(th.value); apply(); if (typeof render === "function") render(); };
     const dim = document.getElementById("ambDim");
     if (!dim) return;
     dim.oninput = () => document.getElementById("bgLayer").style.setProperty("--dim", dim.value);

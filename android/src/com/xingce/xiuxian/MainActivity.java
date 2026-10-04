@@ -69,7 +69,7 @@ public class MainActivity extends Activity {
         }
 
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#0e1412"));
+        web.setBackgroundColor(Color.parseColor("#f3efe4"));     // 宣纸色：和网页默认亮色一致
         setContentView(web);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
