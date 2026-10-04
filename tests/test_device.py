@@ -113,6 +113,11 @@ class DeviceTest(unittest.TestCase):
         body = "默认亮色\r\n\r\n- 灰字加深\r\n\r\nCo-Authored-By: X <a@b>\r\nClaude-Session: https://x"
         self.assertEqual(update._notes(body), "默认亮色\n\n- 灰字加深")
 
+    def test_swap_env_is_clean(self):
+        env = update.clean_env({"PATH": "x", "_PYI_APPLICATION_HOME_DIR": "C:\\T\\_MEI1", "_PYI_PARENT_PROCESS_LEVEL": "1",
+                                "_MEIPASS2": "C:\\T\\_MEI1"})
+        self.assertEqual(env, {"PATH": "x", "PYINSTALLER_RESET_ENVIRONMENT": "1"})
+
     def test_swap_script_quotes_paths(self):
         ps = update.swap_script(123, r"C:\a b\it's\x.new.exe", r"C:\a b\it's\x.exe")
         self.assertIn("Wait-Process -Id 123", ps)

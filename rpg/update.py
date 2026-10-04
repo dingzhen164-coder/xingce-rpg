@@ -71,6 +71,17 @@ def swap_script(pid, new, exe):
         ""])
 
 
+def clean_env(env=None):
+    """给“换文件再重开”的脚本用的环境：去掉 PyInstaller 留给自己子进程的变量（_PYI_*、_MEIPASS2），
+    不然新 exe 会以为自己是旧 exe 的子进程，去已经删掉的旧临时目录（_MEIxxxx）找 python312.dll，报 Failed to load Python DLL"""
+    env = dict(os.environ if env is None else env)
+    for k in list(env):
+        if k.upper().startswith("_PYI_") or k.upper().startswith("_MEIPASS"):
+            env.pop(k)
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"      # PyInstaller 6.9+：当成全新启动
+    return env
+
+
 def launch_swap(pid, new, exe):
     """后台起一个看不见窗口的 PowerShell 去换文件（不用批处理：脱离控制台时 find / tasklist 会弹黑框卡住）"""
     fd, ps1 = tempfile.mkstemp(prefix="xingce-rpg-update-", suffix=".ps1")
@@ -78,7 +89,7 @@ def launch_swap(pid, new, exe):
     Path(ps1).write_text(swap_script(pid, new, exe), encoding="utf-8-sig", newline="")    # 带 BOM，中文路径不乱码
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", ps1],
-                            creationflags=flags, close_fds=True,
+                            creationflags=flags, close_fds=True, env=clean_env(),
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

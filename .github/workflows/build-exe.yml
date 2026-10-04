@@ -45,6 +45,26 @@ jobs:
           Write-Output $out
           if ($out -notmatch "SMOKE-OK") { throw "frozen smoke test failed" }
 
+      - name: Relaunch test (一键更新换文件后能重新打开)
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "relaunch"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item dist/xingce-xiuxian.exe "$d/app.exe"
+          Copy-Item dist/xingce-xiuxian.exe "$d/app.new.exe"
+          $log = Join-Path $HOME ".xingce-rpg/启动日志.txt"
+          Remove-Item $log -ErrorAction SilentlyContinue
+          & "$d/app.exe" --run-script tests/smoke_relaunch.py "$d/app.new.exe" "$d/app.exe" | Out-String | Write-Output
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            if ((Test-Path $log) -and ((Get-Content $log -Raw -Encoding utf8) -match "已启动")) { $ok = $true; break }
+          }
+          if (Test-Path $log) { Get-Content $log -Encoding utf8 | Write-Output }
+          Get-Process app -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (Test-Path "$d/app.new.exe") { throw "新 exe 没换上去" }
+          if (-not $ok) { throw "换文件后重开的程序没起来" }
+
       - name: Publish release
         shell: bash
         env:
