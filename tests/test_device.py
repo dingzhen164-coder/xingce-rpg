@@ -1,6 +1,7 @@
 """局域网模式（口令、cookie、只能本机改的设置）、版本号比较、版本接口。运行：python -m unittest discover -s tests -v"""
 import http.client
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -111,6 +112,30 @@ class DeviceTest(unittest.TestCase):
     def test_release_notes_drop_trailers(self):
         body = "默认亮色\r\n\r\n- 灰字加深\r\n\r\nCo-Authored-By: X <a@b>\r\nClaude-Session: https://x"
         self.assertEqual(update._notes(body), "默认亮色\n\n- 灰字加深")
+
+    def test_swap_script_quotes_paths(self):
+        ps = update.swap_script(123, r"C:\a b\it's\x.new.exe", r"C:\a b\it's\x.exe")
+        self.assertIn("Wait-Process -Id 123", ps)
+        self.assertIn("'C:\\a b\\it''s\\x.new.exe'", ps)
+
+    @unittest.skipUnless(os.name == "nt", "只在 Windows 上真跑换文件")
+    def test_swap_really_replaces_on_windows(self):
+        import shutil, subprocess, time
+        d = self.tmp / "换 exe"
+        d.mkdir()
+        old, new = d / "app.exe", d / "app.new.exe"
+        shutil.copy(r"C:\Windows\System32\whoami.exe", old)
+        shutil.copy(r"C:\Windows\System32\hostname.exe", new)
+        want = new.read_bytes()
+        p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"])
+        update.launch_swap(p.pid, new, old)
+        p.wait()
+        for _ in range(60):
+            if not new.exists() and old.read_bytes() == want:
+                break
+            time.sleep(0.5)
+        self.assertFalse(new.exists())
+        self.assertEqual(old.read_bytes(), want)
 
     def test_apply_refuses_source_version(self):
         with self.assertRaises(update.UpdateError):

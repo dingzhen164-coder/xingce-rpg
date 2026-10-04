@@ -2,7 +2,8 @@
 
 - 每次改 rpg/version.py 的版本号推到 main，GitHub Actions 在 Windows 上打包出新的 exe，发到仓库的 Releases；
 - 程序里点「检查更新」：问 GitHub 最新的 Release 是哪个版本，比当前新就给出下载；
-- exe 版点「更新并重启」：把新 exe 下到旁边，写个小批处理——等这个程序退出、用新 exe 换掉旧的、再启动——然后自己退出；
+- exe 版点「更新并重启」：把新 exe 下到旁边，交给一个隐藏的 PowerShell 小脚本——等这个程序退出、用新 exe 换掉旧的
+  （exe 还被占着就每半秒再试，最多 30 秒）、再启动——然后自己退出；
 - 源码版（python server.py）不自动替换，照旧用压缩包更新。
 """
 import json
@@ -56,6 +57,31 @@ def check():
             "windows": os.name == "nt"}
 
 
+def swap_script(pid, new, exe):
+    """等进程 pid 退出 → 用 new 换掉 exe（占用中就重试）→ 启动 exe。换不成也照样把程序打开（还是旧版，不至于“消失”）"""
+    q = lambda p: "'" + str(p).replace("'", "''") + "'"
+    return "\r\n".join([
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        "Wait-Process -Id %d -Timeout 60" % pid,
+        "for ($i = 0; $i -lt 60; $i++) {",
+        "  try { Move-Item -LiteralPath %s -Destination %s -Force -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 500 }" % (q(new), q(exe)),
+        "}",
+        "Start-Process -FilePath %s -WorkingDirectory %s" % (q(exe), q(Path(exe).parent)),
+        "Remove-Item -LiteralPath $PSCommandPath",
+        ""])
+
+
+def launch_swap(pid, new, exe):
+    """后台起一个看不见窗口的 PowerShell 去换文件（不用批处理：脱离控制台时 find / tasklist 会弹黑框卡住）"""
+    fd, ps1 = tempfile.mkstemp(prefix="xingce-rpg-update-", suffix=".ps1")
+    os.close(fd)
+    Path(ps1).write_text(swap_script(pid, new, exe), encoding="utf-8-sig", newline="")    # 带 BOM，中文路径不乱码
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", ps1],
+                            creationflags=flags, close_fds=True,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def apply():
     """下载新 exe，交给批处理换掉自己并重启。只在 Windows 上的 exe 版能用"""
     if not (FROZEN and os.name == "nt"):
@@ -84,15 +110,6 @@ def apply():
     if info["size"] and new.stat().st_size != info["size"]:
         new.unlink()
         raise UpdateError("下载不完整，再试一次")
-    bat = Path(tempfile.gettempdir()) / "xingce-rpg-update.bat"
-    bat.write_text("\r\n".join([
-        "@echo off", "chcp 65001 >nul",
-        ":wait",
-        'tasklist /FI "PID eq %d" | find "%d" >nul && (timeout /t 1 /nobreak >nul & goto wait)' % (os.getpid(), os.getpid()),
-        'move /y "%s" "%s" >nul' % (new, exe),
-        'start "" "%s"' % exe,
-        'del "%~f0"', ""]), encoding="utf-8", newline="")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(["cmd", "/c", str(bat)], creationflags=flags, close_fds=True)
-    threading.Timer(1.5, lambda: os._exit(0)).start()      # 先把回应发给网页，再退出让批处理换文件
+    launch_swap(os.getpid(), new, exe)
+    threading.Timer(1.5, lambda: os._exit(0)).start()      # 先把回应发给网页，再退出让脚本换文件
     return {"ok": True, "version": info["latest"]}
