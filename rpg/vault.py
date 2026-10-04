@@ -203,9 +203,10 @@ def _clean_analysis(lines):
 
 
 def parse_board_file(path):
-    """返回题目列表（dict），带 mtime 缓存"""
+    """返回题目列表（dict），带缓存（按修改时间 + 大小；Windows 上连着写两次可能落在同一个时间刻度里）"""
     try:
-        mt = path.stat().st_mtime
+        st = path.stat()
+        mt = (st.st_mtime_ns, st.st_size)
     except OSError:
         return []
     hit = _cache.get(path)
@@ -314,7 +315,8 @@ def save_tutor_note(paths, key, text, date):
                 k += 1
             seg[k:k] = [">"] + block
     lines[start:end] = seg
-    f.write_text("\n".join(lines), encoding="utf-8")
+    f.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    _cache.pop(f, None)
     return str(f.relative_to(paths.vault)).replace("\\", "/")
 
 

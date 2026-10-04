@@ -158,7 +158,7 @@ def convert(src, out):
     images = sorted({i for q in qs for i in q['images']})
     img_list = folder / '图片' / '真题库' / '图片清单.txt'
     img_list.parent.mkdir(parents=True, exist_ok=True)
-    img_list.write_text('\r\n'.join(i.replace('/', '\\') for i in images) + '\r\n', encoding='utf-8-sig')
+    img_list.write_text('\r\n'.join(i.replace('/', '\\') for i in images) + '\r\n', encoding='utf-8-sig', newline='')
     return {'total': len(qs), 'boards': dict(by), 'bad': bad, 'unknown': dict(unknown), 'images': len(images),
             'pending': sum(not q['answer'] for q in qs), 'papers': len({q['paper'] for q in qs})}
 
@@ -531,7 +531,7 @@ def fix_material_leak(paths, force=False):
             fixed += n
             files.append(f.name)
     try:
-        mark.write_text('材料串题修复：%d 题（%s）\n' % (fixed, '、'.join(files)), encoding='utf-8')
+        mark.write_text('材料串题修复：%d 题（%s）\n' % (fixed, '、'.join(files)), encoding='utf-8', newline='\n')
     except OSError:
         pass
     return {'fixed': fixed, 'files': files}

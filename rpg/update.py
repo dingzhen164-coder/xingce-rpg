@@ -85,7 +85,7 @@ def apply():
         'tasklist /FI "PID eq %d" | find "%d" >nul && (timeout /t 1 /nobreak >nul & goto wait)' % (os.getpid(), os.getpid()),
         'move /y "%s" "%s" >nul' % (new, exe),
         'start "" "%s"' % exe,
-        'del "%~f0"', ""]), encoding="utf-8")
+        'del "%~f0"', ""]), encoding="utf-8", newline="")
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(["cmd", "/c", str(bat)], creationflags=flags, close_fds=True)
     threading.Timer(1.5, lambda: os._exit(0)).start()      # 先把回应发给网页，再退出让批处理换文件

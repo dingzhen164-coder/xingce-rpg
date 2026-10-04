@@ -232,7 +232,7 @@ def _log(g, sid, user_text, r):
         else:
             old = old.rstrip("\n") + "\n\n" + head + "\n\n" + body + "\n"
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(old.rstrip("\n") + "\n", encoding="utf-8")
+        f.write_text(old.rstrip("\n") + "\n", encoding="utf-8", newline="\n")
     except OSError:
         pass
 

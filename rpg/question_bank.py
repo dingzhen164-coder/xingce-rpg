@@ -176,7 +176,7 @@ def save_tutor_to_bank(paths, q, text, date):
             block = block[:m.start(1)] + new + block[m.end(1):]
         else:
             block = block.rstrip('\n') + '\n### 解析\n' + new
-        f.write_text(t[:h.start()] + block + t[end:], encoding='utf-8')
+        f.write_text(t[:h.start()] + block + t[end:], encoding='utf-8', newline='\n')
         return f.name
     return ''
 
