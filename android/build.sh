@@ -5,8 +5,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?需要 Android SDK}}"
-BT=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
-PLAT=$(ls -d "$SDK"/platforms/android-* | sort -V | tail -1)
+# 只用正式版（不要 rc / beta 之类）
+BT=$(ls -d "$SDK"/build-tools/* | grep -E '/[0-9]+(\.[0-9]+)*$' | sort -V | tail -1)
+PLAT=$(ls -d "$SDK"/platforms/android-* | grep -E '/android-[0-9]+$' | sort -V | tail -1)
 JAR="$PLAT/android.jar"
 API=${PLAT##*android-}
 VER=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' ../rpg/version.py)
@@ -24,7 +25,7 @@ JAVA
 "$BT/aapt2" link -I "$JAR" --manifest AndroidManifest.xml -A assets -o build/base.apk \
   --version-code "$CODE" --version-name "$VER" --min-sdk-version 24 --target-sdk-version "$API" \
   --java build/gen build/res.zip
-javac -source 1.8 -target 1.8 -bootclasspath "$JAR" -encoding UTF-8 -nowarn -d build/classes \
+javac --release 8 -classpath "$JAR" -encoding UTF-8 -nowarn -d build/classes \
   $(find src build/gen -name '*.java')
 "$BT/d8" --release --min-api 24 --lib "$JAR" --output build/dex $(find build/classes -name '*.class')
 cp build/base.apk build/unsigned.apk
