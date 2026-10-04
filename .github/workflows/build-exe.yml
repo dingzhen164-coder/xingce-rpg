@@ -54,7 +54,8 @@ jobs:
           if gh release view "v$V" >/dev/null 2>&1; then
             gh release upload "v$V" dist/xingce-xiuxian.exe --clobber
           else
-            gh release create "v$V" dist/xingce-xiuxian.exe --title "行测修仙传 v$V" --notes "$(git log -1 --pretty=%B)"
+            NOTES=$(git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):')   # 更新说明只留改了什么
+            gh release create "v$V" dist/xingce-xiuxian.exe --title "行测修仙传 v$V" --notes "$NOTES"
           fi
 
   apk:
