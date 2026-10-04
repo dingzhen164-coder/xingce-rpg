@@ -12,6 +12,7 @@ import json
 import shutil
 import sys
 import tempfile
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 
@@ -470,6 +471,63 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((p["board"], p["minutes"], p["total"], p["correct"], p["source"]), ("模考", 120, 6, 4, "粉笔第37季模考"))
         self.assertNotIn("practice_minutes", api._mock_imported({}, 37))
         self.assertEqual(api.dashboard({})["timesplit"]["today"]["self"], 120)
+
+    def test_answer_card_screenshot_and_analysis(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("没装 pymupdf")
+        def q(n):
+            return ("### %d. ⚪\n\n题干\n\n> [!check]- 答案\n> 正确答案：**B**　我的答案：**—**　未作答\n\n---\n\n" % n)
+        sd = self.vault / "FB模考试卷复盘/板块复盘/第38季"
+        sd.mkdir(parents=True)
+        (sd / "01-政治理论.md").write_text("---\n作答: 0\n正确: 0\n正确率: \"—\"\n---\n\n| 题号 | 正确答案 | 我的答案 | 结果 |\n| :-: | :-: | :-: | :-: |\n"
+                                         + "".join("| [[#%d. ⚪\\|%d]] | B | — | ⚪ 未作答 |\n" % (n, n) for n in range(1, 14)) + "\n" + "".join(q(n) for n in range(1, 14)), encoding="utf-8")
+        (sd / "02-常识判断.md").write_text("".join(q(n) for n in range(14, 21)), encoding="utf-8")
+        wrong = {2, 5, 13, 16}
+        # 画一张答题卡：一行 11 个，模块之间有标题（间隔更大）
+        doc = pymupdf.open()
+        page = doc.new_page(width=600, height=520)
+        y, n = 40, 1
+        for count in (13, 7):
+            y += 40
+            for k in range(count):
+                if k and k % 11 == 0:
+                    y += 46
+                x = 30 + (k % 11) * 50
+                page.draw_circle((x + 18, y), 18, color=None, fill=(0.94, 0.33, 0.31) if n in wrong else (0.17, 0.75, 0.59))
+                n += 1
+            y += 46
+        png = page.get_pixmap().tobytes("png")
+        import base64
+        r = api.mock_marks_scan({"season": 38, "images": ["data:image/png;base64," + base64.b64encode(png).decode()]})
+        self.assertEqual((r["ok"], r["bad"], r["missing"]), (16, 4, []))
+        self.assertEqual(sorted(int(k) for k, v in r["marks"].items() if v == "bad"), sorted(wrong))
+        r["marks"]["16"] = "ok"                                       # 网页上点一下改判
+        r = api.mock_marks_save({"season": 38, "marks": r["marks"]})
+        self.assertEqual(r["changed"], 20)
+        text = (sd / "01-政治理论.md").read_text(encoding="utf-8")
+        self.assertIn("### 2. ❌", text)
+        self.assertIn("正确答案：**B**　我的答案：**？**　错误", text)
+        self.assertIn("| [[#1. ✅\\|1]] | B | B | ✅ 正确 |", text)
+        self.assertIn("作答: 13", text)
+        s38 = next(s for s in r["summary"]["seasons"] if s["season"] == 38)
+        self.assertEqual((s38["ok"], s38["total"]), (17, 20))
+        # 师傅大比分析：先完整分析，再追问；对话存档并写成文件
+        sent = []
+        def fake(messages, **kw):
+            sent.append(messages)
+            return "分析%d" % len(sent)
+        with patch.object(ai, "available", return_value=True), patch.object(ai, "chat", side_effect=fake):
+            r = api.mock_analyze({"season": 38})
+            self.assertEqual([m["content"] for m in r["conv"]], ["分析1"])
+            self.assertIn('"错": [2, 5, 13]', sent[0][1]["content"])
+            r = api.mock_analyze({"season": 38, "text": "政治怎么补？"})
+            self.assertEqual([m["role"] for m in r["conv"]], ["assistant", "user", "assistant"])
+            self.assertEqual(sent[1][2]["content"], "分析1")             # 追问带着之前的对话
+        self.assertEqual(len(api.mock_analysis_get({"season": 38})["conv"]), 3)
+        f = self.vault / "训练/宗门大比/第38季考情分析.md"
+        self.assertIn("政治怎么补？", f.read_text(encoding="utf-8"))
 
     def test_tribulation_failure_needs_healing(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)

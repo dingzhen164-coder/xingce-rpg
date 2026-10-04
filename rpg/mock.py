@@ -159,3 +159,80 @@ def on_import(g, season):
     ok = sum(c["ok"] for c in counts.values())
     done.append(str(season))
     return g.add_practice("模考", total, ok, IMPORT_MINUTES, "粉笔第%d季模考" % season, "导入模考试卷，自动记入 %d 分钟" % IMPORT_MINUTES)
+
+
+# ---------------------------------------------------------------- 考情分析（师傅大比分析，可追问，存档 + 写 训练/宗门大比/第N季考情分析.md）
+def _facts(g, season):
+    import json
+    d = summary(g)
+    cur = next((s for s in d["seasons"] if s["season"] == season), None)
+    if not cur:
+        raise MockError("没有第%d季的模考复盘" % season)
+    prev = [s for s in d["seasons"] if s["season"] < season]
+    wrong = {}
+    sd = next((x for n, x in vault.seasons(g.paths) if n == season), None)
+    if sd:
+        for f in sorted(sd.glob("[0-9][0-9]-*.md")):
+            bad = [q["num"] for q in vault.parse_board_file(f) if q["icon"] == "❌"]
+            blank = [q["num"] for q in vault.parse_board_file(f) if q["icon"] == "⚪"]
+            if bad or blank:
+                wrong[f.stem[3:]] = {"错": bad, "未作答/未录": blank}
+    slim = lambda s: {"季": s["season"], "日期": s["date"], "我的分数": s["score"], "大比平均分": s.get("avg"), "最高分": s.get("top"),
+                      "已击败%": s.get("beat"), "排名": s.get("rank"), "总人数": s.get("people"), "答对": s["ok"], "题数": s["total"],
+                      "总用时分钟": s["minutes"],
+                      "模块": [{"模块": m["name"], "对": m["ok"], "题数": m["total"], "正确率%": round(m["acc"] * 100, 1),
+                              "得分": m["score"], "得分是估算": m["estimated"], "用时分钟": m["minutes"],
+                              "小板块": [{"板块": b["board"], "对": b["ok"], "错": b["wrong"], "未作答": b["blank"], "题数": b["total"]} for b in m["boards"]]}
+                             for m in s["modules"]]}
+    facts = {"这一季": slim(cur), "这一季错题题号": wrong,
+             "上一季": slim(prev[-1]) if prev else None,
+             "以前各季走势": [{"季": s["season"], "我的分数": s["score"], "大比平均分": s.get("avg"), "正确率%": round(s["acc"] * 100, 1),
+                          "各模块正确率%": {m["name"]: round(m["acc"] * 100, 1) for m in s["modules"]}} for s in prev[-8:]],
+             "历次平均": d["overall"], "各模块历次平均": d["modules"]}
+    return json.dumps(facts, ensure_ascii=False)
+
+
+def analysis(g, season):
+    return g.state.setdefault("mocks", {}).setdefault(str(season), {}).setdefault("analysis", [])
+
+
+def analyze(g, season, question=None, fresh=False):
+    """师傅大比分析：没有分析或 fresh 时先做一份完整分析；带 question 是接着追问。返回整段对话"""
+    from . import ai, prompts
+    conv = analysis(g, season)
+    if fresh:
+        conv.clear()
+    if question and not conv:
+        analyze(g, season)
+    hist = [{"role": m["role"], "content": m["content"]} for m in conv]
+    if conv and not question:
+        return conv
+    reply = ai.chat(prompts.mock_analysis(g.persona, _facts(g, season), hist, question), temperature=0.5, max_tokens=2200)
+    if question:
+        conv.append({"role": "user", "content": question, "t": g.t})
+    conv.append({"role": "assistant", "content": reply, "t": g.t})
+    write_analysis(g, season)
+    return conv
+
+
+def write_analysis(g, season):
+    if not g.paths.train:
+        return
+    conv = analysis(g, season)
+    folder = g.paths.train / "宗门大比"
+    folder.mkdir(parents=True, exist_ok=True)
+    who = {"user": "🧑 我", "assistant": "🌸 " + g.persona["导师名"]}
+    body = "\n\n".join("**%s**（%s）：\n\n%s" % (who[m["role"]], m.get("t", ""), m["content"].strip()) for m in conv)
+    (folder / ("第%d季考情分析.md" % season)).write_text("# 第%d季 · 宗门大比考情分析\n\n%s\n" % (season, body), encoding="utf-8", newline="\n")
+
+
+def after_marks(g, season):
+    """导入了对错截图：导入试卷时记的那笔演武（题数、对的题数）按新的对错改过来"""
+    sd = next((d for n, d in vault.seasons(g.paths) if n == season), None)
+    if not sd:
+        return
+    c = season_counts(g.paths, sd)
+    ok = sum(x["ok"] for x in c.values())
+    for p in g.state.get("practice", []):
+        if p.get("source") == "粉笔第%d季模考" % season and p.get("board") == "模考":
+            p["correct"] = min(ok, p.get("total") or ok)

@@ -781,3 +781,22 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .id-card.editing { border-left-color: var(--accent); }
 .id-card.editing label { display: block; margin-top: 6px; }
 .id-card.editing textarea, .id-card.editing input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; resize: vertical; }
+
+/* 宗门大比 · 考情分析、答题卡截图 */
+.an-card { border-top: 3px solid var(--gold); }
+.an-card .row { gap: 10px; flex-wrap: wrap; }
+.an-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.an-body .npc .say { max-width: none; }
+.an-me { align-self: flex-end; max-width: 80%; }
+.an-ask { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
+.an-ask textarea { flex: 1; resize: vertical; }
+.mk-sum { margin: 10px 0 6px; font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.mk-sum b.ok { color: #1f9e7a; } .mk-sum b.bad { color: #d9534f; }
+.mk-sec { margin-top: 6px; }
+.mk-dots { display: grid; grid-template-columns: repeat(11, 34px); gap: 6px; margin-top: 4px; }
+.mk-dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; color: #fff; cursor: pointer; user-select: none; }
+.mk-dot.ok { background: #2bbf96; } .mk-dot.bad { background: #ef5a50; } .mk-dot.none { background: #b9b3a6; }
+.mk-dot:hover { outline: 2px solid var(--gold); }
+@media (max-width: 520px) { .mk-dots { grid-template-columns: repeat(8, 30px); } .mk-dot { width: 30px; height: 30px; } }
+#anSeason, #mkMarksSeason { width: auto; }
+.an-card .row h3 { flex: 1 1 420px; }

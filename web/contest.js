@@ -7,6 +7,11 @@
   let MOCK = null;
   let PICK = "avg";          // 模块统计看哪一季："avg" = 历次平均
   let EDIT = null;           // 正在录入的季
+  let AN = null;             // 考情分析看哪一季
+  const CONV = {};           // 季 → 考情分析对话
+  let AN_BUSY = false;
+  let MK = null;             // 答题卡截图识别结果 {season, marks, sections, images, ...}
+  let MK_SEASON = null;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const f1 = (x) => (x == null ? "—" : (Math.round(x * 10) / 10).toString());
   const pc = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
@@ -108,6 +113,46 @@
       <div class="row" style="margin-top:8px"><button class="primary" id="mkSave">保存这一季</button><span class="small muted">对错题数从「FB模考试卷复盘/板块复盘/第N季」自动统计，不用填</span></div></div>`;
   }
 
+  // ---------------------------------------------------------------- 考情分析：师傅大比分析 + 追问（存档，也写进 训练/宗门大比/第N季考情分析.md）
+  function analysisCard(d) {
+    const ss = d.seasons.slice().reverse();
+    if (AN == null) AN = ss[0]?.season;
+    const conv = CONV[AN] || [];
+    const opts = ss.map((x) => `<option value="${x.season}" ${x.season === AN ? "selected" : ""}>第 ${x.season} 季</option>`).join("");
+    const msgs = conv.map((m) => m.role === "assistant"
+      ? `<div class="npc an-msg">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "师尊")} <span class="faint small">${esc(m.t || "")}</span></div>${md(m.content)}</div></div>`
+      : `<div class="msg me an-me">${esc(m.content)}</div>`).join("");
+    return `<div class="card contest-card an-card"><div class="row"><h3 style="margin:0">🧙 考情分析 <small>师傅看这一季的成绩、各模块 / 各板块对错和用时，和以前比；分析完可以接着问，对话会保存</small></h3>
+        <span class="spacer"></span><select id="anSeason">${opts}</select>
+        <button class="${conv.length ? "ghost" : "primary"}" id="anGo" ${AN_BUSY ? "disabled" : ""}>${AN_BUSY ? "师傅分析中…" : conv.length ? "🔄 重新分析" : "🧙 师傅大比分析"}</button></div>
+      <div class="an-body">${msgs || `<p class="muted small">还没分析过第 ${AN} 季。先导入答题卡截图、录好成绩单，师傅分析得更准。</p>`}</div>
+      ${conv.length ? `<div class="an-ask"><textarea id="anText" rows="2" placeholder="接着问师傅：比如“数量关系该先补哪类题？”“时间怎么分配？”（Ctrl+Enter 发送）"></textarea>
+        <button class="primary" id="anSend" ${AN_BUSY ? "disabled" : ""}>问师傅</button></div>` : ""}
+      <p class="small faint" style="margin:6px 0 0">对话存在 训练/宗门大比/第 ${AN} 季考情分析.md</p></div>`;
+  }
+
+  // ---------------------------------------------------------------- 导入答题卡截图（绿对红错）
+  function marksCard(d) {
+    const ss = d.seasons.slice().reverse();
+    if (MK_SEASON == null) MK_SEASON = ss[0]?.season;
+    const opts = ss.map((x) => `<option value="${x.season}" ${x.season === MK_SEASON ? "selected" : ""}>第 ${x.season} 季</option>`).join("");
+    let preview = "";
+    if (MK && MK.season === MK_SEASON) {
+      const cell = (n) => { const v = MK.marks[n]; return `<span class="mk-dot ${v === "ok" ? "ok" : v === "bad" ? "bad" : "none"}" data-mkdot="${n}" title="点一下改对 / 错">${n}</span>`; };
+      const ok = Object.values(MK.marks).filter((v) => v === "ok").length, bad = Object.values(MK.marks).filter((v) => v === "bad").length;
+      const miss = MK.total - ok - bad;
+      preview = `<div class="mk-sum">对 <b class="ok">${ok}</b> · 错 <b class="bad">${bad}</b>${miss ? ` · 没识别到 <b>${miss}</b>（灰色，点一下设成对 / 错，或再加一张截图）` : ""}
+          <span class="faint small">${MK.images.map((x) => x.matched ? `第 ${x.image} 张：${x.from}–${x.to} 题${x.ambiguous ? "（位置不太确定，核对一下）" : ""}` : `第 ${x.image} 张没对上：${esc(x.why)}`).join("；")}</span></div>
+        ${MK.sections.map((sec) => `<div class="mk-sec"><div class="small muted">${esc(sec.name)}</div><div class="mk-dots">${Array.from({ length: sec.to - sec.from + 1 }, (_, i) => cell(String(sec.from + i))).join("")}</div></div>`).join("")}
+        <div class="row" style="margin-top:8px"><button class="primary" id="mkMarksSave">保存到第 ${MK.season} 季复盘</button>
+          <span class="small muted">写进 板块复盘/第${MK.season}季 的复盘文件（错题“我的答案”记成“？”）；心魔录、正确率、灵根跟着更新</span></div>`;
+    }
+    return `<div class="card contest-card" id="mkMarksCard"><h3>📸 导入答题卡截图 <small>粉笔模考报告里的答题卡（绿 = 对、红 = 错）；可以选几张，滚动截的重叠也行</small></h3>
+      <div class="row mk-row"><label>哪一季 <select id="mkMarksSeason">${opts}</select></label>
+        <label>截图 <input type="file" id="mkMarksFiles" accept="image/png,image/jpeg" multiple></label>
+        <button class="primary" id="mkMarksScan">识别</button></div>${preview}</div>`;
+  }
+
   function html(d) {
     const o = d.overall, ss = d.seasons;
     if (!ss.length) {
@@ -145,7 +190,7 @@
         <td class="num">${s.beat == null ? "—" : f1(s.beat) + "%"}</td><td class="num">${s.rank ? `${s.rank}/${s.people || "?"}` : "—"}</td>
         <td class="num">${s.ok}/${s.total}（${pc(s.acc)}）</td><td class="num">${s.minutes == null ? "—" : s.minutes + " 分"}</td>
         <td><button class="ghost small" data-mk-edit="${s.season}">${s.score == null ? "录入" : "改"}</button></td></tr>`).join("");
-    return head + `
+    return head + analysisCard(d) + `
       <div class="grid g2 contest-grid" style="margin-top:14px">
         <div class="card contest-card"><h3>📈 分数走势 <small>我的分数 · 大比平均分 · 最高分（满分 100，y 轴从 ${lo} 起）</small></h3>${scoreChart}</div>
         <div class="card contest-card"><h3>🎯 各模块正确率走势 <small>点图例看各条线；悬停看每一季</small></h3>${accChart}</div>
@@ -154,12 +199,70 @@
       <div class="card contest-card"><h3>🏯 历次大比 <small>排名、大比平均分、已击败照抄粉笔报告；对错题数来自复盘</small></h3>
         <div class="tbl-wrap"><table class="mk-table"><thead><tr><th>季</th><th>日期</th><th>我的分数</th><th>大比平均</th><th>最高分</th><th>已击败</th><th>排名</th><th>答对</th><th>用时</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div></div>
+      ${marksCard(d)}
       ${form(d)}
-      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里录成绩单 → ③ 去心魔录斩错题。</p>`;
+      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里导入答题卡截图（对错）→ ③ 录成绩单 → ④ 点「🧙 师傅大比分析」→ ⑤ 去心魔录斩错题。</p>`;
   }
 
+  async function loadConv(season) {
+    if (season == null || CONV[season]) return;
+    try { CONV[season] = (await api("/api/mock/analysis", { season })).conv; } catch (e) { CONV[season] = []; }
+  }
+  async function ask(body) {
+    AN_BUSY = true; rerender();
+    try { CONV[AN] = (await api("/api/mock/analyze", { season: AN, ...body })).conv; }
+    catch (e) { showError(e); }
+    AN_BUSY = false; rerender();
+    const last = [...document.querySelectorAll(".an-msg")].pop();
+    if (last) last.scrollIntoView({ block: "start" });
+  }
+  function bindExtra() {
+    const an = document.getElementById("anSeason");
+    if (an) an.onchange = async () => { AN = Number(an.value); await loadConv(AN); rerender(); };
+    const go = document.getElementById("anGo");
+    if (go) go.onclick = () => {
+      if ((CONV[AN] || []).length && !confirm("重新分析会清掉这一季之前的考情对话，确定吗？")) return;
+      ask({ fresh: true });
+    };
+    const send = document.getElementById("anSend"), ta = document.getElementById("anText");
+    if (send) {
+      const fire = () => { const t = ta.value.trim(); if (t) ask({ text: t }); };
+      send.onclick = fire;
+      ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); fire(); } };
+    }
+    const ms = document.getElementById("mkMarksSeason");
+    if (ms) ms.onchange = () => { MK_SEASON = Number(ms.value); rerender(); };
+    const scan = document.getElementById("mkMarksScan");
+    if (scan) scan.onclick = async () => {
+      const files = [...document.getElementById("mkMarksFiles").files];
+      if (!files.length) return toast("先选答题卡截图");
+      scan.disabled = true; scan.textContent = "识别中…";
+      try {
+        const images = await Promise.all(files.map((f) => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); })));
+        MK = await api("/api/mock/marks/scan", { season: MK_SEASON, images });
+        rerender();
+        document.getElementById("mkMarksCard")?.scrollIntoView({ block: "start" });
+      } catch (e) { showError(e); scan.disabled = false; scan.textContent = "识别"; }
+    };
+    document.querySelectorAll("[data-mkdot]").forEach((el) => (el.onclick = () => {
+      const n = el.dataset.mkdot;
+      MK.marks[n] = MK.marks[n] === "ok" ? "bad" : "ok";
+      rerender();
+      document.getElementById("mkMarksCard")?.scrollIntoView({ block: "start" });
+    }));
+    const save = document.getElementById("mkMarksSave");
+    if (save) save.onclick = async () => {
+      try {
+        const r = await api("/api/mock/marks/save", { season: MK.season, marks: MK.marks });
+        MOCK = r.summary; MK = null;
+        toast(`第 ${MK_SEASON} 季的对错已写进复盘（改了 ${r.changed} 题）`);
+        await refresh(); rerender();
+      } catch (e) { showError(e); }
+    };
+  }
   function bind() {
     bindCharts();
+    bindExtra();
     // 点图例：隐藏 / 显示那条线（颜色跟着线走，不重排）
     document.querySelectorAll(".chart .lg").forEach((lg, k) => (lg.onclick = () => {
       const chart = lg.closest(".chart");
@@ -202,6 +305,8 @@
   }
   async function render(v) {
     MOCK = await api("/api/mock");
+    if (AN == null && MOCK.seasons.length) AN = MOCK.seasons[MOCK.seasons.length - 1].season;
+    await loadConv(AN);
     v.innerHTML = html(MOCK);
     bind();
   }
