@@ -11,6 +11,8 @@
   let AN = null;             // 考情分析看哪一季
   const CONV = {};           // 季 → 考情分析对话
   let AN_BUSY = false;
+  let AN_FOLD = (() => { try { return localStorage.getItem("xrpg-an-fold") !== "0"; } catch (e) { return true; } })();   // 考情分析默认收起
+  const setFold = (v) => { AN_FOLD = v; try { localStorage.setItem("xrpg-an-fold", v ? "1" : "0"); } catch (e) { /* 只管这一次 */ } };
   let MK = null;             // 答题卡截图识别结果 {season, marks, sections, images, ...}
   let MK_SEASON = null;
   let REPORT = null;         // 成绩截图认出来的各模块答对数（保存时一起存）
@@ -131,13 +133,16 @@
     const msgs = conv.map((m) => m.role === "assistant"
       ? `<div class="npc an-msg">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "师尊")} <span class="faint small">${esc(m.t || "")}</span></div>${md(m.content)}</div></div>`
       : `<div class="msg me an-me">${esc(m.content)}</div>`).join("");
-    return `<div class="card contest-card an-card"><div class="row"><h3 style="margin:0">🧙 考情分析 <small>师傅看这一季的成绩、各模块 / 各板块对错和用时，和以前比；分析完可以接着问，对话会保存</small></h3>
-        <span class="spacer"></span><select id="anSeason">${opts}</select>
-        <button class="${conv.length ? "ghost" : "primary"}" id="anGo" ${AN_BUSY ? "disabled" : ""}>${AN_BUSY ? "师傅分析中…" : conv.length ? "🔄 重新分析" : "🧙 师傅大比分析"}</button></div>
+    const fold = AN_FOLD && !AN_BUSY;
+    return `<div class="card contest-card an-card ${fold ? "folded" : ""}"><div class="row" style="flex-wrap:wrap;gap:8px"><h3 style="margin:0">🧙 考情分析 <small>师傅看这一季的成绩、各模块 / 各板块对错和用时，和以前比；分析完可以接着问，对话会保存</small></h3>
+        <span class="spacer"></span><select id="anSeason" style="width:auto">${opts}</select>
+        <button class="${conv.length ? "ghost" : "primary"}" id="anGo" ${AN_BUSY ? "disabled" : ""}>${AN_BUSY ? "师傅分析中…" : conv.length ? "🔄 重新分析" : "🧙 师傅大比分析"}</button>
+        <button class="ghost" id="anFold">${fold ? "▸ 展开" : "▾ 收起"}</button></div>
+      ${fold ? `<p class="small muted" style="margin:8px 0 0">${conv.length ? `第 ${AN} 季已分析（${conv.filter((m) => m.role === "assistant").length} 段师傅的话），点「展开」看。` : `还没分析过第 ${AN} 季。`}</p></div>` : `
       <div class="an-body">${msgs || `<p class="muted small">还没分析过第 ${AN} 季。先导入答题卡截图、录好成绩单，师傅分析得更准。</p>`}</div>
       ${conv.length ? `<div class="an-ask"><textarea id="anText" rows="2" placeholder="接着问师傅：比如“数量关系该先补哪类题？”“时间怎么分配？”（Ctrl+Enter 发送）"></textarea>
         <button class="primary" id="anSend" ${AN_BUSY ? "disabled" : ""}>问师傅</button></div>` : ""}
-      <p class="small faint" style="margin:6px 0 0">对话存在 训练/宗门大比/第 ${AN} 季考情分析.md</p></div>`;
+      <p class="small faint" style="margin:6px 0 0">对话存在 训练/宗门大比/第 ${AN} 季考情分析.md</p></div>`}`;
   }
 
   // ---------------------------------------------------------------- 导入答题卡截图（绿对红错）
@@ -302,8 +307,11 @@
     const go = document.getElementById("anGo");
     if (go) go.onclick = () => {
       if ((CONV[AN] || []).length && !confirm("重新分析会清掉这一季之前的考情对话，确定吗？")) return;
+      setFold(false);
       ask({ fresh: true });
     };
+    const fb = document.getElementById("anFold");
+    if (fb) fb.onclick = () => { setFold(!AN_FOLD); rerender(); };
     const send = document.getElementById("anSend"), ta = document.getElementById("anText");
     if (send) {
       const fire = () => { const t = ta.value.trim(); if (t) ask({ text: t }); };

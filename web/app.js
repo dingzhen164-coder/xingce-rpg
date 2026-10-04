@@ -281,16 +281,21 @@ const views = {
     const inp = T.input;
     let composer = "";
     if (T.busy) composer = `<div class="thinking">${esc(DASH?.persona?.tutor || "导师")}正在判定</div>`;
+    else if (inp.mode === "text" && inp.buttons) {
+      // 复盘类（试炼复盘 / 大比复盘 / 题后讨论）：打字框默认收起，点左下角「师傅求助」才打开，题目区域更大
+      composer = `${ASK_OPEN ? `<textarea id="answer" placeholder="${esc(inp.placeholder || "")}"></textarea>` : ""}
+        <div class="row composer-row" style="margin-top:${ASK_OPEN ? 8 : 0}px"><button class="${ASK_OPEN ? "" : "ghost"} ask-btn" id="askToggle">🙋 ${ASK_OPEN ? "收起" : "师傅求助"}</button>${ASK_OPEN ? `<button class="primary" id="send">问师傅</button>` : ""}<span class="spacer"></span>
+        ${inp.buttons.map((b) => `<button class="ghost" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
+    }
     else if (inp.mode === "text") composer = `<textarea id="answer" placeholder="${esc(inp.placeholder || "")}"></textarea>
-        <div class="row" style="margin-top:8px"><span class="small muted">Ctrl / ⌘ + Enter 提交</span><span class="spacer"></span>
-        ${inp.buttons ? inp.buttons.map((b) => `<button class="ghost" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")
-          : `<button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button>`}<button class="primary" id="send">${inp.buttons ? "问师傅" : "提交"}</button></div>`;
+        <div class="row" style="margin-top:8px"><span class="spacer"></span>
+        <button class="ghost" data-act="${["bank", "bank_review"].includes(T_TYPE) ? "bank_pause" : "skip"}">${["bank", "bank_review"].includes(T_TYPE) ? "保存并暂停" : "跳过"}</button><button class="primary" id="send">提交</button></div>`;
     else if (inp.mode === "buttons") composer = `<div class="row">${inp.buttons.map((b) => `<button class="${b.id === "skip" ? "ghost" : "primary"}" data-act="${esc(b.id)}">${esc(b.label)}</button>`).join("")}</div>`;
     else if (T.finished && T_TYPE === "mock_review") composer = `<div class="row"><button class="primary" id="backContest">回${esc(NAV("contest"))}</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     return `<div class="train">
       <div class="card"><h3>📜 师尊荐课</h3>${tasks.map(taskRow).join("")}<button class="ghost small" id="toHall" style="margin-top:8px">↩ 回修炼殿</button></div>
-      <div class="card chat"><h3>${esc(T.title)}</h3>${battlePanel()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
+      <div class="card chat">${T.battle?.label ? reviewHead(T.battle) : `<h3>${esc(T.title)}</h3>${battlePanel()}`}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
   },
 
@@ -399,8 +404,8 @@ const views = {
         <button class="ghost small" id="cResetR">恢复默认（宽 80%、高 100%）</button></div>
       <p class="small muted">高度 100% = 从顶栏下面一直到屏幕底；对话框底边总是贴着屏幕底。改了马上生效，下次做功课就是这个大小。</p></div>
       <div class="card"><h3>🎨 风格</h3>
-      <div class="row"><button class="${cur === "修仙" ? "primary" : ""}" data-theme="修仙">☯ 东方修仙（师尊 劭神韵）</button>
-      <button class="${cur === "玄幻" ? "primary" : ""}" data-theme="玄幻">⚔ 西方玄幻（艾琳学姐）</button></div>
+      <div class="row"><button class="${cur === "修仙" ? "primary" : ""}" data-style="修仙">☯ 东方修仙（师尊 劭神韵）</button>
+      <button class="${cur === "玄幻" ? "primary" : ""}" data-style="玄幻">⚔ 西方玄幻（艾琳学姐）</button></div>
       <p class="small muted">两种风格共用同一份进度，只换名字、导师、配色和台词。两台电脑同步。</p></div>
       <div class="card"><h3>本机设置 <small>保存在本机 ~/.xingce-rpg/settings.json，不会同步、不会上传</small></h3>
       <label class="small muted">行测库路径（含 copilot/skills 的文件夹；程序放在库里时会自动找到）</label>
@@ -712,8 +717,10 @@ async function startTask(body) {
   catch (e) { T.busy = false; T.msgs.push({ who: "sys", text: "⚠ " + e.message }); T.finished = true; }
   renderTrain();
 }
+let ASK_OPEN = false;     // 复盘时“师傅求助”打字框开着没有（换题就收起，追问中保持打开）
 function applyResp(r) {
   T.session = r.session; T.title = r.title; T.busy = false; T_TYPE = r.type;
+  if (r.replace && r.scroll !== 'bottom') ASK_OPEN = false;
   // 试炼答题 / 复盘：每一屏只显示当前这道题（不在聊天里越堆越长），从顶上看起
   if (r.replace) T.msgs = [];
   T.top = !!r.replace && r.scroll !== 'bottom';
@@ -770,6 +777,8 @@ function bindTrain() {
   fitChat();
   if (!T.session && !T.msgs.length && !T.busy) return bindHub();
   bindTaskClicks($("#view"));
+  const at = $("#askToggle");
+  if (at) at.onclick = () => { ASK_OPEN = !ASK_OPEN; renderTrain(); if (ASK_OPEN) { const a = $("#answer"); if (a) a.focus(); } };
   const send = $("#send");
   if (send) {
     send.onclick = submitText;
@@ -1294,8 +1303,8 @@ function bindSettings() {
     $("#cResetR").onclick = () => { $("#cwR").value = CHAT_DEF.w; $("#chR").value = CHAT_DEF.h; $("#csideR").checked = CHAT_DEF.side; upd(); };
   }
   AMB.bindSettings(showError);
-  document.querySelectorAll("[data-theme]").forEach((b) => (b.onclick = async () => {
-    try { await api("/api/theme", { theme: b.dataset.theme }); await refresh(); render(); } catch (e) { showError(e); }
+  document.querySelectorAll("button[data-style]").forEach((b) => (b.onclick = async () => {   // 风格按钮（不能用 data-theme：<html data-theme> 是明暗）
+    try { await api("/api/theme", { theme: b.dataset.style }); await refresh(); render(); } catch (e) { showError(e); }
   }));
   $("#sSave").onclick = async () => {
     const body = { vault: $("#sVault").value, base_url: $("#sBase").value, model: $("#sModel").value };
@@ -1361,11 +1370,14 @@ function startTimer() {
     q.textContent = clock(t.question + d); a.textContent = clock(t.total + d);
   }, 1000);
 }
+// 大比复盘：标题和进度合成一行（不再上下两个标题），底下一道细进度线
+function reviewHead(b) {
+  return `<div class="review-head"><b>📜 ${esc(b.label)}</b><span class="rh-stats"><span>第 ${b.position}/${b.total} 题</span><span class="ok">✓ ${b.ok}</span><span class="bad">✗ ${b.wrong}</span>${b.blank ? `<span>○ ${b.blank}</span>` : ''}<span>复盘过 ${b.reviewed}</span></span>
+    <i class="rh-bar" style="width:${Math.round(100 * b.position / b.total)}%"></i></div>`;
+}
 function battlePanel() {
   const b = T.battle;
   if (!b) return '';
-  if (b.label) return `<div class="battle-panel"><div class="row"><b>📜 ${esc(b.label)}</b><span class="spacer"></span><span>复盘 第 ${b.position}/${b.total} 题</span></div>
-    ${bar(b.position / b.total, 'thin yellow')}<div class="bank-counters"><span>✓ 答对 ${b.ok}</span><span>✗ 答错 ${b.wrong}</span>${b.blank ? `<span>○ 没做 ${b.blank}</span>` : ''}<span>本板块复盘过 ${b.reviewed} 题</span></div></div>`;
   return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>${b.phase === 'review' ? '复盘 ' : ''}第 ${b.position}/${b.total} 关</span></div>
     ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.timer ? `<span>⏱ 本题 <b id="tQ">${clock(b.timer.question)}</b> · 总 <b id="tT">${clock(b.timer.total)}</b></span>` : ''}${b.correct === null
       ? '<span>交卷后揭晓对错</span>' : `<span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span>`}</div></div>`;
