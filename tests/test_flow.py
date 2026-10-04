@@ -687,6 +687,40 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(Exception):
             api.session_start({"task": {"type": "mock_review", "season": 99}})
 
+    def test_material_split_and_review_pause(self):
+        """一拖五：材料清掉折叠块记号、和题目分开（弹出材料）；大比复盘暂时离开，下次接着看"""
+        sd = self.vault / "FB模考试卷复盘/板块复盘/第36季"
+        q = lambda n, a, mine: (f"### {n}. {'✅' if a == mine else '❌'}\n\n第{n}题问的是什么？\n\n- **A.** 甲\n- **B.** 乙\n- **C.** 丙\n- **D.** 丁\n\n"
+                                f"> [!check]- 答案\n> 正确答案：**{a}**　我的答案：**{mine}**　\n\n> [!note] 复盘\n>\n\n---\n\n")
+        (sd / "12-一拖五.md").write_text(
+            "# 第36季 · 一拖五\n\n## 材料（第106-108题）\n\n\n> [!abstract]- 材料文字（自动提取，图表以截图为准）\n"
+            "> 某瑜伽馆计划在连续4天内安排7节体验课。已知：\n>\n> （1）流瑜伽在空中瑜伽之后；\n\n"
+            + q(106, "D", "D") + q(107, "A", "B") + q(108, "C", "C"), encoding="utf-8")
+        r = api.session_start({"task": {"type": "mock_review", "season": 36, "board": "一拖五"}})
+        pin = next(m for m in r["messages"] if m.get("pin"))
+        text = lambda bl: "".join(b.get("v", "") for b in bl)
+        self.assertIn("第106题问的是什么", text(pin["blocks"]))
+        self.assertNotIn("瑜伽馆", text(pin["blocks"]))                         # 材料不挤在题目框里
+        self.assertIn("瑜伽馆", text(pin["material"]))
+        self.assertNotIn("[!abstract]", text(pin["material"]))
+        self.assertFalse(any(ln.startswith(">") for ln in text(pin["material"]).splitlines()))
+        sid = r["session"]
+        api.session_action({"session": sid, "action": "mr_next"})
+        r = api.session_action({"session": sid, "action": "mr_pause"})
+        self.assertTrue(r["finished"])
+        self.assertIn("第 107 题", r["messages"][0]["text"])
+        rv = {b["board"]: b for b in api.mock_summary({})["seasons"][0]["review"]}
+        self.assertEqual(rv["一拖五"]["resume"], 107)
+        r = api.session_start({"task": {"type": "mock_review", "season": 36, "board": "一拖五"}})
+        self.assertEqual(r["battle"]["position"], 2)                              # 接着上次
+        api.session_action({"session": r["session"], "action": "mr_close"})
+        self.assertIsNone({b["board"]: b for b in api.mock_summary({})["seasons"][0]["review"]}["一拖五"]["resume"])
+        # 真题试炼的题：材料复制在题干里（还带着折叠块记号）
+        mat, stem = trainer.split_stem("一拖五", "> [!abstract]- 材料文字\n> 某瑜伽馆计划在连续4天内安排7节体验课，每天至少1节。\n> 已知流瑜伽在空中瑜伽之后。\n\n以下哪项符合条件？")
+        self.assertEqual(stem, "以下哪项符合条件？")
+        self.assertTrue(mat.startswith("某瑜伽馆") and "[!" not in mat)
+        self.assertEqual(trainer.split_stem("逻辑填空", "甲\n\n乙")[0], "")
+
     def test_qi_deviation_after_repeated_failures(self):
         (self.vault / "训练/骨架").mkdir(parents=True, exist_ok=True)
         (self.vault / "训练/骨架/论证逻辑.md").write_text(SKELETON.replace("状态: 草稿", "状态: 已定稿"), encoding="utf-8")

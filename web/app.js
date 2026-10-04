@@ -183,19 +183,38 @@ function msgHtml(m) {
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
-  if (m.pin) return `<div class="msg sys q-pin ${PIN_MINI ? "mini" : ""}"><button class="pin-btn" title="${PIN_MINI ? "展开题目" : "把题目收成一行"}">📌 ${PIN_MINI ? "展开" : "收起"}</button>${md(m.text)}${blocks}</div>`;
+  if (m.pin) return `<div class="msg sys q-pin ${PIN_MINI ? "mini" : ""}"><span class="pin-tools">${m.material?.length
+      ? `<button class="pin-btn mat-btn ${MAT_OPEN ? "on" : ""}" title="材料放在左边，对照着看">📄 ${MAT_OPEN ? "收起材料" : "弹出材料"}</button>` : ""}<button class="pin-btn pin-fold" title="${PIN_MINI ? "展开题目" : "把题目收成一行"}">📌 ${PIN_MINI ? "展开" : "收起"}</button></span>${md(m.text)}${blocks}</div>`;
   return `<div class="msg sys">${md(m.text)}${blocks}</div>`;
 }
 // 题目钉在对话框顶上（往下翻解析时不动）；📌 收成一行 / 展开，每台设备记住
 let PIN_MINI = (() => { try { return localStorage.getItem("xrpg-pin-mini") === "1"; } catch (e) { return false; } })();
+// 资料分析 / 一拖五：材料放在对话框左边（像粉笔的“弹出材料”），题目和解析在右边；默认弹出，收起后每台设备记住
+let MAT_OPEN = (() => { try { return localStorage.getItem("xrpg-mat-open") !== "0"; } catch (e) { return true; } })();
+function currentMaterial() {
+  for (let i = T.msgs.length - 1; i >= 0; i--) if (T.msgs[i].material?.length) return T.msgs[i].material;
+  return null;
+}
+function materialPane() {
+  const mat = currentMaterial();
+  if (!mat || !MAT_OPEN) return "";
+  return `<div class="mat-pane"><div class="mat-head"><b>📄 材料</b><span class="spacer"></span><button class="ghost small mat-btn">收起材料</button></div>${blocksHtml(mat)}</div>`;
+}
 function bindPins() {
-  document.querySelectorAll(".q-pin .pin-btn").forEach((b) => (b.onclick = (e) => {
+  document.querySelectorAll(".mat-btn").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    MAT_OPEN = !MAT_OPEN;
+    try { localStorage.setItem("xrpg-mat-open", MAT_OPEN ? "1" : "0"); } catch (err) { /* 只管这一次 */ }
+    const keep = $("#msgs")?.scrollTop || 0;
+    renderTrain().then(() => { const m = $("#msgs"); if (m) m.scrollTop = keep; });
+  }));
+  document.querySelectorAll(".q-pin .pin-fold").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     PIN_MINI = !PIN_MINI;
     try { localStorage.setItem("xrpg-pin-mini", PIN_MINI ? "1" : "0"); } catch (err) { /* 只管这一次 */ }
     document.querySelectorAll(".q-pin").forEach((q) => {
       q.classList.toggle("mini", PIN_MINI);
-      const btn = q.querySelector(".pin-btn"); btn.textContent = "📌 " + (PIN_MINI ? "展开" : "收起"); btn.title = PIN_MINI ? "展开题目" : "把题目收成一行";
+      const btn = q.querySelector(".pin-fold"); btn.textContent = "📌 " + (PIN_MINI ? "展开" : "收起"); btn.title = PIN_MINI ? "展开题目" : "把题目收成一行";
     });
   }));
 }
@@ -309,7 +328,7 @@ const views = {
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     return `<div class="train">
       <div class="card"><h3>📜 师尊荐课</h3>${tasks.map(taskRow).join("")}<button class="ghost small" id="toHall" style="margin-top:8px">↩ 回修炼殿</button></div>
-      <div class="card chat">${sessionHead()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
+      <div class="card chat ${MAT_OPEN && currentMaterial() ? "with-mat" : ""}">${sessionHead()}${materialPane()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
   },
 

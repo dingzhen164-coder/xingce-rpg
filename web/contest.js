@@ -180,7 +180,7 @@
       return `<button class="rv-board ${full ? "done" : ""}" data-rv="${esc(b.board)}" ${RV_WRONG && !bad ? "disabled" : ""}>
         <b>${esc(b.board)}</b><span class="rv-cnt"><i class="ok">✓ ${b.ok}</i><i class="bad">✗ ${b.wrong}</i>${b.blank ? `<i class="blank">○ ${b.blank}</i>` : ""}</span>
         <span class="rv-bar"><i style="width:${Math.round(100 * b.reviewed / b.total)}%"></i></span>
-        <small>${full ? "已复盘完" : b.reviewed ? `已复盘 ${b.reviewed}/${b.total}` : `${b.total} 题 · 未复盘`}</small></button>`;
+        <small>${b.resume ? `⏸ 上次看到第 ${b.resume} 题` : full ? "已复盘完" : b.reviewed ? `已复盘 ${b.reviewed}/${b.total}` : `${b.total} 题 · 未复盘`}</small></button>`;
     }).join("");
     return `<div class="card contest-card rv-card"><div class="row" style="flex-wrap:wrap;gap:10px"><h3 style="margin:0">📜 大比复盘
         <small>像刷完一组题那样，把这一季模考逐题过一遍：看题 → 对答案 → 读解析 → 不懂就问师傅。复盘时间记进「修炼 · 复习」</small></h3>

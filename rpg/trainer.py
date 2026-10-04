@@ -80,10 +80,12 @@ class TrainError(Exception):
 
 
 # ---------------------------------------------------------------- 小工具
-def _msg(who, text, blocks=None, fold=None, pin=False):
+def _msg(who, text, blocks=None, fold=None, pin=False, material=None):
     m = {"who": who, "text": text}
     if pin:                 # 题目：网页上钉在对话框顶上，往下翻解析时不动
         m["pin"] = True
+    if material:            # 资料分析 / 一拖五 的共用材料：网页上“弹出材料”放在旁边，不挤在题目框里
+        m["material"] = material
     if blocks:
         m["blocks"] = blocks
     if fold:
@@ -181,7 +183,7 @@ def _recite_prompt(g, board, it, head):
 
 def _wrong_intro(g, q, head):
     return _msg("sys", f"{head}第{q['season']}季 · {q['source']} · 第{q['num']}题（上次你选了 {q['mine'] or '未作答'}）",
-                blocks=vault.render_blocks(g.paths, q), pin=True)
+                blocks=vault.render_blocks(g.paths, q, material=False), pin=True, material=vault.render_material(g.paths, q))
 
 
 # ---------------------------------------------------------------- 开始
@@ -1028,15 +1030,40 @@ def _bank_show(g, s, run, events=None):
                           _buttons(('bank_next', g.T('bank_result') if run['pos'] + 1 == len(run['questions']) else g.T('bank_next')),
                                    ('bank_pause', g.T('bank_pause'))))
     msg = '%s · 第 %s/%s 关 · 编号 %s' % (question_bank.label(run['board']), run['pos'] + 1, len(run['questions']), q['id'])
-    blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    blocks, mat = _bank_q(g, q)
     if run.get('reasoning'):
         msg += '\n\n独立拆题：问法方向 → 结论（主体/结果）→ 论据 → 底层结构 → A/B/C/D的作用与排除理由。最后单独写一行【答案】B（填你的选择）。提交后才显示标准答案。'
-        return _bank_resp(g, s, run, [_msg('sys', msg, blocks)], events,
+        return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat)], events,
                           _remember(s, _text_input('写出拆题过程，最后一行【答案】A/B/C/D')))
     # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
-    return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True)], events,
+    return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat)], events,
                       _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
                                ('bank_pause', g.T('bank_pause'))))
+
+
+MAT_BOARDS = ("资料分析", "一拖五")
+
+
+def split_stem(board, stem):
+    """真题试炼的题，材料是复制进题干的（导入模考时还带着 > [!abstract] 折叠块记号）。
+    资料分析、一拖五：最后一段是问题，前面是材料。返回 (材料, 题干)，别的板块材料为空"""
+    text = vault.clean_callout(stem)
+    if board not in MAT_BOARDS:
+        return "", text
+    paras = [x for x in re.split(r"\n\s*\n", text) if x.strip()]
+    if len(paras) < 2:
+        return "", text
+    mat, q = "\n\n".join(paras[:-1]), paras[-1]
+    if len(mat) < 20 and "![[" not in mat:
+        return "", text
+    return mat, q
+
+
+def _bank_q(g, q):
+    """真题试炼的一道题 → (题干 + 选项的网页块, 材料的网页块)"""
+    mat, stem = split_stem(q["board"], q["stem"])
+    blocks = _bank_blocks(g, q["board"], stem + "\n\n" + "\n".join("%s. %s" % (k, v) for k, v in q["options"].items()))
+    return blocks, (_bank_blocks(g, q["board"], mat) if mat else [])
 
 
 def _bank_blocks(g, board, text):
@@ -1213,7 +1240,7 @@ def _exam_show(g, s, run, events=None, extra=None):
     run['shown'] = [pos, time.time()]
     left = [str(i + 1) for i in range(len(qs)) if str(i) not in picks]
     msg = '%s · 第 %s/%s 题 · 编号 %s' % (question_bank.label(run['board']), pos + 1, len(qs), q['id'])
-    blocks = _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))
+    blocks, mat = _bank_q(g, q)
     sheet = '答题卡：' + ' '.join('%d%s' % (i + 1, '·' + picks[str(i)] if str(i) in picks else '·_') for i in range(len(qs)))
     mine = picks.get(str(pos))
     btns = [('exam_pick:%s:%s' % (pos, k), ('✓ ' if k == mine else '') + k) for k in 'ABCD']
@@ -1223,7 +1250,7 @@ def _exam_show(g, s, run, events=None, extra=None):
         btns.append(('exam_next', '下一题 →'))
     btns.append(('exam_submit', '交卷' if not left else '交卷（还有 %d 题没选）' % len(left)))
     btns.append(('bank_pause', g.T('bank_pause')))
-    msgs = [_msg('sys', msg, blocks, pin=True), _msg('sys', sheet)] + (extra or [])
+    msgs = [_msg('sys', msg, blocks, pin=True, material=mat), _msg('sys', sheet)] + (extra or [])
     r = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
     r['replace'] = True
     return r
@@ -1294,8 +1321,9 @@ def _review_show(g, s, run, events=None, extra=None, head=False, scroll_bottom=F
             g.T('bank_rank.' + str(group['rank']))), table))
         msgs.append(_msg('npc', _say(g, _rank_scene(group), 正确率='%.0f%%' % rate, 对题数=group['correct'],
                                      总题数=group['total'], 错题数=group['total'] - group['correct']) or g.T('bank_close')))
+    qb, mat = _bank_q(g, q)
     msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s · 用时 %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错', _clock(r.get('seconds'))),
-                     _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items())), pin=True))
+                     qb, pin=True, material=mat))
     msgs.append(_msg('sys', '你的答案：%s · 正确答案：%s\n知识点：%s\n\n解析：' % (r['answer'], q['answer'], q['topic']),
                      _bank_blocks(g, q['board'], q['analysis'] or '（这题没有解析，点「师傅解惑」让师傅讲）')))
     if not r['ok'] and not head:
@@ -1318,7 +1346,7 @@ def _review_show(g, s, run, events=None, extra=None, head=False, scroll_bottom=F
     if wrong_after:
         btns.append(('exam_rwrong', '下一道错题'))
     btns.append(('exam_close', '结束复盘'))
-    btns.append(('bank_pause', '稍后再看'))
+    btns.append(('bank_pause', '暂时离开（保存进度）'))
     inp = {'mode': 'text', 'placeholder': '对这道题还有疑问？直接问师傅（Ctrl+Enter 发送）；「🧙 师傅解惑」按功法 skill 把整题讲透',
            'buttons': [{'id': k, 'label': v} for k, v in btns]}
     rr = _bank_resp(g, s, run, msgs, events, _remember(s, inp))
@@ -1478,6 +1506,18 @@ def _mreview_load(g, s, src):
     s["all_correct"] = s["only_wrong"] and not picked
     s.update(source=src, board=_time_board(g, src), boards=boards, qs=picked or qs, rpos=0, explain={}, chat={},
              title="📜 大比复盘 · 第%s季 · %s" % (s["season"], src))
+    # 上次“暂时离开”停在哪题：接着看
+    saved = mock_saved(g, s["season"]).get(src)
+    s["resumed"] = 0
+    if saved:
+        k = next((i for i, q in enumerate(s["qs"]) if q["num"] == saved), None)
+        if k:
+            s["rpos"] = s["resumed"] = k
+
+
+def mock_saved(g, season):
+    """大比复盘“暂时离开”时存的位置：{板块: 题号}"""
+    return g.state.setdefault("mocks", {}).setdefault(str(season), {}).setdefault("review_pos", {})
 
 
 def _start_mreview(g, task):
@@ -1511,6 +1551,8 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
         rows = [[str(x["num"]), x["mine"] or "—", x["correct"] or "?", MOCK_ICON.get(x["icon"], x["icon"])] for x in qs]
         note = ("（这个板块全对，没有错题，下面复盘全部题目）" if s.get("all_correct")
                 else "（只看错题和没做的）" if s["only_wrong"] else "")
+        if s.get("resumed"):
+            note += "（接着上次，从第 %d 题看起；表里点不了，用「← 上一题」往回翻）" % (s["resumed"] + 1)
         msgs.append(_msg("sys", "📜 第%s季大比复盘 · %s%s\n答对 %d/%d（%.0f%%）· 答错 %d · 没做 %d\n\n下面逐题复盘：看题 → 对答案 → 读解析，看不懂的点「师傅解惑」。" % (
             s["season"], s["source"], note, ok, n, 100 * ok / n, c["❌"], c["⚪"]),
             [{"t": "table", "head": ["题号", "我选", "答案", "结果"], "rows": rows}]))
@@ -1520,7 +1562,8 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
         if line:
             msgs.append(_msg("npc", line))
     msgs.append(_msg("sys", "复盘 第 %d/%d 题 · 第%s季第 %s 题 · %s · %s" % (
-        i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])), vault.render_blocks(g.paths, q), pin=True))
+        i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])),
+        vault.render_blocks(g.paths, q, material=False), pin=True, material=vault.render_material(g.paths, q)))
     msgs.append(_msg("sys", "你的答案：%s · 正确答案：%s\n\n复盘解析：" % (q["mine"] or "没做", q["correct"] or "?"),
                      vault.render_blocks(g.paths, {"body": q["analysis"] or "（这题还没写复盘解析，点「师傅解惑」让师傅讲；讲完自动写进这题的复盘笔记）",
                                                    "dir": q["dir"]})))
@@ -1543,6 +1586,7 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
     k = s["boards"].index(s["source"])
     if k + 1 < len(s["boards"]) and (i + 1 == len(qs) or head):
         btns.append(("mr_board:" + s["boards"][k + 1], "下一板块：%s →" % s["boards"][k + 1]))
+    btns.append(("mr_pause", "暂时离开（保存进度）"))
     btns.append(("mr_close", "结束复盘"))
     inp = {"mode": "text", "placeholder": "对这道题还有疑问？直接问师傅（Ctrl+Enter 发送）；「🧙 师傅解惑」按功法 skill 把整题讲透",
            "buttons": [{"id": a, "label": b} for a, b in btns]}
@@ -1558,7 +1602,8 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
 
 def _mreview_pq(s, q):
     """按试炼题的样子给师傅看：材料 + 题干（含选项）、答案、复盘解析"""
-    stem = "\n".join(q.get("material_lines") or []) + ("\n\n" if q.get("material_lines") else "") + q["body"]
+    mat = vault.material_text(q)
+    stem = mat + ("\n\n" if mat else "") + q["body"]
     return {"board": s["board"] or s["source"], "topic": s["source"], "stem": stem, "options": "（见题目）",
             "answer": q["correct"], "analysis": q["analysis"]}
 
@@ -1572,6 +1617,7 @@ def _mreview_action(g, s, act):
     elif act == "mr_wrong":
         s["rpos"] = next((k for k in range(i + 1, len(qs)) if qs[k]["icon"] != "✅"), i)
     elif act.startswith("mr_board:"):
+        mock_saved(g, s["season"]).pop(s["source"], None)          # 这个板块看完了
         _mreview_load(g, s, act.split(":", 1)[1])
         r = _mreview_show(g, s, head=True)
         r["title"] = s["title"]
@@ -1591,7 +1637,13 @@ def _mreview_action(g, s, act):
         note += ("\n📜 依据 skill「%s」：%s" % (skill, "、".join(used[:8]) + (" 等 %d 个文件" % len(used) if len(used) > 8 else ""))
                  if used else "\n⚠ 这个板块没找到 skill 资料（%s），师傅只能按通用方法讲" % (skill or "未配置"))
         return _mreview_show(g, s, extra=[_msg("sys", note)], scroll_bottom=True)
-    elif act in ("mr_close", "skip", "bank_pause"):
+    elif act in ("mr_pause", "bank_pause"):
+        mock_saved(g, s["season"])[s["source"]] = qs[i]["num"]
+        text = "进度已保存：第%s季 · %s 停在第 %d/%d 题（第 %s 题）。下次在宗门大比点这个板块，从这题接着复盘。" % (
+            s["season"], s["source"], i + 1, len(qs), qs[i]["num"])
+        return _resp(s, [_msg("sys", text)], finished=True)
+    elif act in ("mr_close", "skip"):
+        mock_saved(g, s["season"]).pop(s["source"], None)
         c = _mreview_counts(qs)
         done = mock_reviewed(g, s["season"]).get(s["source"], [])
         text = "第%s季 · %s 复盘结束：这个板块复盘过 %d 题（这次看的 %d 题里答对 %d、答错 %d、没做 %d）。错题都在%s里，接着去%s。" % (

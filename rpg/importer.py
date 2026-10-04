@@ -479,7 +479,9 @@ def parse_review(season_dir):
             elif not ln.startswith(">"):
                 cur["lines"].append(ln)
         for q in mine:
-            lines = ([x for x in mats.get(q["material"], []) if x.strip()] + [""] if q["material"] else []) + q.pop("lines")
+            # 材料是 Obsidian 折叠块（> [!abstract]- 材料文字… / > 正文）：去掉块头和行首的 >，只留正文
+            mat = vault.clean_callout("\n".join(mats.get(q["material"], []))) if q["material"] else ""
+            lines = ([x for x in mat.split("\n") if x.strip()] + [""] if mat else []) + q.pop("lines")
             q["stem"] = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
             # 选项就是图里的 A/B/C/D（图形推理常见）时，拆分脚本不写选项行：有截图就补成 A. A … D. D（选项看图）
             if "![[" in q["stem"] and not any(q["options"].values()):

@@ -362,10 +362,11 @@ _img_index = {}
 def find_image(paths, season_dir, name):
     """Obsidian 式查找：先找本季目录（含 attachments），再在整个模考复盘目录里按文件名找"""
     name = name.strip()
-    sd = Path(season_dir)
-    for c in (sd / name, sd / "attachments" / name):
-        if c.is_file():
-            return c
+    if season_dir:
+        sd = Path(season_dir)
+        for c in (sd / name, sd / "attachments" / name):
+            if c.is_file():
+                return c
     root = paths.vault / "FB模考试卷复盘" if paths.vault else None
     if root and root.is_dir():
         if name not in _img_index:
@@ -375,19 +376,49 @@ def find_image(paths, season_dir, name):
     return None
 
 
-def render_blocks(paths, q):
-    """把题目（材料 + 题干 + 选项）转成网页用的块列表：[{"t":"text","v":…} | {"t":"img","v":库内相对路径}]"""
+CALLOUT_HEAD = re.compile(r"^\s*>?\s*\[![\w-]+\][-+]?.*$")
+
+
+def clean_callout(text):
+    """拆分脚本把材料写成 Obsidian 折叠块（> [!abstract]- 材料文字… / > 正文）：去掉块头那一行和每行开头的 >"""
+    out = []
+    for ln in str(text or "").split("\n"):
+        if CALLOUT_HEAD.match(ln):
+            continue
+        out.append(re.sub(r"^\s*>\s?", "", ln) if ln.lstrip().startswith(">") else ln)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def material_text(q):
+    """这道题的共用材料（资料分析、一拖五），清掉折叠块记号；没有就是空"""
+    return clean_callout("\n".join(q.get("material_lines") or []))
+
+
+def render_blocks(paths, q, material=True):
+    """把题目（材料 + 题干 + 选项）转成网页用的块列表：[{"t":"text","v":…} | {"t":"img","v":库内相对路径}]
+    material=False 只要题干 + 选项（材料另外用 render_material 放进“弹出材料”）"""
     blocks = []
-    text = "\n".join(q.get("material_lines") or [])
+    text = material_text(q) if material else ""
     if text.strip():
         text += "\n\n"
     text += q["body"]
+    return text_blocks(paths, q.get("dir"), text)
+
+
+def render_material(paths, q):
+    t = material_text(q)
+    return text_blocks(paths, q.get("dir"), t) if t else []
+
+
+def text_blocks(paths, folder, text):
+    """一段 Markdown 文字 → 网页块（![[图]] 按库里的位置找成图片块）"""
+    blocks = []
     pos = 0
     for m in IMG_RE.finditer(text):
         if text[pos:m.start()].strip():
             blocks.append({"t": "text", "v": text[pos:m.start()].strip()})
         name = m.group(1) or m.group(2)
-        p = find_image(paths, q["dir"], name)
+        p = find_image(paths, folder, name)
         if p and paths.vault:
             try:
                 blocks.append({"t": "img", "v": p.resolve().relative_to(paths.vault.resolve()).as_posix()})
