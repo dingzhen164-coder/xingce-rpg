@@ -77,6 +77,18 @@ function go(view) {
   render();
 }
 document.querySelectorAll("#nav a").forEach((a) => (a.onclick = () => go(a.dataset.view)));
+// 平板 App 的返回键（android/…/MainActivity.java 调这个）：先关画面、弹窗、草稿，再回洞府；返回 false 表示没得退了
+window.xcBack = () => {
+  const click = (sel) => { const b = document.querySelector(sel); if (b) b.click(); return !!b; };
+  if (click(".cer-ok") || click(".st-btn")) return true;
+  if (document.documentElement.classList.contains("drawing") && window.DRAW) { DRAW.close(); return true; }
+  const m = $("#modal");
+  if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
+  if (VIEW === "home") return false;
+  if (document.documentElement.classList.contains("in-chat") && !confirm("离开这次功课，回洞府？")) return true;
+  go("home");
+  return true;
+};
 $("#bgmBtn").onclick = () => AMB.bgm.toggle();   // 背景音乐默认关闭，点了才响
 AMB.load();                                        // 背景、语录
 

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>寻找洞府</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { display: grid; place-items: center; background: radial-gradient(ellipse at 50% 28%, #1d3d36, #070d0c 72%);
+    font-family: "STKaiti", "KaiTi", "楷体", "Noto Serif CJK SC", serif; color: #e8dcc0; overflow: hidden; }
+  .moon { position: fixed; top: -18vmin; left: 50%; width: 70vmin; height: 70vmin; margin-left: -35vmin; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,217,138,.18), rgba(255,217,138,0) 65%); pointer-events: none; }
+  .box { position: relative; width: min(560px, 90vw); padding: 34px 32px 28px; border-radius: 18px; text-align: center;
+    background: rgba(14, 34, 31, .78); border: 1px solid rgba(111, 211, 192, .32); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+  h1 { margin: 0; font-size: 40px; letter-spacing: .32em; color: #ffd98a; text-shadow: 0 0 18px rgba(255,200,110,.35); }
+  .sub { margin: 8px 0 22px; color: #b9ab86; font-size: 16px; }
+  .msg { min-height: 1.5em; color: #ff9a8a; font-size: 15px; margin-bottom: 10px; }
+  .status { font-size: 17px; color: #9fd8c9; margin: 6px 0 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; margin: 0 3px; border-radius: 50%; background: #9fd8c9; animation: b 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: .2s; } .dot:nth-child(3) { animation-delay: .4s; }
+  @keyframes b { 0%, 100% { opacity: .2 } 50% { opacity: 1 } }
+  .list { display: grid; gap: 10px; margin: 6px 0 14px; }
+  .host { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 18px; border-radius: 12px;
+    border: 1px solid rgba(255, 217, 138, .45); background: linear-gradient(180deg, rgba(255,217,138,.12), rgba(255,217,138,.04));
+    color: #fff3d6; font: inherit; font-size: 19px; text-align: left; }
+  .host small { color: #b9ab86; font-size: 14px; font-family: ui-monospace, monospace; }
+  .host:active { transform: scale(.98); }
+  .row { display: flex; gap: 10px; margin-top: 8px; }
+  input { flex: 1; min-width: 0; font-size: 20px; padding: 12px 14px; border-radius: 10px; border: 1px solid #6fd3c0;
+    background: #0b1d1b; color: #fff8ec; font-family: ui-monospace, monospace; }
+  button.go { padding: 12px 22px; font-size: 19px; letter-spacing: .2em; border: none; border-radius: 10px; color: #fff8ec;
+    background: linear-gradient(180deg, #f6b766, #c9652a); font-family: inherit; }
+  button.ghost { margin-top: 14px; background: none; border: 1px solid rgba(232,220,192,.3); color: #c9b88e; border-radius: 10px;
+    padding: 8px 16px; font: inherit; font-size: 15px; }
+  details { margin-top: 18px; text-align: left; color: #b9ab86; font-size: 15px; line-height: 1.8; }
+  summary { cursor: pointer; color: #c9b88e; }
+</style></head>
+<body><div class="moon"></div>
+<div class="box">
+  <h1>寻找洞府</h1>
+  <div class="sub">在这个 Wi-Fi 里寻找电脑上的行测修仙传</div>
+  <div class="msg" id="msg"></div>
+  <div class="status" id="status"></div>
+  <div class="list" id="list"></div>
+  <div class="row"><input id="addr" placeholder="或输入电脑地址，如 192.168.1.5:8765" inputmode="url" autocapitalize="off" autocomplete="off">
+    <button class="go" id="go">进入</button></div>
+  <button class="ghost" id="again">重新寻找</button>
+  <details><summary>找不到？</summary>
+    ① 电脑上打开修仙传 → 设置 → 📱 手机 / 平板，勾上「允许手机 / 平板连进来」，然后重启修仙传；<br>
+    ② 平板和电脑连同一个 Wi-Fi（不要用访客网络）；<br>
+    ③ 第一次开局域网模式时，电脑上 Windows 防火墙弹窗要点「允许」；<br>
+    ④ 还不行：照着电脑设置页里显示的地址，填到上面的输入框。
+  </details>
+</div>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const found = new Set();
+  const msg = decodeURIComponent(location.hash.slice(1) || "");
+  $("#msg").textContent = msg;
+  const app = typeof XC !== "undefined";
+  const saved = app ? XC.saved() : "";
+  if (saved) $("#addr").value = saved.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  function scan() {
+    if (!app) { $("#status").textContent = "（不在 App 里，没法自动寻找）"; return; }
+    $("#status").innerHTML = '正在寻找<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+    $("#again").disabled = true;
+    XC.scan();
+  }
+  window.xcFound = (url, name) => {
+    if (found.has(url)) return;
+    found.add(url);
+    const b = document.createElement("button");
+    b.className = "host";
+    b.innerHTML = `<span>🏯 ${name ? name.replace(/[<>&]/g, "") + " 的洞府" : "修仙传"}</span><small>${url.replace(/^http:\/\//, "").replace(/\/$/, "")}</small>`;
+    b.onclick = () => XC.open(url);
+    $("#list").appendChild(b);
+    // 只找到一台、也不是因为连不上才来这页：直接进
+    if (found.size === 1 && !msg) setTimeout(() => { if (found.size === 1) XC.open(url); }, 1500);
+  };
+  window.xcScanDone = () => {
+    $("#again").disabled = false;
+    $("#status").textContent = found.size ? "找到了，点一下进入" : "没找到。看看下面「找不到？」，或者手动输入地址";
+  };
+  $("#go").onclick = () => { const v = $("#addr").value.trim(); if (v && app) XC.open(v); };
+  $("#addr").onkeydown = (e) => { if (e.key === "Enter") $("#go").click(); };
+  $("#again").onclick = () => { found.clear(); $("#list").innerHTML = ""; scan(); };
+  scan();
+</script>
+</body></html>

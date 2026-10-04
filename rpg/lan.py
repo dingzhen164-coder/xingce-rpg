@@ -53,6 +53,11 @@ def authorized(addr, cookie_header):
     return False
 
 
+def ping():
+    from .version import VERSION
+    return {"app": "xingce-rpg", "name": socket.gethostname()[:40], "version": VERSION}
+
+
 def local_ips():
     """电脑在局域网里的地址（192.168.x.x / 10.x.x.x 之类），手机要输这个"""
     ips = []

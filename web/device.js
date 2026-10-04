@@ -3,14 +3,40 @@
 (function () {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(location.hostname);
+  const inApp = /XingceApp\//.test(navigator.userAgent) && typeof XC !== "undefined";      // 平板 App（android/）里
+  const android = /Android/i.test(navigator.userAgent);
+  const standalone = matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches || navigator.standalone;
+  const APK = "https://github.com/dingzhen164-coder/xingce-rpg/releases/latest/download/xingce-xiuxian.apk";
   let UPD = null;
+
+  // 在 App 里 / 主屏幕打开：给页面打个记号（样式按触屏收紧）；浏览器里的平板：顶栏多一个 ⛶ 全屏按钮
+  const root = document.documentElement;
+  if (inApp) root.classList.add("in-app");
+  if (matchMedia("(pointer: coarse)").matches) root.classList.add("touch");
+  const fs = document.getElementById("fsBtn");
+  const canFs = !local && !inApp && !standalone && root.requestFullscreen;
+  if (fs && canFs) {
+    fs.style.display = "";
+    fs.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen({ navigationUI: "hide" })).catch(() => {});
+    document.addEventListener("fullscreenchange", () => fs.classList.toggle("on", !!document.fullscreenElement));
+  }
 
   async function html() {
     let lan = null, ver = null;
     try { [lan, ver] = await Promise.all([api("/api/lan"), api("/api/version")]); } catch (e) { return ""; }
-    const lanCard = !local
-      ? `<div class="card dev-card"><h3>📱 手机 / 平板</h3><p class="small muted">你正在用手机 / 平板通过局域网访问电脑上的修仙传。
-          想像 App 一样从桌面打开：苹果点浏览器的「分享 → 添加到主屏幕」，安卓点浏览器菜单里的「添加到主屏幕」。局域网设置只能在电脑上改。</p></div>`
+    const lanCard = inApp
+      ? `<div class="card dev-card"><h3>📱 平板 App <small>v${esc(XC.version())} · 连着 ${esc(location.host)}</small></h3>
+          <p class="small muted">数据都在电脑上，这里只是打开它。返回键：先关弹窗，再回洞府，在洞府按两次退出。新版本到这里下载安装（直接覆盖，不丢东西）：
+          <a href="${APK}" target="_blank" rel="noopener">下载最新 App</a></p>
+          <button class="ghost" id="appReset">换一台电脑 / 重新寻找洞府</button></div>`
+      : !local
+      ? `<div class="card dev-card"><h3>📱 手机 / 平板</h3>
+          ${android ? `<p><b>推荐装「行测修仙传」平板 App：</b>全屏打开，没有浏览器的地址栏、工具栏，自动找到电脑。
+            <a class="btn-link" href="${APK}" target="_blank" rel="noopener">⬇ 下载安装包（APK）</a></p>
+            <p class="small muted">下载后点开安装；如果提示“禁止安装未知来源应用”，按提示允许浏览器安装一次。
+            暂时不装的话，点顶栏的 ⛶ 也能全屏。</p>`
+          : `<p class="small muted">想像 App 一样全屏打开：Safari 点「分享 → 添加到主屏幕」，之后从桌面图标打开就没有浏览器的框。</p>`}
+          <p class="small faint">局域网设置只能在电脑上改。</p></div>`
       : `<div class="card dev-card"><h3>📱 手机 / 平板 <small>电脑当主机，同一个 Wi-Fi 下的手机、平板用浏览器打开；数据只存电脑上这一份</small></h3>
         <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
           <label class="switch"><input type="checkbox" id="lanOn" ${lan.enabled ? "checked" : ""}> 允许手机 / 平板连进来（局域网模式）</label>
@@ -22,10 +48,11 @@
             <div>手机 / 平板浏览器输入：${lan.urls.length ? lan.urls.map((u) => `<b class="dev-url">${esc(u)}</b>`).join(" 或 ") : "<b>（没找到局域网地址：电脑连上 Wi-Fi / 网线了吗？）</b>"}${lan.qr ? "，或者扫左边的二维码" : ""}</div>
             <div style="margin-top:6px">访问口令：<b class="dev-code">${esc(lan.code)}</b> <button class="ghost small" id="lanNewCode">换一个</button>
               <span class="small muted">第一次打开要输，之后这台设备记住</span></div>
-            <details class="fold" style="margin-top:8px"><summary>像 App 一样放到桌面</summary>
-              <div class="small" style="line-height:1.8">苹果（iPad / iPhone，用 Safari）：打开上面的地址 → 底部「分享」→「添加到主屏幕」。<br>
-              安卓（Chrome / 自带浏览器）：打开地址 → 右上角菜单 →「添加到主屏幕」或「安装应用」。<br>
-              之后点桌面上的「修仙传」图标就全屏打开。电脑要开着、修仙传要在运行。</div></details>
+            <details class="fold" style="margin-top:8px" open><summary>像 App 一样全屏用</summary>
+              <div class="small" style="line-height:1.8"><b>安卓平板 / 手机：装「行测修仙传」App</b>（<a href="${APK}" target="_blank" rel="noopener">下载 APK</a>，
+              或在平板浏览器里打开上面的地址 → 设置页里点下载）。装好打开，它会在 Wi-Fi 里自己找到这台电脑，全屏、没有浏览器的框。<br>
+              苹果（iPad / iPhone，用 Safari）：打开上面的地址 →「分享」→「添加到主屏幕」，从桌面图标打开就是全屏。<br>
+              电脑要开着、修仙传要在运行。</div></details>
             <details class="fold"><summary>连不上？</summary>
               <div class="small" style="line-height:1.8">① 手机和电脑连的是同一个 Wi-Fi（不要用访客网络）；② 第一次开局域网模式时，Windows 防火墙弹窗要点「允许」
               （错过了：控制面板 → Windows Defender 防火墙 → 允许应用通过防火墙，勾上修仙传 / Python 的“专用”）；③ 改了开关要重启修仙传；
@@ -41,6 +68,8 @@
   }
 
   function bind() {
+    const rs = document.getElementById("appReset");
+    if (rs) rs.onclick = () => { if (confirm("忘掉这台电脑的地址，回到寻找洞府？")) XC.reset(); };
     const on = document.getElementById("lanOn");
     if (on) on.onchange = async () => {
       try { await api("/api/lan", { enabled: on.checked }); toast(on.checked ? "局域网模式已打开：重启修仙传后生效" : "局域网模式已关闭：重启修仙传后生效"); render(); }

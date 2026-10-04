@@ -81,6 +81,13 @@ class DeviceTest(unittest.TestCase):
         r, _ = self.req("GET", "/api/version", headers={"Cookie": cookie}, remote=True)
         self.assertEqual(r.status, 401)
 
+    def test_ping_without_code(self):
+        r, data = self.req("GET", "/lan/ping", remote=True)                 # 平板 App 找电脑：不用口令
+        self.assertEqual(r.status, 200)
+        d = json.loads(data)
+        self.assertEqual(d["app"], "xingce-rpg")
+        self.assertNotIn("code", d)
+
     def test_lan_toggle_local(self):
         r, data = self.req("POST", "/api/lan", {"enabled": True})
         self.assertEqual(r.status, 200)

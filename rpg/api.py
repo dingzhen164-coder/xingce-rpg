@@ -808,6 +808,9 @@ class Handler(BaseHTTPRequestHandler):
     def _gate(self, method, url):
         """局域网里别的设备：没输过口令先输口令。返回 True 表示这次请求已经处理完了"""
         addr = self.client_address[0]
+        if url.path == "/lan/ping":            # 平板 App 在 Wi-Fi 里找电脑用：不用口令，只说“我是修仙传”
+            self._send(200, lan.ping())
+            return True
         if url.path == "/lan/login" and method == "POST":
             n = int(self.headers.get("Content-Length") or 0)
             code = parse_qs(self.rfile.read(n).decode("utf-8", errors="ignore")).get("code", [""])[0].strip()

@@ -913,3 +913,20 @@ html.in-chat .chat .composer { position: static; margin: 0 -18px -16px; border-r
 .dev-url { color: var(--gold); font-family: ui-monospace, Consolas, monospace; user-select: all; }
 .dev-code { font-size: 22px; letter-spacing: .25em; color: var(--gold); font-family: ui-monospace, Consolas, monospace; }
 .upd-new { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--panel2); border-left: 3px solid var(--gold); }
+.dev-card .btn-link { display: inline-block; margin: 6px 6px 6px 0; padding: 9px 18px; border-radius: 10px; font-weight: 700;
+  color: #fff8ec; background: linear-gradient(180deg, #f6b766, #c9652a); text-decoration: none; }
+#fsBtn.on { color: var(--gold); border-color: var(--gold); }
+
+/* 触屏（平板 / 手机）：按钮好点、顶栏一行放下、点了不闪蓝框；在平板 App 里再避开刘海和圆角 */
+html.touch { -webkit-tap-highlight-color: transparent; }
+html.touch body { overscroll-behavior-y: none; }
+html.touch button, html.touch a, html.touch nav a { touch-action: manipulation; }
+html.touch .topbar { flex-wrap: nowrap; gap: 10px; padding: 8px 14px; }
+html.touch .brand { white-space: nowrap; flex: none; }
+html.touch nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+html.touch nav::-webkit-scrollbar { display: none; }
+html.touch nav a { white-space: nowrap; padding: 9px 13px; font-size: 16px; }
+html.touch .today-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; flex: 0 1 auto; padding: 6px 12px; }
+html.touch .bgm-btn { width: 40px; height: 40px; flex: none; font-size: 18px; }
+html.in-app .topbar { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
