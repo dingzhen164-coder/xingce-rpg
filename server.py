@@ -76,6 +76,9 @@ def start_server(port=8765, lan_mode=None):
     port = free_port(port)
     srv = ThreadingHTTPServer(("0.0.0.0" if lan_mode else "127.0.0.1", port), Handler)
     api.RUNTIME.update(port=port, lan=bool(lan_mode))
+    if lan_mode:            # 平板 App 更新：另开一个只给安装包的端口（旧版 App 点它会交给系统浏览器下载，见 rpg/appapk.py）
+        from rpg import appapk
+        api.RUNTIME["apk_port"] = appapk.serve_apk_port("0.0.0.0", port + 1)
     url = f"http://127.0.0.1:{port}/"
     if lan_mode:
         st = lan.status(port, True)

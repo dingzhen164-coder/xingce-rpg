@@ -204,6 +204,12 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> web.loadUrl(u));
         }
 
+        /** 更新 App：从电脑下安装包（电脑替平板去 GitHub 下好的），下完交给系统安装。进度回调网页的 xcApk(状态, 文字) */
+        @JavascriptInterface
+        public void installApk(String url) {
+            new Thread(() -> downloadAndInstall(url)).start();
+        }
+
         /** 换一台电脑：忘掉地址，回到寻找页 */
         @JavascriptInterface
         public void reset() {
@@ -222,6 +228,65 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> web.evaluateJavascript("window.xcScanDone&&xcScanDone()", null));
                 }
             }).start();
+        }
+    }
+
+    void apkStatus(String state, String text) {
+        String js = "window.xcApk&&xcApk(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")";
+        runOnUiThread(() -> web.evaluateJavascript(js, null));
+    }
+
+    void downloadAndInstall(String url) {
+        java.io.File out = ApkProvider.file(this);
+        HttpURLConnection c = null;
+        try {
+            apkStatus("busy", "正在从电脑下载新版本…");
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(60000);
+            if (c.getResponseCode() != 200) {
+                apkStatus("error", "电脑没给出安装包（" + c.getResponseCode() + "）：电脑能打开 GitHub 吗？");
+                return;
+            }
+            int total = c.getContentLength();
+            try (InputStream in = c.getInputStream(); java.io.FileOutputStream fo = new java.io.FileOutputStream(out)) {
+                byte[] b = new byte[16384];
+                int n, got = 0;
+                while ((n = in.read(b)) > 0) {
+                    fo.write(b, 0, n);
+                    got += n;
+                }
+                if (total > 0 && got != total) {
+                    apkStatus("error", "下载不完整，再点一次");
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            apkStatus("error", "下载失败：" + e.getMessage());
+            return;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+        runOnUiThread(this::installDownloaded);
+    }
+
+    void installDownloaded() {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            // 第一次：系统要先允许“修仙传安装应用”。打开那个开关所在的设置页，打开后回来再点一次「更新 App」
+            apkStatus("perm", "请在接下来的设置里打开「允许安装应用」，然后返回再点一次「更新 App」");
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) { /* 个别系统没有这个页面 */ }
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(ApkProvider.URI, "application/vnd.android.package-archive");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i);
+            apkStatus("done", "已经打开安装界面：点「安装」或「更新」，装好后重新打开修仙传");
+        } catch (Exception e) {
+            apkStatus("error", "打不开安装界面：" + e.getMessage());
         }
     }
 

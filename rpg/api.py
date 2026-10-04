@@ -8,6 +8,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
     POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
     GET  /api/changelog            版本更新记录（rpg/data/changelog.md）
+    GET  /api/app/latest           平板 App 的最新版本（电脑替平板去 GitHub 下安装包）；/app/xingce-xiuxian.apk 拿安装包
     POST /api/theme                {"theme": "修仙"|"玄幻"}  切换风格
     POST /api/retreat/start        {"board", "minutes"}  闭关；POST /api/retreat/end 提前出关
     POST /api/plan/regenerate      重新生成今日任务
@@ -67,7 +68,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appearance, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -755,6 +756,12 @@ def update_apply(body):
         raise ApiError(str(e))
 
 
+def app_latest(body):
+    """平板 App 问最新版本（电脑替它去 GitHub 看、把安装包下到本机）"""
+    from . import appapk
+    return dict(appapk.latest(), apk_port=RUNTIME.get("apk_port") or 0, path="/app/" + appapk.NAME)
+
+
 def changelog_get(body):
     from . import changelog
     return {"entries": changelog.entries()}
@@ -769,6 +776,7 @@ def version_get(body):
 
 ROUTES[("GET", "/api/version")] = version_get
 ROUTES[("GET", "/api/changelog")] = changelog_get
+ROUTES[("GET", "/api/app/latest")] = app_latest
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply
 ROUTES[("GET", "/api/lan")] = lan_get
@@ -818,6 +826,19 @@ class Handler(BaseHTTPRequestHandler):
         addr = self.client_address[0]
         if url.path == "/lan/ping":            # 平板 App 在 Wi-Fi 里找电脑用：不用口令，只说“我是修仙传”
             self._send(200, lan.ping())
+            return True
+        if url.path == "/app/" + appapk.NAME and method == "GET":    # 平板 App 安装包：公开的东西，不用口令（系统浏览器下载时没有 cookie）
+            try:
+                data = appapk.apk_bytes()
+            except appapk.ApkError as e:
+                self._send(502, {"error": str(e)})
+                return True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.android.package-archive")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % appapk.NAME)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return True
         if url.path == "/lan/login" and method == "POST":
             n = int(self.headers.get("Content-Length") or 0)

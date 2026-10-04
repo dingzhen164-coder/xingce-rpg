@@ -89,6 +89,38 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual(d["app"], "xingce-rpg")
         self.assertNotIn("code", d)
 
+    def test_app_apk_from_computer(self):
+        """平板 App 更新：电脑替平板去 GitHub 下安装包，平板从局域网拿（不用口令）"""
+        from rpg import appapk
+        fake = b"PK\x03\x04 fake apk"
+        info = {"latest": "9.9.9", "apk_url": "https://example/xingce-xiuxian.apk", "apk_size": len(fake)}
+
+        class Resp:
+            def __init__(self): self.left = fake
+            def read(self, n=-1):
+                out, self.left = self.left, b""
+                return out
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        with patch.object(update, "check", return_value=info), patch("urllib.request.urlopen", return_value=Resp()):
+            r, data = self.req("GET", "/api/app/latest")
+        d = json.loads(data)
+        self.assertEqual((d["latest"], d["ready"], d["path"]), ("9.9.9", True, "/app/xingce-xiuxian.apk"))
+        self.assertTrue((self.tmp / "apk" / "xingce-xiuxian-9.9.9.apk").is_file())
+        r, data = self.req("GET", "/app/xingce-xiuxian.apk", remote=True)                 # 平板浏览器下载：没有 cookie 也给
+        self.assertEqual((r.status, data), (200, fake))
+        self.assertEqual(r.getheader("Content-Type"), "application/vnd.android.package-archive")
+        r, _ = self.req("GET", "/api/app/latest", remote=True)                             # 别的接口照样要口令
+        self.assertEqual(r.status, 401)
+        port = appapk.serve_apk_port("127.0.0.1", 18960)                                 # 旧版 App 用的“只给安装包”端口
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request("GET", "/xingce-xiuxian.apk")
+        rr = c.getresponse()
+        self.assertEqual((rr.status, rr.read()), (200, fake))
+        c.request("GET", "/api/lan")
+        rr = c.getresponse(); rr.read()
+        self.assertEqual(rr.status, 404)                                                     # 那个端口只给安装包
+
     def test_lan_toggle_local(self):
         r, data = self.req("POST", "/api/lan", {"enabled": True})
         self.assertEqual(r.status, 200)

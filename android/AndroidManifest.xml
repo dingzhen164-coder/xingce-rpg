@@ -5,6 +5,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 设置里「更新 App」：从电脑下新安装包，交给系统安装（第一次要在系统设置里允许修仙传安装应用） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="行测修仙传"
@@ -25,5 +27,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name=".ApkProvider"
+            android:authorities="com.xingce.xiuxian.apk"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

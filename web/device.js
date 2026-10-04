@@ -6,7 +6,10 @@
   const inApp = /XingceApp\//.test(navigator.userAgent) && typeof XC !== "undefined";      // 平板 App（android/）里
   const android = /Android/i.test(navigator.userAgent);
   const standalone = matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches || navigator.standalone;
-  const APK = "https://github.com/dingzhen164-coder/xingce-rpg/releases/latest/download/xingce-xiuxian.apk";
+  // 平板 App 安装包：从电脑拿（电脑替平板去 GitHub 下好，平板不用能上 GitHub），见 rpg/appapk.py
+  const APK = "/app/xingce-xiuxian.apk";
+  const vnum = (s) => String(s || "").split(".").map((x) => parseInt(x, 10) || 0);
+  const newer = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 4; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
   let UPD = null;
 
   // 在 App 里 / 主屏幕打开：给页面打个记号（样式按触屏收紧）；浏览器里的平板：顶栏多一个 ⛶ 全屏按钮
@@ -31,8 +34,9 @@
         <ul>${e.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>`).join("")}</details>`;
     const lanCard = inApp
       ? `<div class="card dev-card"><h3>📱 平板 App <small>v${esc(XC.version())} · 连着 ${esc(location.host)}</small></h3>
-          <p class="small muted">数据都在电脑上，这里只是打开它。返回键：先关弹窗，再回洞府，在洞府按两次退出。新版本到这里下载安装（直接覆盖，不丢东西）：
-          <a href="${APK}" target="_blank" rel="noopener">下载最新 App</a></p>
+          <p class="small muted">数据都在电脑上，这里只是打开它。返回键：先关弹窗，再回洞府，在洞府按两次退出。</p>
+          <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center"><button id="appUpd">检查 App 更新</button><span id="appMsg" class="small muted"></span></div>
+          <p class="small faint">新版本由电脑替平板去 GitHub 下载，再传给平板（平板不用能上 GitHub）；装上直接覆盖，不丢东西。</p>
           <button class="ghost" id="appReset">换一台电脑 / 重新寻找洞府</button></div>`
       : !local
       ? `<div class="card dev-card"><h3>📱 手机 / 平板</h3>
@@ -76,6 +80,33 @@
   }
 
   function bind() {
+    const au = document.getElementById("appUpd");
+    if (au) au.onclick = async () => {
+      const msg = document.getElementById("appMsg");
+      au.disabled = true; msg.textContent = "正在问电脑（电脑去 GitHub 看最新版本）…";
+      let r;
+      try { r = await api("/api/app/latest"); } catch (e) { msg.textContent = e.message; au.disabled = false; return; }
+      au.disabled = false;
+      const cur = XC.version();
+      if (!r.latest) { msg.textContent = r.error || "还没有平板 App 安装包"; return; }
+      if (!newer(r.latest, cur)) { msg.textContent = `已经是最新版（${cur}）` + (r.error ? `；${r.error}` : ""); return; }
+      if (!r.ready) { msg.textContent = `有新版本 ${r.latest}，但电脑没下到安装包：${r.error || "再试一次"}`; return; }
+      msg.innerHTML = `有新版本 <b>${esc(r.latest)}</b>（现在 ${esc(cur)}）`;
+      au.textContent = `⬆ 更新到 ${r.latest}`;
+      au.className = "primary";
+      au.onclick = () => {
+        if (XC.installApk) {                       // 新版 App：自己从电脑下载，交给系统安装
+          window.xcApk = (state, text) => { msg.textContent = text; au.disabled = state === "busy"; };
+          au.disabled = true;
+          XC.installApk(location.origin + r.path);
+        } else if (r.apk_port) {                   // 旧版 App：换个端口的链接会交给平板的浏览器下载
+          msg.textContent = "已交给平板浏览器下载：下完点通知栏或下载列表里的安装包，按提示安装（第一次可能要允许浏览器安装应用）";
+          location.href = `${location.protocol}//${location.hostname}:${r.apk_port}/xingce-xiuxian.apk`;
+        } else {
+          msg.textContent = "电脑那边要先打开局域网模式并重启修仙传";
+        }
+      };
+    };
     const rs = document.getElementById("appReset");
     if (rs) rs.onclick = () => { if (confirm("忘掉这台电脑的地址，回到寻找洞府？")) XC.reset(); };
     const on = document.getElementById("lanOn");

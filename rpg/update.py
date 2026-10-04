@@ -51,9 +51,11 @@ def check():
         raise UpdateError("连不上 GitHub（%s）。也可以直接打开 https://github.com/%s/releases 下载" % (e, REPO))
     tag = rel.get("tag_name") or ""
     asset = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".exe")), None)
+    apk = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".apk")), None)
     return {"current": VERSION, "latest": tag.lstrip("v"), "newer": _ver(tag) > _ver(VERSION), "frozen": FROZEN,
             "notes": _notes(rel.get("body")), "page": rel.get("html_url") or "https://github.com/%s/releases" % REPO,
             "asset_url": asset.get("browser_download_url") if asset else "", "size": asset.get("size") if asset else 0,
+            "apk_url": apk.get("browser_download_url") if apk else "", "apk_size": apk.get("size") if apk else 0,
             "windows": os.name == "nt"}
 
 
