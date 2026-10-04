@@ -135,7 +135,7 @@ def parse(text):
         name = next((n for n in list(MODULES) + list(SUBS) if ln.startswith(n)), None)
         if name:
             cur = name
-        m = STAT.search(ln)
+        m = STAT.search(re.sub(r"(?<=\d)\s+(?=\d)", "", ln))    # “答对2 5题”：题数里不会有空格，认字拆开的拼回去
         if m and cur:
             v = {"total": int(m.group(1)), "ok": int(m.group(2)), "minutes": int(m.group(4)) if m.group(4) else None}
             if cur in MODULES:

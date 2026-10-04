@@ -541,6 +541,9 @@ class FlowTest(unittest.TestCase):
                                        "people": "41103", "date": "2026-10-04", "season": 39})
         self.assertEqual(r["modules"]["言语理解"], {"total": 30, "ok": 25, "minutes": 30})
         self.assertEqual(r["sub"]["判断推理"]["逻辑判断"], {"total": 10, "ok": 8, "minutes": 6})
+        # Mac 认字有时把数字拆开：“答对2 5题”“用时3 0分钟”
+        r2 = api.mock_report_scan({"text": "言语理解与表达\n共30 题答对2 5题正确率83% 用时3 0分钟"})
+        self.assertEqual(r2["modules"]["言语理解"], {"total": 30, "ok": 25, "minutes": 30})
         # 第 39 季：言语 30 题拆成 逻辑填空 13 / 中心理解 15 / 语句排序 2（拆试卷时猜的），统计按位置 15 / 10 / 5
         def q(n, icon):
             return "### %d. %s\n\n题干\n\n> [!check]- 答案\n> 正确答案：**A**　我的答案：**A**\n\n---\n\n" % (n, icon)
