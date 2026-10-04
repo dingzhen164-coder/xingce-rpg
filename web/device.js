@@ -22,8 +22,13 @@
   }
 
   async function html() {
-    let lan = null, ver = null;
+    let lan = null, ver = null, log = [];
     try { [lan, ver] = await Promise.all([api("/api/lan"), api("/api/version")]); } catch (e) { return ""; }
+    try { log = (await api("/api/changelog")).entries || []; } catch (e) { /* 没有就不显示 */ }
+    // 版本更新记录：整块默认收起；展开后最新一版默认打开，其余点开看
+    const logHtml = !log.length ? "" : `<details class="fold changelog"><summary>📜 版本更新记录（共 ${log.length} 版，最新 ${esc(log[0].version)}）</summary>
+      ${log.map((e, i) => `<details class="cl-ver" ${i === 0 ? "open" : ""}><summary><b>v${esc(e.version)}</b>${e.date ? ` <span class="faint small">${esc(e.date)}</span>` : ""}${e.version === ver.version ? ' <span class="tag ok">当前</span>' : ""}</summary>
+        <ul>${e.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>`).join("")}</details>`;
     const lanCard = inApp
       ? `<div class="card dev-card"><h3>📱 平板 App <small>v${esc(XC.version())} · 连着 ${esc(location.host)}</small></h3>
           <p class="small muted">数据都在电脑上，这里只是打开它。返回键：先关弹窗，再回洞府，在洞府按两次退出。新版本到这里下载安装（直接覆盖，不丢东西）：
@@ -66,8 +71,8 @@
       <div id="updBox"></div>
       <p class="small faint" style="margin-top:6px">${ver.frozen && mac ? "Mac App：有新版本时点「到 GitHub 下载」，下载 xingce-xiuxian-mac.zip，解压后把新的「行测修仙传」拖进「应用程序」替换旧的（存档、题库都在库里，不受影响）。"
         : ver.frozen ? "exe 版：有新版本时点「更新并重启」，自动下载、替换、重开（存档、题库都在库里，不受影响）。"
-        : "源码版：照旧用压缩包更新；也可以到 GitHub 的 Releases 下载 exe 版，放进 训练/程序/ 双击就能用。"}</p></div>`;
-    return (local || lan ? lanCard : "") + (local ? verCard : "");
+        : "源码版：照旧用压缩包更新；也可以到 GitHub 的 Releases 下载 exe 版，放进 训练/程序/ 双击就能用。"}</p>${logHtml}</div>`;
+    return (local || lan ? lanCard : "") + (local ? verCard : logHtml ? `<div class="card dev-card"><h3>🆕 版本 <small>${esc(ver.version)}</small></h3>${logHtml}</div>` : "");
   }
 
   function bind() {

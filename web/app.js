@@ -183,7 +183,21 @@ function msgHtml(m) {
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
+  if (m.pin) return `<div class="msg sys q-pin ${PIN_MINI ? "mini" : ""}"><button class="pin-btn" title="${PIN_MINI ? "展开题目" : "把题目收成一行"}">📌 ${PIN_MINI ? "展开" : "收起"}</button>${md(m.text)}${blocks}</div>`;
   return `<div class="msg sys">${md(m.text)}${blocks}</div>`;
+}
+// 题目钉在对话框顶上（往下翻解析时不动）；📌 收成一行 / 展开，每台设备记住
+let PIN_MINI = (() => { try { return localStorage.getItem("xrpg-pin-mini") === "1"; } catch (e) { return false; } })();
+function bindPins() {
+  document.querySelectorAll(".q-pin .pin-btn").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    PIN_MINI = !PIN_MINI;
+    try { localStorage.setItem("xrpg-pin-mini", PIN_MINI ? "1" : "0"); } catch (err) { /* 只管这一次 */ }
+    document.querySelectorAll(".q-pin").forEach((q) => {
+      q.classList.toggle("mini", PIN_MINI);
+      const btn = q.querySelector(".pin-btn"); btn.textContent = "📌 " + (PIN_MINI ? "展开" : "收起"); btn.title = PIN_MINI ? "展开题目" : "把题目收成一行";
+    });
+  }));
 }
 function boardOptions(list) { return list.map((b) => `<option>${esc(b)}</option>`).join(""); }
 
@@ -780,6 +794,7 @@ function bindTrain() {
   fitChat();
   if (!T.session && !T.msgs.length && !T.busy) return bindHub();
   bindTaskClicks($("#view"));
+  bindPins();
   const at = $("#askToggle");
   if (at) at.onclick = () => { ASK_OPEN = !ASK_OPEN; renderTrain(); if (ASK_OPEN) { const a = $("#answer"); if (a) a.focus(); } };
   const send = $("#send");

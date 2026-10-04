@@ -104,6 +104,15 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual(paths.guess_vault(home), v.resolve())
         self.assertIsNone(paths.guess_vault(self.tmp / "nothing"))
 
+    def test_changelog_matches_version(self):
+        from rpg import changelog
+        from rpg.version import VERSION
+        es = changelog.entries()
+        self.assertEqual(es[0]["version"], VERSION)          # 改了版本号就要在更新记录最上面加一节
+        self.assertTrue(all(e["items"] for e in es))
+        r, data = self.req("GET", "/api/changelog")
+        self.assertEqual(json.loads(data)["entries"][0]["version"], VERSION)
+
     def test_version_compare(self):
         self.assertGreater(update._ver("v1.0.10"), update._ver("1.0.9"))
         self.assertEqual(update._ver("v1.2.0"), (1, 2, 0))

@@ -80,8 +80,10 @@ class TrainError(Exception):
 
 
 # ---------------------------------------------------------------- 小工具
-def _msg(who, text, blocks=None, fold=None):
+def _msg(who, text, blocks=None, fold=None, pin=False):
     m = {"who": who, "text": text}
+    if pin:                 # 题目：网页上钉在对话框顶上，往下翻解析时不动
+        m["pin"] = True
     if blocks:
         m["blocks"] = blocks
     if fold:
@@ -179,7 +181,7 @@ def _recite_prompt(g, board, it, head):
 
 def _wrong_intro(g, q, head):
     return _msg("sys", f"{head}第{q['season']}季 · {q['source']} · 第{q['num']}题（上次你选了 {q['mine'] or '未作答'}）",
-                blocks=vault.render_blocks(g.paths, q))
+                blocks=vault.render_blocks(g.paths, q), pin=True)
 
 
 # ---------------------------------------------------------------- 开始
@@ -1032,7 +1034,7 @@ def _bank_show(g, s, run, events=None):
         return _bank_resp(g, s, run, [_msg('sys', msg, blocks)], events,
                           _remember(s, _text_input('写出拆题过程，最后一行【答案】A/B/C/D')))
     # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
-    return _bank_resp(g, s, run, [_msg('sys', msg, blocks)], events,
+    return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True)], events,
                       _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
                                ('bank_pause', g.T('bank_pause'))))
 
@@ -1221,7 +1223,7 @@ def _exam_show(g, s, run, events=None, extra=None):
         btns.append(('exam_next', '下一题 →'))
     btns.append(('exam_submit', '交卷' if not left else '交卷（还有 %d 题没选）' % len(left)))
     btns.append(('bank_pause', g.T('bank_pause')))
-    msgs = [_msg('sys', msg, blocks), _msg('sys', sheet)] + (extra or [])
+    msgs = [_msg('sys', msg, blocks, pin=True), _msg('sys', sheet)] + (extra or [])
     r = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
     r['replace'] = True
     return r
@@ -1293,7 +1295,7 @@ def _review_show(g, s, run, events=None, extra=None, head=False, scroll_bottom=F
         msgs.append(_msg('npc', _say(g, _rank_scene(group), 正确率='%.0f%%' % rate, 对题数=group['correct'],
                                      总题数=group['total'], 错题数=group['total'] - group['correct']) or g.T('bank_close')))
     msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s · 用时 %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错', _clock(r.get('seconds'))),
-                     _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items()))))
+                     _bank_blocks(g, q['board'], q['stem'] + '\n\n' + '\n'.join('%s. %s' % (k, v) for k, v in q['options'].items())), pin=True))
     msgs.append(_msg('sys', '你的答案：%s · 正确答案：%s\n知识点：%s\n\n解析：' % (r['answer'], q['answer'], q['topic']),
                      _bank_blocks(g, q['board'], q['analysis'] or '（这题没有解析，点「师傅解惑」让师傅讲）')))
     if not r['ok'] and not head:
@@ -1518,7 +1520,7 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
         if line:
             msgs.append(_msg("npc", line))
     msgs.append(_msg("sys", "复盘 第 %d/%d 题 · 第%s季第 %s 题 · %s · %s" % (
-        i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])), vault.render_blocks(g.paths, q)))
+        i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])), vault.render_blocks(g.paths, q), pin=True))
     msgs.append(_msg("sys", "你的答案：%s · 正确答案：%s\n\n复盘解析：" % (q["mine"] or "没做", q["correct"] or "?"),
                      vault.render_blocks(g.paths, {"body": q["analysis"] or "（这题还没写复盘解析，点「师傅解惑」让师傅讲；讲完自动写进这题的复盘笔记）",
                                                    "dir": q["dir"]})))

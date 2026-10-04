@@ -74,7 +74,9 @@ jobs:
           if gh release view "v$V" >/dev/null 2>&1; then
             gh release upload "v$V" dist/xingce-xiuxian.exe --clobber
           else
-            NOTES=$(git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):')   # 更新说明只留改了什么
+            # 更新说明：取 rpg/data/changelog.md 里这一版的那一节（没有就用提交说明，去掉署名行）
+            NOTES=$(PYTHONIOENCODING=utf-8 python -c "import sys; sys.path.insert(0, '.'); from rpg import changelog; e = changelog.entries(); print('\n'.join('- ' + x for x in e[0]['items']) if e and e[0]['version'] == '$V' else '')")
+            [ -n "$NOTES" ] || NOTES=$(git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):')
             gh release create "v$V" dist/xingce-xiuxian.exe --title "行测修仙传 v$V" --notes "$NOTES"
           fi
 

@@ -956,3 +956,18 @@ html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
 .chat .msgs .npc .who { font-size: calc(12px * var(--chat-fs, 1.1)); }
 .chat .composer textarea { font-size: calc(15px * var(--chat-fs, 1.1)); }
 .chat .msgs table, .chat .msgs .result-table { font-size: .9em; }
+
+/* 设置 · 版本更新记录 */
+.changelog { margin-top: 10px; }
+.changelog .cl-ver { margin: 6px 0 0; padding: 4px 10px; border-left: 2px solid var(--line); }
+.changelog .cl-ver[open] { border-left-color: var(--gold); }
+.changelog .cl-ver summary { cursor: pointer; }
+.changelog ul { margin: 4px 0 6px; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+
+/* 题目钉在对话框顶上（trainer 里 pin=True 的那条）：往下翻解析不动；太长在框里自己滚；📌 收成一行 */
+.msgs .q-pin { position: sticky; top: 0; z-index: 4; max-height: 46vh; overflow-y: auto; flex: none;
+  background: color-mix(in srgb, var(--panel2) 96%, var(--panel)); box-shadow: 0 10px 18px -12px rgba(40, 30, 10, .45); }
+.msgs .q-pin.mini { max-height: 3.4em; overflow: hidden; }
+.msgs .q-pin.mini::after { content: "…"; position: absolute; right: 12px; bottom: 4px; color: var(--muted); }
+.q-pin .pin-btn { float: right; position: sticky; top: 0; margin: -2px -4px 4px 10px; padding: 2px 9px; font-size: 12px; border-radius: 999px;
+  background: var(--panel); color: var(--muted); z-index: 1; }

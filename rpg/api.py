@@ -7,6 +7,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
 接口一览（GET 无参数，POST 请求体是 JSON）：
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
     POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
+    GET  /api/changelog            版本更新记录（rpg/data/changelog.md）
     POST /api/theme                {"theme": "修仙"|"玄幻"}  切换风格
     POST /api/retreat/start        {"board", "minutes"}  闭关；POST /api/retreat/end 提前出关
     POST /api/plan/regenerate      重新生成今日任务
@@ -754,6 +755,11 @@ def update_apply(body):
         raise ApiError(str(e))
 
 
+def changelog_get(body):
+    from . import changelog
+    return {"entries": changelog.entries()}
+
+
 def version_get(body):
     from .paths import FROZEN
     from .version import VERSION
@@ -762,6 +768,7 @@ def version_get(body):
 
 
 ROUTES[("GET", "/api/version")] = version_get
+ROUTES[("GET", "/api/changelog")] = changelog_get
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply
 ROUTES[("GET", "/api/lan")] = lan_get
