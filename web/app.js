@@ -295,7 +295,7 @@ const views = {
     else if (T.finished) composer = `<div class="row"><button class="primary" id="nextTask">下一项功课</button><button class="ghost" id="backHome">回修炼殿</button></div>`;
     return `<div class="train">
       <div class="card"><h3>📜 师尊荐课</h3>${tasks.map(taskRow).join("")}<button class="ghost small" id="toHall" style="margin-top:8px">↩ 回修炼殿</button></div>
-      <div class="card chat">${T.battle?.label ? reviewHead(T.battle) : `<h3>${esc(T.title)}</h3>${battlePanel()}`}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
+      <div class="card chat">${sessionHead()}<div class="msgs" id="msgs">${T.msgs.map(msgHtml).join("")}</div>
         <div class="composer">${composer}</div></div></div>`;
   },
 
@@ -397,11 +397,13 @@ const views = {
     const s = await api("/api/settings");
     const cur = DASH?.theme?.name;
     const cp = chatPrefs();
-    return (await DEVICE.html()) + AMB.settingsHtml() + `<div class="card"><h3>🪟 对话框大小 <small>做功课时的对话框；只存在这台电脑的浏览器里</small></h3>
+    return (await DEVICE.html()) + AMB.settingsHtml() + `<div class="card"><h3>🪟 对话框大小与字体 <small>做功课时的对话框；只存在这台设备里（电脑、平板各调各的）</small></h3>
       <div class="row"><label style="flex:1">宽度 <b id="cwV">${cp.w}%</b><input type="range" id="cwR" min="40" max="100" step="5" value="${cp.w}" style="width:100%"></label>
         <label style="flex:1">高度 <b id="chV">${cp.h}%</b><input type="range" id="chR" min="40" max="100" step="5" value="${cp.h}" style="width:100%"></label></div>
-      <div class="row"><label><input type="checkbox" id="csideR" ${cp.side ? "checked" : ""}> 左边显示“师尊荐课”栏</label><span class="spacer"></span>
-        <button class="ghost small" id="cResetR">恢复默认（宽 80%、高 100%）</button></div>
+      <div class="row"><label style="flex:1">对话框字体 <b id="cfV">${cp.fs}%</b><input type="range" id="cfR" min="80" max="160" step="5" value="${cp.fs}" style="width:100%"></label>
+        <div style="flex:1" class="small muted" id="cfDemo">示例：<span style="font-size:calc(15px * ${cp.fs / 100})">人民是历史的创造者，人民是真正的英雄。</span></div></div>
+      <div class="row"><label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="csideR" style="width:auto" ${cp.side ? "checked" : ""}> 左边显示“师尊荐课”栏</label><span class="spacer"></span>
+        <button class="ghost small" id="cResetR">恢复默认（宽 80%、高 100%、字体 110%）</button></div>
       <p class="small muted">高度 100% = 从顶栏下面一直到屏幕底；对话框底边总是贴着屏幕底。改了马上生效，下次做功课就是这个大小。</p></div>
       <div class="card"><h3>🎨 风格</h3>
       <div class="row"><button class="${cur === "修仙" ? "primary" : ""}" data-style="修仙">☯ 东方修仙（师尊 劭神韵）</button>
@@ -740,7 +742,7 @@ function applyResp(r) {
   }
 }
 // 做功课时对话框钉在屏幕上：底边贴着屏幕底，宽高在“设置 → 对话框大小”里调（存在本机浏览器）
-const CHAT_DEF = { w: 80, h: 100, side: true };
+const CHAT_DEF = { w: 80, h: 100, side: true, fs: 110 };   // fs：对话框里的字号（%）
 function chatPrefs() {
   try { return Object.assign({}, CHAT_DEF, JSON.parse(localStorage.getItem("chatLayout") || "{}")); } catch { return { ...CHAT_DEF }; }
 }
@@ -753,6 +755,7 @@ function applyChatLayout(p = chatPrefs()) {
   root.style.setProperty("--chat-w", Math.max(40, Math.min(100, p.w)) + "vw");
   root.style.setProperty("--chat-top", Math.round(innerHeight - avail * Math.max(40, Math.min(100, p.h)) / 100) + "px");
   root.classList.toggle("chat-noside", !p.side);
+  root.style.setProperty("--chat-fs", String(Math.max(80, Math.min(160, p.fs || 100)) / 100));
 }
 function fitChat() {
   const tr = $(".train");
@@ -1296,11 +1299,12 @@ function bindLog() {
 function bindSettings() {
   DEVICE.bind();
   const saveChat = (p) => { try { localStorage.setItem("chatLayout", JSON.stringify(p)); } catch {} };
-  const readChat = () => ({ w: Number($("#cwR").value), h: Number($("#chR").value), side: $("#csideR").checked });
+  const readChat = () => ({ w: Number($("#cwR").value), h: Number($("#chR").value), side: $("#csideR").checked, fs: Number($("#cfR").value) });
   if ($("#cwR")) {
-    const upd = () => { const p = readChat(); $("#cwV").textContent = p.w + "%"; $("#chV").textContent = p.h + "%"; saveChat(p); };
-    $("#cwR").oninput = upd; $("#chR").oninput = upd; $("#csideR").onchange = upd;
-    $("#cResetR").onclick = () => { $("#cwR").value = CHAT_DEF.w; $("#chR").value = CHAT_DEF.h; $("#csideR").checked = CHAT_DEF.side; upd(); };
+    const upd = () => { const p = readChat(); $("#cwV").textContent = p.w + "%"; $("#chV").textContent = p.h + "%"; $("#cfV").textContent = p.fs + "%";
+      $("#cfDemo span").style.fontSize = `calc(15px * ${p.fs / 100})`; saveChat(p); applyChatLayout(p); };
+    $("#cwR").oninput = upd; $("#chR").oninput = upd; $("#cfR").oninput = upd; $("#csideR").onchange = upd;
+    $("#cResetR").onclick = () => { $("#cwR").value = CHAT_DEF.w; $("#chR").value = CHAT_DEF.h; $("#csideR").checked = CHAT_DEF.side; $("#cfR").value = CHAT_DEF.fs; upd(); };
   }
   AMB.bindSettings(showError);
   document.querySelectorAll("button[data-style]").forEach((b) => (b.onclick = async () => {   // 风格按钮（不能用 data-theme：<html data-theme> 是明暗）
@@ -1370,19 +1374,32 @@ function startTimer() {
     q.textContent = clock(t.question + d); a.textContent = clock(t.total + d);
   }, 1000);
 }
-// 大比复盘：标题和进度合成一行（不再上下两个标题），底下一道细进度线
-function reviewHead(b) {
-  return `<div class="review-head"><b>📜 ${esc(b.label)}</b><span class="rh-stats"><span>第 ${b.position}/${b.total} 题</span><span class="ok">✓ ${b.ok}</span><span class="bad">✗ ${b.wrong}</span>${b.blank ? `<span>○ ${b.blank}</span>` : ''}<span>复盘过 ${b.reviewed}</span></span>
-    <i class="rh-bar" style="width:${Math.round(100 * b.position / b.total)}%"></i></div>`;
-}
-function battlePanel() {
+// 修炼对话框顶上：标题和进度合成一行（标题后面跟小标签，底边一道细进度线），不再占一大块
+function sessionHead() {
   const b = T.battle;
-  if (!b) return '';
-  return `<div class="battle-panel"><div class="row"><b>⚔ ${esc(W(b.mode === 'review' ? 'bank_review' : 'bank'))}</b><span class="spacer"></span><span>${b.phase === 'review' ? '复盘 ' : ''}第 ${b.position}/${b.total} 关</span></div>
-    ${towerProgress(b.tower)}${bar(b.answered / b.total, 'thin yellow')}<div class="bank-counters"><span>已作答 ${b.answered}</span>${b.timer ? `<span>⏱ 本题 <b id="tQ">${clock(b.timer.question)}</b> · 总 <b id="tT">${clock(b.timer.total)}</b></span>` : ''}${b.correct === null
-      ? '<span>交卷后揭晓对错</span>' : `<span>破关 ${b.correct}</span><span>${esc(W('bank_wrong'))} ${b.answered - b.correct}</span>`}</div></div>`;
+  if (!b) return `<div class="review-head"><b>${esc(T.title)}</b></div>`;
+  return b.label ? reviewHead(b) : bankHead(b);
 }
-
+function headRow(title, tags, ratio) {
+  return `<div class="review-head"><b>${esc(title)}</b><span class="rh-stats">${tags.filter(Boolean).join("")}</span>
+    <i class="rh-bar" style="width:${Math.round(100 * Math.max(0, Math.min(1, ratio)))}%"></i></div>`;
+}
+// 大比复盘
+function reviewHead(b) {
+  return headRow("📜 " + b.label, [`<span>第 ${b.position}/${b.total} 题</span>`, `<span class="ok">✓ ${b.ok}</span>`, `<span class="bad">✗ ${b.wrong}</span>`,
+    b.blank ? `<span>○ ${b.blank}</span>` : "", `<span>复盘过 ${b.reviewed}</span>`], b.position / b.total);
+}
+// 真题试炼（答题 / 交卷后复盘）：第几关、试炼塔、已作答、计时、对错
+function bankHead(b) {
+  const t = b.tower;
+  const tower = !t ? "" : t.summit ? `<span title="${t.layers} 层已全部登顶">🗼 已登顶</span>`
+    : `<span title="本层 ${t.floor_done}/${t.floor_total} 道 · 再做 ${t.remaining} 道升层">🗼 第 ${t.current} 层 ${t.floor_done}/${t.floor_total}</span>`;
+  return headRow(T.title, [
+    `<span>${b.phase === "review" ? "复盘 " : ""}第 ${b.position}/${b.total} 关</span>`, tower, `<span>已作答 ${b.answered}</span>`,
+    b.timer ? `<span>⏱ 本题 <b id="tQ">${clock(b.timer.question)}</b> · 总 <b id="tT">${clock(b.timer.total)}</b></span>` : "",
+    b.correct === null ? "" : `<span class="ok">破关 ${b.correct}</span><span class="bad">${esc(W("bank_wrong"))} ${b.answered - b.correct}</span>`,
+  ], b.answered / b.total);
+}
 
 function towerProgress(t) {
   if (!t) return '';
