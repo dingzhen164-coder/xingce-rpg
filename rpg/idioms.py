@@ -74,9 +74,10 @@ def vocab(g):
     if _VOCAB['sig'] != sig:
         words = set()
         for q in question_bank.read_all(g.paths, '逻辑填空')[0]:
+            single = blanks(q.get('stem')) == 1          # 只有一个空：选项就是一个完整的词（多是成语），也收
             for v in q['options'].values():
                 ws = split_words(v)
-                if len(ws) > 1:
+                if len(ws) > 1 or (single and len(ws) == 1 and 2 <= len(ws[0]) <= 4):
                     words.update(w for w in ws if 2 <= len(w) <= 6)
             words.update(w for w in re.findall(r'“([\u4e00-\u9fff]{2,6})”', q.get('analysis') or ''))
         _VOCAB.update(sig=sig, words=words)
@@ -94,7 +95,7 @@ def _cuts(text, k):
     return out
 
 
-def resplit(opts, k, words):
+def resplit(opts, k, words, scored=False):
     """四个选项都没分词时一起切：词典里有的词加分，同一个空四个选项词长一致、结尾同字加分，三字词略减分。
     切不出（字数对不上）返回 None"""
     import itertools
@@ -115,7 +116,7 @@ def resplit(opts, k, words):
         return sum(one(w) for w in seg)
     # 每个选项先按自己的分数留前几种切法，再一起比对齐
     cands = [sorted(c, key=own, reverse=True)[:6] for c in cands]
-    best, best_score = None, None
+    best, best_score, second = None, None, None
     for combo in itertools.product(*cands):
         score = sum(own(seg) for seg in combo)
         for i in range(k):
@@ -125,8 +126,12 @@ def resplit(opts, k, words):
             if all(len(w) == 3 for w in col) and len({w[-1] for w in col}) == 1 and col[0][-1] in SUFFIX:
                 score += 4
         if best_score is None or score > best_score:
+            second = best_score
             best, best_score = combo, score
-    return dict(zip(keys, (list(x) for x in best)))
+        elif second is None or score > second:
+            second = score
+    out = dict(zip(keys, (list(x) for x in best)))
+    return (out, best_score == second) if scored else out
 
 
 SUFFIX = set('性化感度力型式者家学观论率量制界级态')   # 三字词常见的后缀：渐进性、现代化、获得感……
@@ -167,6 +172,55 @@ def _blank_paragraph(analysis, i, n, words):
 
 def is_fill(q):
     return q.get('board') == '逻辑填空' or str(q.get('topic', '')).startswith('逻辑填空')
+
+
+def display_options(g, stem, opts):
+    """逻辑填空的选项几个词连在一起（粉笔模考 PDF 拆出来空格丢了，如“截然不同歪曲”）：按题干的空数切开，
+    用全角空格连回去给网页显示（“截然不同　歪曲”）。切不出、本来就分好了，原样返回"""
+    if not opts or any(len(split_words(v)) != 1 for v in opts.values()):
+        return opts
+    k = blanks(stem)
+    longest = max(len(v.strip()) for v in opts.values())
+    raw = {x: v.strip() for x, v in opts.items()}
+    cache = g.state.setdefault('fill_split', {})          # AI 切过的存下来，下次不再问
+    key = '|'.join(raw[x] for x in sorted(raw))
+    if key in cache:
+        return dict(cache[key])
+    for kk in ([k] if k >= 2 else ([2, 3] if longest >= 7 else [])):
+        got = resplit(raw, kk, vocab(g), scored=True)
+        if not got:
+            continue
+        split, tie = got
+        if tie:                                             # 词典分不出（如 截然不同|歪曲 还是 截然|不同歪曲）：问一次 AI
+            split = _ai_split(raw, kk) or split
+        out = {x: "　".join(ws) for x, ws in split.items()}
+        if tie and split is not got[0]:
+            cache[key] = out
+        return out
+    return opts
+
+
+def _ai_split(raw, k):
+    """让 AI 把连在一起的选项切成 k 个词；切完拼回去必须和原文一模一样，不然不用"""
+    from . import ai
+    if not ai.available():
+        return None
+    msg = [{"role": "system", "content": "你是行测逻辑填空的助手，只输出 JSON。"},
+           {"role": "user", "content": "下面是一道有 %d 个空的逻辑填空题的四个选项，每个选项是 %d 个词连在一起写的（空格丢了）。"
+            "按词切开，返回 JSON：{\"A\": [\"词1\", \"词2\"], ...}，每个选项正好 %d 个词，不改任何字。\n%s" % (
+                k, k, k, "\n".join("%s. %s" % kv for kv in sorted(raw.items())))}]
+    try:
+        got = ai.chat_json(msg, temperature=0)
+    except Exception:
+        return None
+    if not isinstance(got, dict) or set(got) != set(raw):
+        return None
+    out = {}
+    for x, ws in got.items():
+        if not isinstance(ws, list) or len(ws) != k or "".join(map(str, ws)) != raw[x]:
+            return None
+        out[x] = [str(w) for w in ws]
+    return out
 
 
 def entries_of(q, words=None):

@@ -316,6 +316,29 @@ class BankTest(unittest.TestCase):
         self.assertNotIn('类比推理', bank.state(self.g)['runs'])
         self.assertEqual(bank.summary(self.g)['groups'][0]['correct'], 2)
 
+    def test_fill_options_split_for_display(self):
+        """粉笔模考拆出来的逻辑填空选项词连在一起：按题库当词典切开；词典分不出时问一次 AI 并记住"""
+        from unittest.mock import patch
+        from rpg import ai, idioms
+        one = lambda n, opts: ('\n## 题目 %s\n### 知识点\n逻辑填空\n### 题干\n两者____。\n### 选项\n%s\n### 答案\nA\n### 解析\n略\n'
+                               % (n, '\n'.join('%s. %s' % kv for kv in zip('ABCD', opts))))
+        (self.paths.train / '题库/逻辑填空真题.md').write_text(
+            one('W1', ['截然不同', '毫无二致', '大相径庭', '天差地别']) + one('W2', ['歪曲', '抨击', '争议', '抵制']), encoding='utf-8')
+        opts = {'A': '截然不同歪曲', 'B': '毫无二致抨击', 'C': '大相径庭争议', 'D': '天差地别抵制'}
+        stem = '传播效果可能____；甚至遭到____。'
+        self.assertEqual(idioms.display_options(self.g, stem, opts)['A'], '截然不同　歪曲')        # 单空题的选项当词典
+        self.assertEqual(idioms.display_options(self.g, stem, {'A': '截然不同　歪曲', 'B': 'x'}), {'A': '截然不同　歪曲', 'B': 'x'})
+        (self.paths.train / '题库/逻辑填空真题.md').write_text(one('W3', ['甲乙', '丙丁', '戊己', '庚辛']), encoding='utf-8')
+        odd = {'A': '春夏秋冬风雨', 'B': '东南西北上下', 'C': '金木水火土石', 'D': '琴棋书画诗酒'}
+        with patch.object(ai, 'available', return_value=True), \
+                patch.object(ai, 'chat_json', return_value={k: [v[:4], v[4:]] for k, v in odd.items()}) as cj:
+            self.assertEqual(idioms.display_options(self.g, stem, odd)['A'], '春夏秋冬　风雨')       # 词典分不出：问 AI
+            self.assertEqual(idioms.display_options(self.g, stem, odd)['B'], '东南西北　上下')
+            self.assertEqual(cj.call_count, 1)                                                     # 第二次用存下来的
+        with patch.object(ai, 'available', return_value=True), patch.object(ai, 'chat_json', return_value={'A': ['乱', '改']}):
+            bad = {'A': '一二三四五六', 'B': '七八九十百千', 'C': '甲乙丙丁戊己', 'D': '子丑寅卯辰巳'}
+            self.assertEqual(len(idioms.display_options(self.g, stem, bad)['A'].split('　')), 2)   # AI 乱答：用自己的切法
+
     def test_idiom_book_from_logic_fill(self):
         from rpg import idioms
         fill = ('\n## 题目 F1\n### 知识点\n逻辑填空-成语辨析\n### 题干\n这种理念____，乡村游____。\n### 选项\n'

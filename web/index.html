@@ -22,7 +22,9 @@
 <!-- 亮色 / 暗色：默认亮色（宣纸），设置 → 外观里可改成暗色或跟随系统；每台设备各记各的。先于页面画出来就定好，免得闪一下 -->
 <script>(function () { var m = "light"; try { m = localStorage.getItem("xrpg-theme") || "light"; } catch (e) {}
   if (m === "auto") m = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  document.documentElement.dataset.theme = m; document.documentElement.style.colorScheme = m; })();</script>
+  document.documentElement.dataset.theme = m; document.documentElement.style.colorScheme = m;
+  // 老一些的平板浏览器内核不认 color-mix()：打个记号，style.css 末尾给这些地方换成普通颜色（不然圆框、底色整个不画）
+  try { if (!(window.CSS && CSS.supports("color", "color-mix(in srgb, red 50%, blue)"))) document.documentElement.classList.add("no-cmix"); } catch (e) {} })();</script>
 </head>
 <body class="xiuxian">
 <div id="bgLayer"></div>

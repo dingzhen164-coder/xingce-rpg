@@ -976,17 +976,24 @@ html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
 .q-pin .mat-btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 
 /* 弹出材料（资料分析 / 一拖五）：材料在左，题目、解析、师傅在右；窄屏时材料叠在上面 */
-.chat.with-mat { display: grid; grid-template-columns: minmax(0, 44fr) minmax(0, 56fr); grid-template-rows: auto minmax(0, 1fr) auto; column-gap: 14px; }
+.chat.with-mat { display: grid; grid-template-columns: minmax(0, 56fr) minmax(0, 44fr); grid-template-rows: auto minmax(0, 1fr) auto; column-gap: 14px; }
+/* 像粉笔：材料字小一点、一屏看得多；右边的题目、选项字大一点 */
+.chat.with-mat > .msgs { font-size: calc(16.5px * var(--chat-fs, 1.1)); }
 .chat.with-mat > .review-head { grid-column: 1 / -1; }
 .chat.with-mat > .mat-pane { grid-column: 1; grid-row: 2; }
 .chat.with-mat > .msgs { grid-column: 2; grid-row: 2; }
 .chat.with-mat > .composer { grid-column: 1 / -1; }
-.mat-pane { min-height: 0; overflow-y: auto; padding: 4px 14px 14px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line);
-  font-size: calc(15px * var(--chat-fs, 1.1)); line-height: 1.9; }
+.mat-pane { min-height: 0; overflow-y: auto; padding: 4px 14px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+  font-size: calc(13.5px * var(--chat-fs, 1.1)); line-height: 1.8; text-align: justify; }
 .mat-pane .mat-head { position: sticky; top: 0; display: flex; align-items: center; padding: 8px 0 6px; margin-bottom: 4px;
   background: var(--panel2); border-bottom: 1px dashed var(--line); z-index: 1; }
 .mat-pane .mat-head b { color: var(--accent); }
-.mat-pane img { display: block; max-width: 100%; border-radius: 8px; margin: 8px 0; background: #fff; }
+.mat-pane img { display: block; width: 100%; height: auto; border-radius: 6px; margin: 8px 0; background: #fff; cursor: zoom-in; }
+.q-pin img:not(.inline-img) { cursor: zoom-in; }
+.img-zoom { position: fixed; inset: 0; z-index: 200; background: rgba(10, 10, 10, .86); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; padding: 16px; cursor: zoom-out; }
+.img-zoom img { max-width: 100%; max-height: calc(100% - 30px); object-fit: contain; background: #fff; border-radius: 6px; }
+.img-zoom span { color: #ddd; }
 .mat-pane img.inline-img { display: inline-block; vertical-align: middle; margin: 0 2px; max-height: 2.6em; background: transparent; }
 .mat-pane > div + div { margin-top: .6em; }
 @media (max-width: 900px) {
@@ -994,3 +1001,29 @@ html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
   .chat.with-mat > .mat-pane { grid-column: 1; grid-row: 2; max-height: 34vh; margin-bottom: 8px; }
   .chat.with-mat > .msgs { grid-column: 1; grid-row: 3; }
 }
+
+/* ------------------------------------------------------------ 老内核兜底（html.no-cmix：浏览器不认 color-mix()）
+   这些地方原来用 color-mix 调半透明色，老一些的安卓平板内核整条样式作废，圆框、进度条、底色就整个不画。这里换成普通颜色。 */
+html.no-cmix .topbar, html.no-cmix body.has-bg .topbar { background: var(--bg); }
+html.no-cmix body.has-bg .card { background: var(--panel); }
+html.no-cmix .sancai { background: var(--panel); }
+html.no-cmix .orb-ring { background: conic-gradient(from -90deg, var(--c) 0 var(--share), var(--line) var(--share) 360deg); box-shadow: 0 0 16px rgba(60, 45, 20, .18); }
+html.no-cmix .orb-ring::before { border-color: var(--c); opacity: .55; }
+html.no-cmix .orb-ring::after { border-color: var(--gold); opacity: .6; }
+html.no-cmix .orb-core { background: radial-gradient(circle at 50% 35%, var(--panel2), var(--panel) 70%); border-color: var(--gold); box-shadow: inset 0 0 16px rgba(60, 45, 20, .10); }
+html.no-cmix .ratio-bar { background: var(--line); border-color: var(--gold); }
+html.no-cmix .ratio-bar .seg-lecture, html.no-cmix .tri-bar .seg-lecture { background: var(--c-lecture); }
+html.no-cmix .ratio-bar .seg-practice, html.no-cmix .tri-bar .seg-practice { background: var(--c-practice); }
+html.no-cmix .ratio-bar .seg-review, html.no-cmix .tri-bar .seg-review { background: var(--c-review); }
+html.no-cmix .tri-bar .seg-drill { background: var(--c-practice); opacity: .4; }
+html.no-cmix .tri-bar .seg-rdrill { background: var(--c-review); opacity: .4; }
+html.no-cmix .lecture-card { background: var(--panel); }
+html.no-cmix .msg.me { background: var(--panel2); }
+html.no-cmix .msgs .q-pin { background: var(--panel2); box-shadow: 0 10px 18px -12px rgba(40, 30, 10, .45); }
+html.no-cmix .rh-stats span, html.no-cmix .rv-board, html.no-cmix .kpi { background: var(--panel2); }
+html.no-cmix .rv-board.done, html.no-cmix .kpi.hero { border-color: var(--gold); }
+html.no-cmix .st-veil { background: rgba(6, 8, 14, .88); }
+html.no-cmix .st-bar { background: rgba(255, 255, 255, .15); }
+html.no-cmix .bgm-btn.on { box-shadow: 0 0 8px var(--gold); }
+html.no-cmix .st-btn { background: var(--st) !important; }
+.chat.with-mat .q-pin .pin-tools { float: none; justify-content: flex-end; margin: -2px -4px 2px 0; }

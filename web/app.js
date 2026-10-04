@@ -80,7 +80,7 @@ document.querySelectorAll("#nav a").forEach((a) => (a.onclick = () => go(a.datas
 // 平板 App 的返回键（android/…/MainActivity.java 调这个）：先关画面、弹窗、草稿，再回洞府；返回 false 表示没得退了
 window.xcBack = () => {
   const click = (sel) => { const b = document.querySelector(sel); if (b) b.click(); return !!b; };
-  if (click(".cer-ok") || click(".st-btn")) return true;
+  if (click(".img-zoom") || click(".cer-ok") || click(".st-btn")) return true;
   if (document.documentElement.classList.contains("drawing") && window.DRAW) { DRAW.close(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
@@ -172,11 +172,11 @@ function recentList(ev) {
     <span>${esc(e.note)}</span><span class="spacer"></span>${e.xp ? `<b style="color:var(--gold)">+${e.xp}</b>` : ""}</div>`).join("");
 }
 // 消息里的网页块：文字（夹着的 ![[库内路径]] 是行内小图，如公式）、图片、成绩表
-function blocksHtml(list) {
+function blocksHtml(list, trim = false) {
   const inline = (h) => h.replace(/!\[\[([^\]]+)\]\]/g, (_, p) => `<img class="inline-img" src="/vault-file?p=${encodeURIComponent(p.replace(/&amp;/g, '&'))}">`);
   const table = (b) => `<div class="tbl-wrap"><table class="result-table"><thead><tr>${b.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
     b.rows.map(r => `<tr class="${r.includes('✗') ? 'bad' : r.includes('✓') ? 'good' : 'sum'}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return (list || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
+  return (list || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}${trim ? "&trim=1" : ""}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
 }
 function msgHtml(m) {
   const blocks = blocksHtml(m.blocks);
@@ -198,9 +198,21 @@ function currentMaterial() {
 function materialPane() {
   const mat = currentMaterial();
   if (!mat || !MAT_OPEN) return "";
-  return `<div class="mat-pane"><div class="mat-head"><b>📄 材料</b><span class="spacer"></span><button class="ghost small mat-btn">收起材料</button></div>${blocksHtml(mat)}</div>`;
+  return `<div class="mat-pane"><div class="mat-head"><b>📄 材料</b><span class="small faint" style="margin-left:8px">点图片放大</span><span class="spacer"></span><button class="ghost small mat-btn">收起材料</button></div>${blocksHtml(mat, true)}</div>`;
+}
+// 材料里的图：点一下全屏看（再点 / Esc / 返回键关）
+function zoomImg(src) {
+  const el = document.createElement("div");
+  el.className = "img-zoom";
+  el.innerHTML = `<img src="${src}"><span class="small">点任意处关闭</span>`;
+  const close = () => { el.remove(); document.removeEventListener("keydown", key); };
+  const key = (e) => { if (e.key === "Escape") close(); };
+  el.onclick = close;
+  document.addEventListener("keydown", key);
+  document.body.appendChild(el);
 }
 function bindPins() {
+  document.querySelectorAll(".mat-pane img:not(.inline-img), .q-pin img:not(.inline-img)").forEach((im) => (im.onclick = () => zoomImg(im.src)));
   document.querySelectorAll(".mat-btn").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     MAT_OPEN = !MAT_OPEN;

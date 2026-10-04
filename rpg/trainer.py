@@ -183,7 +183,7 @@ def _recite_prompt(g, board, it, head):
 
 def _wrong_intro(g, q, head):
     return _msg("sys", f"{head}第{q['season']}季 · {q['source']} · 第{q['num']}题（上次你选了 {q['mine'] or '未作答'}）",
-                blocks=vault.render_blocks(g.paths, q, material=False), pin=True, material=vault.render_material(g.paths, q))
+                blocks=vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q))
 
 
 # ---------------------------------------------------------------- 开始
@@ -1059,10 +1059,36 @@ def split_stem(board, stem):
     return mat, q
 
 
+def _fill_opts(g, board, stem, opts):
+    """逻辑填空选项里几个词连在一起的，切开显示（见 idioms.display_options）；出错就原样"""
+    if board != "逻辑填空":
+        return opts
+    try:
+        return idioms.display_options(g, stem, opts)
+    except Exception:
+        return opts
+
+
+OPT_LINE = re.compile(r"^(\s*-\s*\*\*([A-D])[\.．]\*\*\s*)(.*)$")
+
+
+def _fill_body(g, q):
+    """模考复盘里的逻辑填空题（题干 + “- **A.** 选项”行）：选项连在一起的切开显示"""
+    if q.get("source") != "逻辑填空":
+        return q
+    lines = q["body"].split("\n")
+    opts = {m.group(2): m.group(3).strip() for m in (OPT_LINE.match(ln) for ln in lines) if m}
+    fixed = _fill_opts(g, "逻辑填空", q["body"], opts) if len(opts) >= 2 else opts
+    if fixed == opts:
+        return q
+    return dict(q, body="\n".join(OPT_LINE.sub(lambda m: m.group(1) + fixed[m.group(2)], ln) for ln in lines))
+
+
 def _bank_q(g, q):
     """真题试炼的一道题 → (题干 + 选项的网页块, 材料的网页块)"""
     mat, stem = split_stem(q["board"], q["stem"])
-    blocks = _bank_blocks(g, q["board"], stem + "\n\n" + "\n".join("%s. %s" % (k, v) for k, v in q["options"].items()))
+    opts = _fill_opts(g, q["board"], stem, q["options"])
+    blocks = _bank_blocks(g, q["board"], stem + "\n\n" + "\n".join("%s. %s" % (k, v) for k, v in opts.items()))
     return blocks, (_bank_blocks(g, q["board"], mat) if mat else [])
 
 
@@ -1563,7 +1589,7 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
             msgs.append(_msg("npc", line))
     msgs.append(_msg("sys", "复盘 第 %d/%d 题 · 第%s季第 %s 题 · %s · %s" % (
         i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])),
-        vault.render_blocks(g.paths, q, material=False), pin=True, material=vault.render_material(g.paths, q)))
+        vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q)))
     msgs.append(_msg("sys", "你的答案：%s · 正确答案：%s\n\n复盘解析：" % (q["mine"] or "没做", q["correct"] or "?"),
                      vault.render_blocks(g.paths, {"body": q["analysis"] or "（这题还没写复盘解析，点「师傅解惑」让师傅讲；讲完自动写进这题的复盘笔记）",
                                                    "dir": q["dir"]})))

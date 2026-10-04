@@ -55,7 +55,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     GET  /api/settings             本机设置（不返回完整 key）
     POST /api/settings             {"vault"?, "api_key"?, "base_url"?, "model"?}
     POST /api/settings/test        测试 AI 连接
-    GET  /vault-file?p=<库内相对路径>   库里的图片（题目截图、头像）
+    GET  /vault-file?p=<库内相对路径>   库里的图片（题目截图、头像）；&trim=1 裁掉四周空白（材料截图）
     GET  /                         web/ 下的静态文件
 """
 import datetime as dt
@@ -870,6 +870,11 @@ class Handler(BaseHTTPRequestHandler):
             ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
             if p.suffix.lower() in appearance.AUDIO_EXT:
                 return self._send_range(p, ctype)
+            if parse_qs(url.query).get("trim") == ["1"]:          # 材料截图：裁掉四周空白（rpg/imgtrim.py）
+                from . import imgtrim
+                b = imgtrim.trim(p)
+                if b:
+                    return self._send(200, b, "image/png")
             return self._send(200, p.read_bytes(), ctype)
         rel = url.path.lstrip("/") or "index.html"
         f = (WEB_DIR / rel).resolve()
