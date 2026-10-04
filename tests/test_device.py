@@ -108,6 +108,10 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual(update._ver("v1.2.0"), (1, 2, 0))
         self.assertEqual(update._ver(""), (0,))
 
+    def test_release_notes_drop_trailers(self):
+        body = "默认亮色\r\n\r\n- 灰字加深\r\n\r\nCo-Authored-By: X <a@b>\r\nClaude-Session: https://x"
+        self.assertEqual(update._notes(body), "默认亮色\n\n- 灰字加深")
+
     def test_apply_refuses_source_version(self):
         with self.assertRaises(update.UpdateError):
             update.apply()

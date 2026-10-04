@@ -30,6 +30,12 @@ def _ver(s):
     return tuple(int(x) for x in re.findall(r"\d+", str(s or ""))[:4]) or (0,)
 
 
+def _notes(body):
+    """更新说明：只留改了什么（去掉提交署名行）"""
+    lines = [ln for ln in (body or "").replace("\r\n", "\n").split("\n") if not re.match(r"\s*(Co-Authored-By|Claude-Session):", ln)]
+    return "\n".join(lines).strip()[:2000]
+
+
 def check():
     req = urllib.request.Request(API, headers={"User-Agent": "xingce-rpg", "Accept": "application/vnd.github+json"})
     try:
@@ -45,7 +51,7 @@ def check():
     tag = rel.get("tag_name") or ""
     asset = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".exe")), None)
     return {"current": VERSION, "latest": tag.lstrip("v"), "newer": _ver(tag) > _ver(VERSION), "frozen": FROZEN,
-            "notes": (rel.get("body") or "")[:2000], "page": rel.get("html_url") or "https://github.com/%s/releases" % REPO,
+            "notes": _notes(rel.get("body")), "page": rel.get("html_url") or "https://github.com/%s/releases" % REPO,
             "asset_url": asset.get("browser_download_url") if asset else "", "size": asset.get("size") if asset else 0,
             "windows": os.name == "nt"}
 
