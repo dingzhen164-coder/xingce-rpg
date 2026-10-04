@@ -690,7 +690,8 @@ class Game:
             ev = self._award(self.rules.xp("渡劫成功"), "tribulation", note=f"{self.T('tribulation')}成功，踏入{realm}", bonus=False)
             after = self.realm_info()
             if after["score"] > before["score"]:
-                ev.append({"kind": "realm", "name": after["name"], "major": True, "score": after["score"]})
+                ev.append({"kind": "realm", "name": after["name"], "major": True, "score": after["score"], "tribulation": True,
+                           "big_name": after["big_name"], "next": after["next"], "target": after["target"], "xp": self.state["xp"]})
             ev.append(self._npc("渡劫成功"))
             return ev
         tr["cooldown"] = (self.today + dt.timedelta(days=int(self.rules.num("渡劫冷却天数")))).isoformat()
@@ -787,7 +788,8 @@ class Game:
         after = self.realm_info()
         if (after["big"], after["sub"]) != (before["big"], before["sub"]) and after["score"] > before["score"]:
             ev.append({"kind": "realm", "name": after["name"], "major": after["big"] != before["big"],
-                       "score": after["score"]})
+                       "score": after["score"], "big_name": after["big_name"], "next": after["next"],
+                       "target": after["target"], "xp": self.state["xp"], "from": before["name"]})
             if after["big"] == before["big"] or typ != "tribulation":
                 ev.append(self._npc("小境界提升"))
         if after["bottleneck"] and not before["bottleneck"]:

@@ -60,6 +60,7 @@ function handleEvents(events, { inChat = false } = {}) {
   }
 }
 function realmUp(e) {
+  if (window.CEREMONY) return CEREMONY.realm(e);      // 觅长生式大典画面（web/ceremony.js）
   const m = $("#modal");
   m.innerHTML = `<div class="levelup ${e.major ? "major" : ""}"><div class="muted rune">${e.major ? `✦ ${esc(W("breakthrough"))} ✦` : `✦ ${esc(W("realm"))}精进 ✦`}</div>
     <div class="lv">${esc(e.name)}</div>

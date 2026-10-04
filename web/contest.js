@@ -331,9 +331,14 @@
           report: REPORT && String(REPORT.season) === String(g("mkSeason")) ? REPORT : null });
         REPORT = null;
         MOCK = r.summary; EDIT = g("mkSeason");
-        handleEvents(r.events);
         toast(`第 ${EDIT} 季成绩单已保存`);
         rerender();
+        const ss = MOCK.seasons, k = ss.findIndex((x) => String(x.season) === String(EDIT));
+        if (window.CEREMONY && k >= 0 && ss[k].score != null && g("mkScore") !== "") {
+          const prev = ss.slice(0, k).reverse().find((x) => x.score != null);
+          await CEREMONY.contest(ss[k], prev);          // 大比出成绩的大典画面，关掉后再弹修为、境界
+        }
+        handleEvents(r.events);
       } catch (e) { showError(e); }
     };
   }
