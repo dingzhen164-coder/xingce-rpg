@@ -37,6 +37,18 @@ class AppearanceTest(unittest.TestCase):
         self.assertEqual((st["appearance"]["bg"], st["appearance"]["track"], st["appearance"]["quote"]),
                          ("file:训练/外观/背景/山.jpg", "训练/外观/音乐/琴.mp3", "fixed"))  # 非法值不改
 
+    def test_no_builtin_backgrounds_shuffle_and_quote_size(self):
+        self.assertEqual(appearance.view(self.p, {})["current"]["bg"], "none")          # 没有自己的图：不用背景
+        st = {"appearance": {"bg": "builtin:水墨远山"}}                                  # 以前选的自带背景
+        (self.p.train / "外观/背景/云.jpg").write_bytes(b"x")
+        self.assertEqual(appearance.view(self.p, st)["current"]["bg"], "file:训练/外观/背景/云.jpg")
+        appearance.update(self.p, st, {"bg": "builtin:云海仙山"})                       # 自带背景不再收
+        self.assertNotEqual(st["appearance"]["bg"], "builtin:云海仙山")
+        appearance.update(self.p, st, {"shuffle": True, "quote_size": 9})
+        self.assertEqual((st["appearance"]["shuffle"], st["appearance"]["quote_size"]), (True, 2.0))
+        appearance.update(self.p, st, {"quote_size": 0.1})
+        self.assertEqual(st["appearance"]["quote_size"], 0.5)
+
     def test_music_file_only_from_music_folder(self):
         (self.p.train / "外观/音乐/琴.mp3").write_bytes(b"x")
         (self.p.train / "秘密.mp3").write_bytes(b"x")

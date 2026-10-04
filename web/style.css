@@ -265,10 +265,10 @@ body.has-bg { background: transparent; }   /* body 自己的底色会盖住 z-in
 body.has-bg .card, body.has-bg .topbar { background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px); }
 body.has-bg .topbar { background: color-mix(in srgb, var(--bg) 70%, transparent); }
 #quoteLayer { position: fixed; right: 26px; top: 96px; z-index: -1; writing-mode: vertical-rl; pointer-events: none;
-  font-family: var(--display); font-size: 34px; letter-spacing: .35em; line-height: 1.6; color: var(--text); opacity: .32;
+  font-family: var(--display); font-size: calc(34px * var(--quote-scale, 1)); letter-spacing: .35em; line-height: 1.6; color: var(--text); opacity: .32;
   text-shadow: 0 0 18px color-mix(in srgb, var(--bg) 70%, transparent); max-height: 80vh; }
 @media (max-width: 1300px) {
-  #quoteLayer { writing-mode: horizontal-tb; top: auto; bottom: 10px; right: 0; left: 0; text-align: center; font-size: 18px; letter-spacing: .25em; }
+  #quoteLayer { writing-mode: horizontal-tb; top: auto; bottom: 10px; right: 0; left: 0; text-align: center; font-size: calc(18px * var(--quote-scale, 1)); letter-spacing: .25em; }
 }
 .bgm-btn { border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 16px; color: var(--muted); background: var(--panel); }
 .bgm-btn.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 45%, transparent); animation: bgmPulse 2.4s ease-in-out infinite; }
