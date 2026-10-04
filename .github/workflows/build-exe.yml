@@ -1,4 +1,5 @@
-# 改 rpg/version.py 的版本号推到 main → 在 Windows 上打包 xingce-xiuxian.exe、在 Linux 上打包平板 App xingce-xiuxian.apk，
+# 改 rpg/version.py 的版本号推到 main → 在 Windows 上打包 xingce-xiuxian.exe、在 Linux 上打包平板 App xingce-xiuxian.apk、
+# 在 Mac 上打包 行测修仙传.app（Apple 芯片，xingce-xiuxian-mac.zip），
 # 一起发到 Releases（tag v<版本>）
 # 程序里「设置 → 🆕 版本与更新 → 检查更新」读的就是这里发的 Release
 name: build-exe
@@ -71,3 +72,55 @@ jobs:
         run: |
           V=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' rpg/version.py)
           gh release upload "v$V" android/build/xingce-xiuxian.apk --clobber
+
+  mac:
+    needs: build
+    runs-on: macos-latest          # Apple 芯片（M / A 系列）
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install pyinstaller pywebview segno pymupdf pillow pyobjc-framework-Vision
+
+      - name: Build app
+        run: >
+          pyinstaller --noconfirm --windowed --name XingceXiuxian
+          --osx-bundle-identifier com.xingce.xiuxian
+          --icon web/icons/icon-512.png
+          --add-data "web:web" --add-data "defaults:defaults" --add-data "rpg/data:rpg/data"
+          --hidden-import server --collect-submodules rpg
+          --hidden-import segno --collect-all pymupdf
+          --hidden-import Vision --hidden-import Foundation
+          app.py
+
+      - name: Name, version, sign, zip
+        run: |
+          V=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' rpg/version.py)
+          APP="dist/行测修仙传.app"
+          mv dist/XingceXiuxian.app "$APP"
+          P="$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName 行测修仙传" "$P"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 行测修仙传" "$P" || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 行测修仙传" "$P"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $V" "$P"
+          /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$P" || true
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep "$APP"
+          (cd dist && ditto -c -k --sequesterRsrc --keepParent "行测修仙传.app" ../xingce-xiuxian-mac.zip)
+          ls -l xingce-xiuxian-mac.zip
+
+      - name: Smoke test
+        run: |
+          out=$("dist/行测修仙传.app/Contents/MacOS/XingceXiuxian" --run-script tests/smoke_frozen.py)
+          echo "$out"
+          echo "$out" | grep -q SMOKE-OK
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' rpg/version.py)
+          gh release upload "v$V" xingce-xiuxian-mac.zip --clobber

@@ -95,6 +95,14 @@ class DeviceTest(unittest.TestCase):
         self.assertTrue(d["enabled"])
         self.assertTrue(d["restart"])
 
+    def test_guess_vault(self):
+        home = self.tmp / "home"
+        v = home / "Nutstore Files" / "我的坚果云" / "行测obsidian" / "行测"
+        (v / "copilot" / "skills").mkdir(parents=True)
+        (home / "Library" / "x" / "copilot" / "skills").mkdir(parents=True)     # 系统文件夹不去翻
+        self.assertEqual(paths.guess_vault(home), v.resolve())
+        self.assertIsNone(paths.guess_vault(self.tmp / "nothing"))
+
     def test_version_compare(self):
         self.assertGreater(update._ver("v1.0.10"), update._ver("1.0.9"))
         self.assertEqual(update._ver("v1.2.0"), (1, 2, 0))

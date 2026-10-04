@@ -59,10 +59,13 @@
               ④ 出门在外想用：电脑和手机都装 Tailscale（免费），手机用 Tailscale 给电脑的地址打开。</div></details>
           </div></div>` : `<p class="small muted" style="margin-top:8px">打开后，手机 / 平板连同一个 Wi-Fi，用浏览器输入电脑的地址（或扫二维码），输一次访问口令就能用；还能添加到主屏幕当 App 用。</p>`}
       </div>`;
-    const verCard = `<div class="card dev-card"><h3>🆕 版本与更新 <small>当前 ${esc(ver.version)}（${ver.frozen ? "exe 版" : "源码版"}）</small></h3>
+    const mac = ver.platform === "darwin";
+    const kind = ver.frozen ? (mac ? "Mac App" : "exe 版") : "源码版";
+    const verCard = `<div class="card dev-card"><h3>🆕 版本与更新 <small>当前 ${esc(ver.version)}（${kind}）</small></h3>
       <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center"><button id="updCheck">检查更新</button><span id="updMsg" class="small muted"></span></div>
       <div id="updBox"></div>
-      <p class="small faint" style="margin-top:6px">${ver.frozen ? "exe 版：有新版本时点「更新并重启」，自动下载、替换、重开（存档、题库都在库里，不受影响）。"
+      <p class="small faint" style="margin-top:6px">${ver.frozen && mac ? "Mac App：有新版本时点「到 GitHub 下载」，下载 xingce-xiuxian-mac.zip，解压后把新的「行测修仙传」拖进「应用程序」替换旧的（存档、题库都在库里，不受影响）。"
+        : ver.frozen ? "exe 版：有新版本时点「更新并重启」，自动下载、替换、重开（存档、题库都在库里，不受影响）。"
         : "源码版：照旧用压缩包更新；也可以到 GitHub 的 Releases 下载 exe 版，放进 训练/程序/ 双击就能用。"}</p></div>`;
     return (local || lan ? lanCard : "") + (local ? verCard : "");
   }

@@ -61,6 +61,39 @@ def find_vault():
     for p in [APP_DIR, *APP_DIR.parents]:
         if looks_like_vault(p):
             return p
+    # 程序不在库里（比如 Mac 上把 App 放进了“应用程序”）：到坚果云、桌面、文稿里找一找，找到就记进本机设置
+    v = guess_vault()
+    if v:
+        st = load_settings()
+        st["vault"] = str(v)
+        save_settings(st)
+    return v
+
+
+SKIP_DIRS = {"Library", "Applications", "node_modules", "AppData", "Pictures", "Music", "Movies", "Videos", "Downloads"}
+
+
+def guess_vault(home=None, limit=6000):
+    """在常见位置（坚果云同步文件夹、桌面、文稿、主目录）往下几层找像行测库的文件夹；只找一个，找不到返回 None"""
+    home = Path(home) if home else Path.home()
+    roots = [(home / n, 4) for n in ("Nutstore Files", "Nutstore", "坚果云", "我的坚果云", "Desktop", "Documents", "桌面", "文稿")]
+    roots.append((home, 2))
+    seen = 0
+    for root, depth in roots:
+        level = [root]
+        for _ in range(depth + 1):
+            nxt = []
+            for d in level:
+                seen += 1
+                if seen > limit:
+                    return None
+                try:
+                    if looks_like_vault(d):
+                        return d.resolve()
+                    nxt += sorted(c for c in d.iterdir() if c.is_dir() and not c.name.startswith(".") and c.name not in SKIP_DIRS)
+                except OSError:
+                    continue
+            level = nxt
     return None
 
 

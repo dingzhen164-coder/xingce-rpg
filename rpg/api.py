@@ -757,7 +757,8 @@ def update_apply(body):
 def version_get(body):
     from .paths import FROZEN
     from .version import VERSION
-    return {"version": VERSION, "frozen": FROZEN}
+    import sys
+    return {"version": VERSION, "frozen": FROZEN, "platform": sys.platform}
 
 
 ROUTES[("GET", "/api/version")] = version_get

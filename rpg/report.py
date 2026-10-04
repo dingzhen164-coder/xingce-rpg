@@ -1,13 +1,15 @@
 """宗门大比·读成绩截图：粉笔模考报告的两张截图（得分 / 最高分 / 平均分 / 已击败 / 排名，和各模块“共几题、答对几题、正确率、用时”）
 → 自动填成绩单。
 
-认字用 Windows 自带的 OCR（Windows.Media.Ocr，PowerShell 调，不装东西；Windows 10/11 装了中文语言就有）。
-不是 Windows、或者 OCR 不可用时，也可以把报告里的文字复制粘贴进来（手机相册“提取文字”、微信长按图片“提取文字”都行），
+认字用系统自带的 OCR：Windows 用 Windows.Media.Ocr（PowerShell 调，不装东西；Windows 10/11 装了中文语言就有），
+Mac 用苹果的 Vision（Mac App 里带着 pyobjc；源码版要 pip install pyobjc-framework-Vision）。
+都不行时，也可以把报告里的文字复制粘贴进来（手机相册“提取文字”、微信长按图片“提取文字”都行），
 同一个解析器处理。
 """
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 from . import importer
@@ -40,10 +42,51 @@ class ReportError(Exception):
     pass
 
 
+def ocr_mac(path):
+    """Mac：苹果 Vision 认字。按从上到下、从左到右排成一行一行（和 Windows OCR 的输出一样给解析器用）"""
+    try:
+        import Vision
+        from Foundation import NSURL
+    except ImportError:
+        raise ReportError("这台 Mac 缺认字组件：用 Mac App 版，或在终端运行 pip3 install pyobjc-framework-Vision；也可以把报告文字粘贴进来")
+    handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(NSURL.fileURLWithPath_(path), None)
+    req = Vision.VNRecognizeTextRequest.alloc().init()
+    req.setRecognitionLevel_(0)                     # 0 = 准确优先
+    req.setRecognitionLanguages_(["zh-Hans", "en-US"])
+    req.setUsesLanguageCorrection_(False)           # 数字、百分比别被“纠正”
+    ok, err = handler.performRequests_error_([req], None)
+    if not ok:
+        raise ReportError("Mac 认字失败（%s）：把报告文字粘贴进来也行" % err)
+    items = []
+    for obs in req.results() or []:
+        cand = obs.topCandidates_(1)
+        if not cand:
+            continue
+        box = obs.boundingBox()                     # 原点在左下，0~1
+        items.append((1 - (box.origin.y + box.size.height / 2), box.origin.x, box.size.height, str(cand[0].string())))
+    items.sort()
+    rows = []                                       # 中线差不到半个字高的算同一行
+    for y, x, h, t in items:
+        if rows and abs(rows[-1][0] - y) < h / 2:
+            rows[-1][1].append((x, t))
+        else:
+            rows.append([y, [(x, t)]])
+    return "\n".join(" ".join(t for _, t in sorted(r)) for _, r in rows) + "\n"
+
+
 def ocr(data):
-    """一张图 → 文字（一行一行）。只在 Windows 上能用"""
+    """一张图 → 文字（一行一行）。Windows、Mac 能用"""
+    if sys.platform == "darwin":
+        with tempfile.TemporaryDirectory() as d:
+            img = os.path.join(d, "report.png")
+            with open(img, "wb") as f:
+                f.write(data)
+            out = ocr_mac(img)
+        if not out.strip():
+            raise ReportError("Mac 没认出字：截图清楚吗？也可以把报告文字粘贴进来")
+        return out
     if os.name != "nt":
-        raise ReportError("自动认字要用 Windows 自带的 OCR（这台电脑不是 Windows）：把报告里的文字复制粘贴到下面的框里也行")
+        raise ReportError("这台电脑没有能用的自带 OCR：把报告里的文字复制粘贴到下面的框里也行")
     with tempfile.TemporaryDirectory() as d:
         img = os.path.join(d, "report.png")
         with open(img, "wb") as f:
