@@ -143,7 +143,7 @@ def compile(paths, nid, images, typed=""):
     pngs = [_png(x) for x in (images or [])][:30]
     typed = str(typed if typed is not None else d.get("text", ""))
     if not pngs and not typed.strip():
-        raise NotesError("这本手札还是空的：先写点什么，或者在下面“打字补充”里打几句")
+        raise NotesError("这本手札还是空的：先写点什么再编纂")
     how = ""
     if pngs and ai.vision_available():
         content = [{"type": "text", "text": VISION_PROMPT % (len(pngs), ("\n学员另外打字补充：\n" + typed) if typed.strip() else "")}]
@@ -159,8 +159,8 @@ def compile(paths, nid, images, typed=""):
                     texts.append(report.ocr(b))
                 except report.ReportError as e:
                     if not typed.strip():
-                        raise NotesError("认不了手写：%s。可以在设置里填一个“识图模型”（能看图的 AI，认手写最好），"
-                                         "或者在“打字补充”里把要点打进去再编纂" % str(e).split("：")[0])
+                        raise NotesError("认不了手写：%s。可以在设置里填一个“识图模型”（能看图的 AI），"
+                                         "认手写最准" % str(e).split("：")[0])
                     texts.append("")
         if ai.available():
             md = ai.chat(_organize_prompt(d["title"], texts, typed), temperature=0.2, max_tokens=4000, timeout=180)

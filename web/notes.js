@@ -44,7 +44,7 @@
 
   function side() {
     const books = BOOKS.map((b) => `<button class="nt-item ${NB && NB.id === b.id ? "on" : ""}" data-nb="${esc(b.id)}">
-        <b>${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页${b.compiled ? " · 已编纂" : ""}</small></button>`).join("");
+        <span class="nt-del" data-del="${esc(b.id)}" title="删除这本手札">🗑</span><b>${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页${b.compiled ? " · 已编纂" : ""}</small></button>`).join("");
     if (SIDE_MIN) return `<aside class="nt-side min"><button class="nt-sidebtn" id="ntSideOpen" title="展开左栏">»</button>
         <button class="nt-sidebtn ${TAB === "books" ? "on" : ""}" data-ntab="books" title="手札">📓</button>
         <button class="nt-sidebtn ${TAB === "library" ? "on" : ""}" data-ntab="library" title="调阅">📚</button></aside>`;
@@ -104,6 +104,7 @@
     const nn = document.getElementById("ntNew");
     if (nn) nn.onclick = newBook;
     document.querySelectorAll("[data-nb]").forEach((b) => (b.onclick = () => openBook(b.dataset.nb)));
+    document.querySelectorAll("[data-del]").forEach((x) => (x.onclick = (e) => { e.stopPropagation(); delBook(x.dataset.del); }));
     document.querySelectorAll("[data-md]").forEach((b) => (b.onclick = () => openMd(b.dataset.md)));
     const q = document.getElementById("ntQ");
     if (q) q.oninput = () => { FQ = q.value; document.getElementById("ntFiles").innerHTML = filesHtml(); bindSide(); };
@@ -124,7 +125,7 @@
     if (!READ && !NB) {
       m.innerHTML = `<div class="nt-empty"><div class="nt-empty-mark">🪶</div><h2>灵台手札</h2>
         <p>像在纸上一样手写笔记：选纸（横线 / 方格 / 空白）、换笔、荧光笔、橡皮、撤销。写完自动存进库里，平板上写的电脑上也有。</p>
-        <p>写完点底下的「🧙 师傅编纂」，师傅把手写认出来，排成一份 Markdown 笔记存进 训练/手札/。</p>
+        <p>写完点本子右上角的「🧙 师傅编纂」，师傅把手写认出来，排成一份 Markdown 笔记存进 训练/手札/。</p>
         <p>左边「📚 调阅」能翻库里所有的 Markdown 笔记，还能和本子并排打开，边看边记。</p>
         <button class="primary" id="ntNew2">＋ 新本子</button></div>`;
       document.getElementById("ntNew2").onclick = newBook;
@@ -144,6 +145,15 @@
       BOOKS = (await api("/api/notes")).notebooks;
       undo = []; redo = [];
       TAB = "books"; repaintSide(); paintMain();
+    } catch (e) { showError(e); }
+  }
+  async function delBook(id) {
+    const b = BOOKS.find((x) => x.id === id);
+    if (!confirm(`删除手札「${b ? b.title : id}」？手写的笔迹会删掉（已经编纂出的 Markdown 留着）。`)) return;
+    try {
+      await api("/api/notes/delete", { id });
+      if (NB && NB.id === id) { setFull(false); NB = null; dirty = false; }
+      BOOKS = (await api("/api/notes")).notebooks; repaintSide(); paintMain();
     } catch (e) { showError(e); }
   }
   async function openBook(id) {
@@ -167,20 +177,18 @@
           ${touchDev() ? `<button data-act="finger" class="${FINGER === "draw" ? "on" : ""}" title="手指写字（关掉 = 手指只翻页，笔写字）">☝</button>` : ""}
         </span>
         <span class="spacer"></span>
-        <span class="small faint" id="ntSaved"></span>
-        <button class="ghost small" id="ntFull" title="全屏写（再点一次退出）">${isFull() ? "🗗" : "⛶"}</button>
+        <button class="primary nt-compile" id="ntCompile" title="${INFO.vision ? "师傅用识图模型认手写，排成 Markdown 存进 训练/手札/" : INFO.ai ? "师傅用电脑自带认字读手写，再排成 Markdown（认不准时可在设置里填识图模型）" : "没填 AI：只能认字，不排版"}">🧙 师傅编纂</button>
+        <button class="ghost small nt-fullbtn" id="ntFull" title="全屏写（再点一次退出）">${fullIcon(isFull())}</button>
         <button class="ghost small" id="ntClose" title="收起本子（已自动保存）">✕</button>
       </div>
       <div class="nt-pages" id="ntPages">${NB.pages.map((_, i) => pageHtml(i)).join("")}
         <button class="ghost nt-addpage" id="ntAdd">＋ 加一页</button></div>
-      <div class="nt-foot">
-        <details class="nt-typed"><summary>⌨ 打字补充 <span class="small faint">（编纂时一起交给师傅；认不清的字可以在这里打）</span></summary>
-          <textarea id="ntText" rows="3" placeholder="打字记的要点…">${esc(NB.text || "")}</textarea></details>
-        <div class="row nt-foot-row"><span class="small muted">${INFO.vision ? "🧙 编纂用识图模型认手写" : INFO.ai ? "🧙 编纂用电脑自带 OCR 认手写、AI 排版（手写认不准时可在设置里填识图模型）" : "没填 AI：编纂只能用 OCR 认字，不排版"}${
-          NB.compiled ? ` · 上次编纂：<a data-md="${esc(NB.compiled)}">${esc(NB.compiled)}</a>` : ""}</span><span class="spacer"></span>
-          <button class="ghost" id="ntDel">🗑 删除本子</button>
-          <button class="primary" id="ntCompile">🧙 师傅编纂</button></div>
-      </div></div>`;
+      </div>`;
+  }
+  // 全屏图标用画的（有的平板字体里没有 ⛶ 这类符号，会显示成空框）
+  function fullIcon(on) {
+    const d = on ? "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" : "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5";
+    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
   }
   function pageHtml(i) {
     return `<div class="nt-page" data-pg="${i}"><canvas class="nt-bg"></canvas><canvas class="nt-ink" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
@@ -191,7 +199,6 @@
     const $$ = (id) => document.getElementById(id);
     $$("ntTitle").oninput = () => { NB.title = $$("ntTitle").value; queueSave(); };
     $$("ntPaper").onchange = () => { NB.paper = $$("ntPaper").value; sizePages(); queueSave(); };
-    $$("ntText").oninput = () => { NB.text = $$("ntText").value; lastWrite = Date.now(); queueSave(); };
     $$("ntAdd").onclick = () => {
       NB.pages.push({ strokes: [] });
       const add = $$("ntAdd");
@@ -203,11 +210,6 @@
     };
     $$("ntClose").onclick = async () => { if (await flush()) { setFull(false); NB = null; repaintSide(); paintMain(); } };
     $$("ntFull").onclick = () => setFull(!isFull());
-    $$("ntDel").onclick = async () => {
-      if (!confirm(`删除手札「${NB.title}」？手写的笔迹会删掉（已经编纂出的 Markdown 留着）。`)) return;
-      try { await api("/api/notes/delete", { id: NB.id }); NB = null; BOOKS = (await api("/api/notes")).notebooks; repaintSide(); paintMain(); }
-      catch (e) { showError(e); }
-    };
     $$("ntCompile").onclick = compile;
     document.querySelectorAll(".nt-tools [data-col]").forEach((b) => (b.onclick = () => { tool = { t: "pen", c: b.dataset.col, w: tool.t === "pen" ? tool.w : WIDTHS[1] }; syncTools(); }));
     document.querySelectorAll(".nt-tools [data-w]").forEach((b) => (b.onclick = () => { if (tool.t === "er") tool.t = "pen"; tool.w = Number(b.dataset.w); syncTools(); }));
@@ -218,7 +220,6 @@
       else { FINGER = FINGER === "draw" ? "scroll" : "draw"; LS.set("xrpg-nt-finger", FINGER); b.classList.toggle("on", FINGER === "draw");
         toast(FINGER === "draw" ? "☝ 手指也能写字" : "☝ 手指只翻页，用笔写字"); }
     }));
-    document.querySelectorAll(".nt-foot [data-md]").forEach((a) => (a.onclick = () => openMd(a.dataset.md)));
   }
   function syncTools() {
     const bar = document.querySelector(".nt-tools");
@@ -371,7 +372,7 @@
       if (on && !inApp && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
       if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     } catch (e) {}
-    const b = document.getElementById("ntFull"); if (b) b.textContent = on ? "🗗" : "⛶";
+    const b = document.getElementById("ntFull"); if (b) b.innerHTML = fullIcon(on);
     setTimeout(sizePagesIf, 60);
   }
   document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && isFull()) setFull(false); });
@@ -398,7 +399,6 @@
   // ---------------------------------------------------------------- 存
   function queueSave() {
     dirty = true;
-    const s = document.getElementById("ntSaved"); if (s) s.textContent = "…";
     clearTimeout(saveT);
     saveT = setTimeout(flush, 1200);
   }
@@ -410,7 +410,6 @@
       dirty = false;
       const b = BOOKS.find((x) => x.id === NB.id);
       if (b && (b.title !== r.title || b.pages !== NB.pages.length)) { b.title = r.title; b.pages = NB.pages.length; repaintSide(); }
-      const s = document.getElementById("ntSaved"); if (s) s.textContent = "已保存 " + r.updated.slice(11, 16);
       return true;
     } catch (e) { showError(e); return false; }
   }
@@ -438,7 +437,7 @@
     if (busy) return;
     if (!(await flush())) return;
     const b = document.getElementById("ntCompile");
-    busy = true; b.disabled = true; b.textContent = "🧙 师傅编纂中…（几十秒）";
+    busy = true; b.disabled = true; b.textContent = "🧙 编纂中…";
     try {
       const r = await api("/api/notes/compile", { id: NB.id, images: pageImages(), text: NB.text || "" });
       NB.compiled = r.path;

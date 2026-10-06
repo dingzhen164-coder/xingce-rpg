@@ -1164,3 +1164,10 @@ html.nt-full .nt-pages { padding: 12px; }
 .nt-bar > button, .nt-bar select { flex: 0 0 auto; }
 .nt-bar #ntSaved { flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 .nt-typed textarea { min-height: 60px; max-height: 30vh; }
+/* 2.0.3：师傅编纂挪到顶栏右上，去掉底栏；删除在左边列表里 */
+.nt-bar .nt-compile { flex: 0 0 auto; padding: 7px 14px; white-space: nowrap; }
+.nt-fullbtn { display: inline-flex; align-items: center; justify-content: center; }
+.nt-item { position: relative; }
+.nt-item b { padding-right: 26px; }
+.nt-del { position: absolute; top: 6px; right: 6px; font-size: 14px; opacity: .45; padding: 2px 4px; border-radius: 6px; }
+.nt-del:hover { opacity: 1; background: var(--panel); }
