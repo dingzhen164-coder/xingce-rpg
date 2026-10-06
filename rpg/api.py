@@ -19,7 +19,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     POST /api/session/action       {"session", "action"}    点按钮
     GET  /api/skeletons            各板块骨架与每个大项的掌握度
     GET  /api/wrong                错题池统计
-    POST /api/heartbeat            {"seconds", "session"}  网页每 30 秒上报；只有正在修炼的会话才计时
+    POST /api/heartbeat            {"seconds", "session", "notes"}  网页每 30 秒上报；只有正在修炼的会话、或 1 分钟内动过笔的手札才计时
     POST /api/leave                用请假卡
     POST /api/boss                 {"name", "score", "kind": "大比"|"飞升", "result"?}  宗门大比（模考）/ 飞升大典（国考）
     GET  /api/idioms               藏经阁·成语实词录：按首字拼音首字母排的词条
@@ -465,9 +465,16 @@ def heartbeat(body):
     只是开着网页、看面板、和导师闲聊，只刷新状态，不计时。"""
     sec = max(0, min(90, int(body.get("seconds", 0))))
     studying = trainer.is_studying(body.get("session"))
+    noting = not studying and bool(body.get("notes")) and notes.writing(body.get("notes"))   # 在手札里写（1 分钟内动过笔）
     with open_game() as g:
         sid = body.get("session")
-        ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(sid), trainer.study_board(g, sid))) if studying and sec else []
+        if studying and sec:
+            ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(sid), trainer.study_board(g, sid)))
+        elif noting and sec:
+            ev = tutor.enrich(g, g.add_seconds(sec, "review", ""))
+        else:
+            ev = []
+        studying = studying or noting
         return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 

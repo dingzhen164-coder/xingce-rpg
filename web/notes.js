@@ -17,6 +17,7 @@
   let tool = { t: "pen", c: COLORS[0], w: WIDTHS[1] };
   let undo = [], redo = [];   // [{page, stroke}]
   let saveT = null, dirty = false, busy = false;
+  let lastWrite = 0;          // 最后一次落笔 / 打字的时刻：记笔记算复习时间，停笔超过 1 分钟就不算（app.js 心跳读）
   const LS = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
   // 手指：draw 写字 / scroll 只翻页。用过一次手写笔就自动变成 scroll（像 Notability），每台设备记住；工具栏 👆 可以切
   let FINGER = LS.get("xrpg-nt-finger", "draw");
@@ -190,7 +191,7 @@
     const $$ = (id) => document.getElementById(id);
     $$("ntTitle").oninput = () => { NB.title = $$("ntTitle").value; queueSave(); };
     $$("ntPaper").onchange = () => { NB.paper = $$("ntPaper").value; sizePages(); queueSave(); };
-    $$("ntText").oninput = () => { NB.text = $$("ntText").value; queueSave(); };
+    $$("ntText").oninput = () => { NB.text = $$("ntText").value; lastWrite = Date.now(); queueSave(); };
     $$("ntAdd").onclick = () => {
       NB.pages.push({ strokes: [] });
       const add = $$("ntAdd");
@@ -339,7 +340,7 @@
       if (!cur || e.pointerId !== pid) return;
       NB.pages[i].strokes.push(cur);
       undo.push({ page: i, stroke: cur }); redo = [];
-      cur = null; pid = null; inking = false;
+      cur = null; pid = null; inking = false; lastWrite = Date.now();
       repaint(i); syncTools(); queueSave();
     };
   }
@@ -543,5 +544,7 @@
     return out;
   }
 
-  window.NOTES = { render, flush: () => { setFull(false); return flush(); }, mdRender, isFull, exitFull: () => setFull(false) };
+  // 正在记笔记：开着本子、页面看得见、1 分钟内写过字 → 返回本子编号（心跳带上，服务器再核对最近真的存过笔迹）
+  const writingId = () => (VIEW === "notes" && NB && document.visibilityState === "visible" && (inking || Date.now() - lastWrite <= 60000) ? NB.id : "");
+  window.NOTES = { writingId, lastId: () => (NB ? NB.id : ""), save: () => flush(), render, flush: () => { setFull(false); return flush(); }, mdRender, isFull, exitFull: () => setFull(false) };
 })();

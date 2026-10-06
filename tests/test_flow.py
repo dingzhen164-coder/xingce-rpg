@@ -642,6 +642,22 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(api.heartbeat({"seconds": 60, "session": s["session"]})["minutes"], 3)   # 刚做完看解析也算
         self.assertFalse(api.heartbeat({"seconds": 60, "session": "不存在"})["studying"])
 
+    def test_notes_writing_counts_as_review(self):
+        """手札：1 分钟内真的写过字（存过有变化的笔迹）才算复习时间；只开着本子、或停笔太久不算"""
+        from rpg import notes
+        nid = api.notes_save({"title": "手札", "pages": [{"strokes": []}]})["id"]
+        self.assertFalse(api.heartbeat({"seconds": 30, "notes": nid})["studying"])          # 新本子还没写
+        api.notes_save({"id": nid, "pages": [{"strokes": [{"t": "pen", "c": "#222", "w": 3, "p": [[1, 2], [3, 4]]}]}]})
+        r = api.heartbeat({"seconds": 60, "notes": nid})
+        self.assertTrue(r["studying"])
+        self.assertEqual(r["minutes"], 1)
+        api.notes_save({"id": nid, "title": "改个名"})                                      # 只改名字不算写字
+        notes.LAST_WRITE[nid] -= 200                                                        # 停笔 3 分多钟
+        r = api.heartbeat({"seconds": 60, "notes": nid})
+        self.assertFalse(r["studying"])
+        self.assertEqual(r["minutes"], 1)
+        self.assertFalse(api.heartbeat({"seconds": 60, "notes": "不存在的本子"})["studying"])
+
     def test_mock_review(self):
         """宗门大比 · 大比复盘：按板块逐题复盘一季模考，师傅解惑写进复盘笔记，时间记进“复习”"""
         sd = self.vault / "FB模考试卷复盘/板块复盘/第36季"

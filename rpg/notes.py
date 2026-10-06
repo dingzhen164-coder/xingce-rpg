@@ -75,6 +75,16 @@ def _clean_pages(pages):
     return out or [{"strokes": []}]
 
 
+# 记笔记算复习时间：服务器记下每本手札最后一次真的写了东西（笔迹或打字有变化）的时刻，心跳只认最近写过的本子
+WRITE_GRACE = 60          # 停笔超过 1 分钟就不再计时
+LAST_WRITE = {}
+
+
+def writing(nid, window=WRITE_GRACE + 35):
+    """这本手札最近是否在写：最后一次有内容变化的保存在 window 秒内（网页每 30 秒上报一次，再加停笔的 1 分钟）"""
+    return time.time() - LAST_WRITE.get(str(nid or ""), 0) <= window
+
+
 def save(paths, body):
     nid = body.get("id") or (dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000))
     f = _file(paths, nid)
@@ -86,6 +96,9 @@ def save(paths, body):
          "text": str(body["text"])[:20000] if "text" in body else old.get("text", ""),
          "compiled": old.get("compiled", ""),
          "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    if d["pages"] != old.get("pages") or d["text"] != old.get("text", ""):
+        if old:                                   # 新建空本子不算写字
+            LAST_WRITE[nid] = time.time()
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
     tmp.replace(f)

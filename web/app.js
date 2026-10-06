@@ -1488,8 +1488,11 @@ function studyingNow() {
   return VIEW === "train" && !!T.session && STUDY.includes(T_TYPE) && document.visibilityState === "visible"
     && (T.busy || Date.now() - lastActive < 120000);
 }
+// 在 🪶 手札里写字也算复习：按秒累计“1 分钟内写过字”的时间，心跳时连同本子编号一起报（服务器核对这本最近真的存过笔迹）
+let noteSec = 0;
+setInterval(() => { if (window.NOTES && NOTES.writingId()) noteSec += 1; }, 1000);
 function updateStudyDot() {
-  const on = studyingNow();
+  const on = studyingNow() || !!(window.NOTES && NOTES.writingId());
   $("#todayPill").classList.toggle("on", on);
   $("#todayPill").title = on ? "正在计时：修炼中" : "未计时：只有做功课时才算修炼时间";
 }
@@ -1498,9 +1501,13 @@ setInterval(async () => {
   updateStudyDot();
   const on = studyingNow();
   beatCount += 1;
-  if (!on && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
+  if (!on && !noteSec && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
   try {
-    const r = await api("/api/heartbeat", { seconds: on ? BEAT : 0, session: on ? T.session : null });
+    const nid = !on && window.NOTES ? NOTES.writingId() || (noteSec ? NOTES.lastId() : "") : "";
+    const sec = on ? BEAT : Math.min(BEAT, noteSec);
+    noteSec = 0;
+    if (nid && sec) await NOTES.save();          // 先把刚写的存上，服务器才认得“最近写过”
+    const r = await api("/api/heartbeat", { seconds: sec, session: on ? T.session : null, notes: nid || null });
     if (DASH) { DASH.minutes.today = r.minutes; DASH.other_device = r.other_device; DASH.rest = r.rest; updatePill(); banner(); }
     handleEvents(r.events);
     if (DASH?.retreat && !r.retreat_on && VIEW === "home") render();
