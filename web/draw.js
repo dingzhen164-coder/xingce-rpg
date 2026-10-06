@@ -79,6 +79,8 @@
       else if (b.dataset.d === 'clear') { if (visible(st.strokes).length) { st.redo = []; st.strokes.push({ clear: true }); paint(); save(); } }
       syncBar();
     };
+    layer.addEventListener('contextmenu', (e) => e.preventDefault());     // 平板长按不弹菜单、不选字
+    layer.addEventListener('selectstart', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', down);
     canvas.addEventListener('pointermove', move);
     canvas.addEventListener('pointerup', up);
@@ -172,6 +174,7 @@
     st.on = true;
     st.key = keyNow();
     st.strokes = load(st.key); st.redo = []; st.cur = null;     // 这道题以前写的笔记接着显示
+    try { window.getSelection().removeAllRanges(); } catch (e) { /* 没有选中 */ }   // 平板上按 ✏ 时可能顺带选中了字
     document.documentElement.classList.add('drawing');     // 页面定住，不能滚
     layer.classList.add('on');
     resize();

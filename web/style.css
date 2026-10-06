@@ -1040,3 +1040,8 @@ html.no-cmix .st-btn { background: var(--st) !important; }
 /* ✏ 按钮：这道题存着草稿笔记 */
 #drawBtn.has { position: relative; }
 #drawBtn.has::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+
+/* 草稿：平板上长按 / 手写笔按住不选字、不出选中手柄（之前会把工具栏的 ✕ 选中） */
+.draw-layer, .draw-layer *, html.drawing body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.draw-bar button:focus { outline: none; }
+#drawBtn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
