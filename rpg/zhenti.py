@@ -350,7 +350,7 @@ def merge_distilled(train, folder, dry=False):
 # ---------------------------------------------------------------- 原题副本（ERRRC/xingcezhenti）
 # 每张卷子每个模块一个文件，题目按考试顺序：## 第 N 题　<sub>qid X · 题型</sub>；有材料的是 ## 材料 N 下面挂 ### 第 N 题。
 RAW_MODULES = {'01-政治理论': '政治理论', '02-常识判断': '常识判断', '03-言语理解与表达': '言语理解与表达', '04-数量关系': '数量关系'}
-RAW_BOARD = {'政治理论': '政治理论', '常识判断': '常识判断', '数量关系': '数量关系'}
+RAW_BOARD = {'政治理论': '政治理论', '常识判断': '常识判断', '数量关系': '数量关系', '资料分析': '资料分析'}
 VERBAL_BOARD = {'逻辑填空': '逻辑填空', '片段阅读': '片段阅读', '语句表达': '片段阅读'}
 BLANK = re.compile(r'(?<=\S)[ \u3000\u00a0]{3,}(?=\S)')   # 句子中间一串空格 = 原卷的填空横线
 # 材料管几道题：原题副本里材料下面的题和后面独立的题都是 ### 第 N 题，没有分界。
@@ -383,7 +383,7 @@ def parse_raw(path, module):
         images = set()
         body = body.split('\n---\n')[0]
         stem, _, rest = body.partition('\n- **A**')
-        if material:
+        if material and module != '资料分析':        # 资料分析的题全挂在材料下面（一段材料偶尔管 6、7 道）
             under += 1
             if under > MATERIAL_MAX or (under > 1 and _own_passage(stem)):
                 material = ''
@@ -398,10 +398,14 @@ def parse_raw(path, module):
         answer = a.group(1).strip() if a else answer
         ana = rest.split('**官方解析**', 1)[1] if '**官方解析**' in rest else ''
         text = to_text(stem, base, images)
+        if module == '资料分析':            # 网页按“最后一段是问题、前面是材料”拆，问题自己不能有空行
+            text = re.sub(r'\n\s*\n', '\n', text)
         if material.strip():
             text = to_text(material, base, images) + '\n\n' + text
         kind = m.group(3).strip()
         board = VERBAL_BOARD.get(kind, '片段阅读') if module == '言语理解与表达' else RAW_BOARD[module]
+        if module == '资料分析':
+            kind = kind or '综合'
         out.append({'qid': m.group(2), 'num': int(m.group(1)), 'paper': meta.get('试卷', ''), 'year': meta.get('年份', ''),
                     'module': module, 'board': board, 'topic': kind or module, 'stem': BLANK.sub('____', text),
                     'options': opts, 'answer': answer, 'analysis': to_text(ana, base, images), 'images': images})
@@ -587,7 +591,93 @@ def convert_raw(src, out, skip_ids=()):
             'pending': sum(not q['answer'] for q in qs), 'papers': len({q['paper'] for q in qs})}
 
 
+# ---------------------------------------------------------------- 资料分析：原题副本（整张卷子、带材料） + 考公脑库蒸馏解析
+def _material_traps(kg):
+    """15-材料/资料分析/<mid> …md 的「阅读陷阱」：{mid: 文字}"""
+    out = {}
+    for f in (Path(kg) / '15-材料' / '资料分析').glob('*.md'):
+        t = f.read_text(encoding='utf-8')
+        m = re.search(r'^mid: "(\d+)"', t, re.M)
+        traps = section(t, '阅读陷阱', '##')
+        if m and traps:
+            out[m.group(1)] = '\n'.join(re.sub(r'^-\s*', '', ln).strip() for ln in traps.splitlines() if ln.strip())
+    return out
+
+
+def convert_ziliao(raw, kg, out):
+    """ERRRC/xingcezhenti 的 06-资料分析（505 张卷子，每张 20 题，按考试顺序、材料挂在题上）
+    + 考公脑库 10-真题/资料分析 的蒸馏笔记（按 qid 对上：解析补问法模型 / 推理链 / 最快解法 / 易错点 / 母题抽象，知识点用它的 7 大类）
+    + 15-材料 的阅读陷阱 → 训练/题库/资料分析真题-<年份>.md；图片拷到 题库/图片/真题库/（先找考公脑库的，没有再找原题副本的）。"""
+    import shutil
+    raw, kg, out = Path(raw), Path(kg), Path(out)
+    notes, mids = {}, {}
+    for f in sorted((kg / '10-真题' / '资料分析').glob('*/*.md')):
+        n = parse_note(f)
+        if n['qid']:
+            n['family'] = {'基期计算（增长类）': '增长'}.get(f.parent.name, f.parent.name)   # 这一类只有 1 题，并进增长
+            notes[n['qid']] = n
+            m = re.search(r'15-材料/资料分析/(\d+)', f.read_text(encoding='utf-8'))
+            if m:
+                mids[n['qid']] = m.group(1)
+    traps = _material_traps(kg)
+    qs, by_id, skipped = [], {}, Counter()
+    for f in sorted((raw / '06-资料分析').glob('*.md')):
+        if f.name == 'README.md':
+            continue
+        for q in parse_raw(f, '资料分析'):
+            if q['qid'] in by_id:
+                by_id[q['qid']].setdefault('also', []).append((q['paper'], q['num']))
+                skipped['几张卷子共用'] += 1
+                continue
+            if set(q['options']) != set('ABCD') or not all(q['options'].values()) or not q['stem']:
+                skipped['不是四个选项'] += 1
+                continue
+            if not re.fullmatch(r'[A-D]', q['answer'] or ''):
+                q['answer'] = ''
+            n = notes.get(q['qid'])
+            parts = ['【官方解析】\n' + q['analysis']] if q['analysis'] else []
+            if n:
+                q['topic'] = n['family']
+                if n['topic']:
+                    parts.append('【考点】\n' + n['topic'])
+                if n['extra']:
+                    parts.append(n['extra'])
+                q['images'] |= n['images']
+            if traps.get(mids.get(q['qid'], '')):
+                parts.append('【材料陷阱】\n' + traps[mids[q['qid']]])
+            q['analysis'] = '\n\n'.join(parts) or '（待补）'
+            by_id[q['qid']] = q
+            qs.append(q)
+    qs.sort(key=lambda q: (-int(q['year'] or 0), q['paper'], q['num']))
+    folder = out / '题库'
+    folder.mkdir(parents=True, exist_ok=True)
+    years = Counter()
+    for year in sorted({q['year'] for q in qs}):
+        mine = [q for q in qs if q['year'] == year]
+        years[year] = len(mine)
+        head = ('# 资料分析 · %s年真题\n\n> 由 rpg/zhenti.py 转换：题目、材料、官方解析来自 ERRRC/xingcezhenti 原题副本，'
+                '蒸馏解析来自考公脑库（ERRRC/kaogongzhentizhengliu），共 %d 题。重新转换会整份覆盖。\n\n' % (year, len(mine)))
+        (folder / ('资料分析真题-%s.md' % year)).write_text(head + ''.join(block(q) for q in mine), encoding='utf-8', newline='\n')
+    images = sorted({i for q in qs for i in q['images']})
+    missing = []
+    for i in images:
+        src = next((d / '90-图片' / i for d in (kg, raw) if (d / '90-图片' / i).is_file()), None)
+        if not src:
+            missing.append(i)
+            continue
+        dst = folder / '图片' / '真题库' / i
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+    return {'total': len(qs), 'distilled': sum(q['qid'] in notes for q in qs), 'years': dict(years), 'skipped': dict(skipped),
+            'papers': len({q['paper'] for q in qs}), 'pending': sum(not q['answer'] for q in qs),
+            'images': len(images), 'missing_images': missing[:20], 'missing_count': len(missing),
+            'topics': Counter(q['topic'] for q in qs).most_common()}
+
+
 if __name__ == '__main__':
+    if sys.argv[1:2] == ['--ziliao']:   # python -m rpg.zhenti --ziliao <xingcezhenti 目录> <考公脑库目录> <输出目录>
+        print(convert_ziliao(sys.argv[2], sys.argv[3], sys.argv[4]))
+        sys.exit()
     if sys.argv[1:2] == ['--raw']:   # python -m rpg.zhenti --raw <xingcezhenti 目录> <输出目录> [已有题库目录：跳过重复编号]
         skip = set()
         for f in Path(sys.argv[4]).glob('*真题*.md') if len(sys.argv) > 4 else []:

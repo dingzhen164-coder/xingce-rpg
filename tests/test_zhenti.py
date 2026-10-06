@@ -227,6 +227,50 @@ class RawTest(unittest.TestCase):
         self.assertTrue(all('第二段材料' in got[k] for k in range(3, 8)))
         self.assertNotIn('第二段材料', got[8])           # 一段材料最多管 5 道
 
+    def test_ziliao_papers_with_distilled_notes(self):
+        """资料分析：整张卷子按题号成套，材料管它下面所有题（可多于 5 道），蒸馏笔记按 qid 补进解析、知识点用蒸馏的大类"""
+        def q(n, stem, ans='A'):
+            return ('### 第 %d 题　<sub>qid %d · 综合</sub>\n\n%s\n\n- **A**. 1　%s\n- **B**. 2\n- **C**. 3\n- **D**. 4\n\n'
+                    '**答案**：%s\n\n**官方解析**\n\n官方%d\n\n---\n\n' % (n, 700 + n, stem, '✅' if ans == 'A' else '', ans, n))
+        with tempfile.TemporaryDirectory() as d:
+            raw, kg = Path(d) / 'raw', Path(d) / 'kg'
+            (raw / '06-资料分析').mkdir(parents=True)
+            (raw / '90-图片/题目图').mkdir(parents=True)
+            (raw / '90-图片/题目图/t.png').write_bytes(b'png')
+            paper = '2024年国家公务员录用考试《行测》题（副省级）'
+            (raw / '06-资料分析' / (paper + '.md')).write_text(
+                '---\n试卷: "%s"\n年份: "2024"\n模块: "资料分析"\n---\n\n## 材料 1\n\n<p>2023年某市产值100亿元。</p>'
+                '<p><img src="../90-图片/题目图/t.png" /></p>\n\n' % paper
+                + ''.join(q(k, '第%d问：<p>求</p><p>多少？</p>' % k) for k in range(1, 8)), encoding='utf-8')
+            note = kg / '10-真题/资料分析/增长'
+            note.mkdir(parents=True)
+            (note / '701 增长量.md').write_text((NOTE % dict(qid='701', paper=paper, year='2024', point='增长 / 增长量计算', img='', doubt=''))
+                                              .replace('# 标题\n', '# 标题\n\n材料：[[15-材料/资料分析/55 某市|55]]\n'), encoding='utf-8')
+            (kg / '15-材料/资料分析').mkdir(parents=True)
+            (kg / '15-材料/资料分析/55 某市.md').write_text('---\nmid: "55"\n---\n\n## 阅读陷阱\n- ⚠ 单位是亿元\n', encoding='utf-8')
+            out = Path(d) / 'vault'
+            (out / 'copilot/skills').mkdir(parents=True)
+            r = zhenti.convert_ziliao(raw, kg, out / '训练')
+            self.assertEqual((r['total'], r['distilled'], r['missing_count']), (7, 1, 0))
+            p = paths.Paths(out)
+            qs = {x['id']: x for x in bank.read(p, '资料分析')[0]}
+            self.assertEqual(len(qs), 7)
+            self.assertTrue(all('某市产值' in x['stem'] for x in qs.values()))      # 7 道都挂着材料
+            mat, stem = trainer.split_stem('资料分析', qs['真题-707']['stem'])
+            self.assertIn('题目图/t.png', mat)
+            self.assertEqual(stem, '第7问：求\n多少？')                             # 问题自己不留空行，网页才拆得对
+            a = qs['真题-701']
+            self.assertEqual(a['topic'], '增长')
+            for part in ('【官方解析】\n官方1', '【考点】\n增长量计算', '【推理链】', '【材料陷阱】\n⚠ 单位是亿元'):
+                self.assertIn(part, a['analysis'])
+            self.assertEqual(qs['真题-702']['topic'], '综合')
+            g = engine.Game(p, config.Rules(), config.Persona(), config.Lines(),
+                            store.new_state(dt.date(2026, 10, 1)), dt.date(2026, 10, 1))
+            books = bank.sets(g)
+            self.assertEqual([(b['book'], len(b['sets']), b['sets'][0]['total']) for b in books], [('历年真题·资料分析', 1, 7)])
+            self.assertEqual([x['id'] for x in bank._set_questions(g, books[0]['sets'][0]['name'])[0]],
+                             ['真题-%d' % (700 + k) for k in range(1, 8)])
+
     def test_fix_leaked_material_in_old_bank(self):
         good = '“致天下之治者在人才。”如何让专家人才____地贡献才智？\n填入画横线部分最恰当的一项是'
         table = {'2453277': [len(good), zhenti._fp(good)], '1': [len(good), zhenti._fp(good)]}
