@@ -90,8 +90,14 @@ class NotesTest(unittest.TestCase):
         (v / ".obsidian/workspace.md").write_text("x", encoding="utf-8")
         (v / "存档").mkdir(exist_ok=True)
         (v / "存档/旧.md").write_text("x", encoding="utf-8")
-        files = [f["path"] for f in notes.md_tree(self.paths)]
-        self.assertIn("言语/主旨.md", files)
+        for d in ("蒸馏skill", "copilot", "言语/skill", "资料分析/速算"):
+            (v / d).mkdir(parents=True, exist_ok=True)
+            (v / d / "x.md").write_text("x", encoding="utf-8")
+        (v / "根目录.md").write_text("x", encoding="utf-8")
+        tree = notes.md_tree(self.paths)
+        files = [f["path"] for f in tree]
+        self.assertEqual(sorted(files), ["言语/主旨.md", "资料分析/速算/x.md"])   # 只有板块文件夹，不含 skill / copilot / 训练 / 根目录
+        self.assertEqual({f["top"] for f in tree}, {"言语", "资料分析"})
         self.assertFalse(any(f.startswith((".obsidian", "存档")) for f in files))
         r = notes.read_md(self.paths, "言语/主旨.md")
         self.assertEqual(r["images"], {"图1.png": "附件/图1.png", "附件/图2.png": "附件/图2.png"})

@@ -173,8 +173,19 @@ def compile(paths, nid, images, typed=""):
 
 
 # ---------------------------------------------------------------- 调阅库里的 Markdown
+# 调阅只看行测各板块的笔记：库根目录下名字带这些词的文件夹（不含 skill、copilot、训练、模考复盘这类）
+BOARD_WORDS = ("常识", "政治", "言语", "逻辑填空", "中心理解", "片段阅读", "语句", "数量", "判断", "图形", "定义",
+               "类比", "论证", "形式逻辑", "资料")
+NOT_BOARD = ("skill", "copilot", "训练", "模考", "复盘", "book")
+
+
+def is_board_dir(name):
+    low = name.lower()
+    return any(w in name for w in BOARD_WORDS) and not any(w in low for w in NOT_BOARD)
+
+
 def md_tree(paths, limit=4000):
-    """库里的 .md：[{path, name, dir}]，按文件夹、文件名排"""
+    """各板块文件夹里的 .md：[{path, name, dir, top}]（top = 板块文件夹），按文件夹、文件名排"""
     root = paths.vault
     out = []
 
@@ -189,10 +200,12 @@ def md_tree(paths, limit=4000):
             if p.name.startswith(".") or p.name in SKIP_DIRS:
                 continue
             if p.is_dir():
+                if depth == 0 and not is_board_dir(p.name) or "skill" in p.name.lower():
+                    continue
                 walk(p, depth + 1)
-            elif p.suffix.lower() == ".md":
+            elif p.suffix.lower() == ".md" and depth > 0:
                 rel = p.relative_to(root).as_posix()
-                out.append({"path": rel, "name": p.stem, "dir": rel.rsplit("/", 1)[0] if "/" in rel else ""})
+                out.append({"path": rel, "name": p.stem, "dir": rel.rsplit("/", 1)[0], "top": rel.split("/", 1)[0]})
                 if len(out) >= limit:
                     return
     walk(root, 0)

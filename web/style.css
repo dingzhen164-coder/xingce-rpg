@@ -1097,7 +1097,7 @@ html.in-notes main { max-width: 1600px; padding-bottom: 12px; }
 .nt-pages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--panel2); }
 .nt-page { position: relative; width: min(100%, 900px); aspect-ratio: 1000 / 1414; flex: 0 0 auto; background: #fff; border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
 .nt-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.nt-page .nt-ink { touch-action: pan-y; cursor: crosshair; }
+.nt-page .nt-ink { touch-action: none; cursor: crosshair; }
 .nt-page, .nt-page canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .nt-pno { position: absolute; right: 10px; bottom: 6px; font-size: 12px; color: #9a9080; pointer-events: none; }
 .nt-addpage { flex: 0 0 auto; }
@@ -1141,3 +1141,26 @@ html.in-notes main { max-width: 1600px; padding-bottom: 12px; }
 .nt-rbar b { flex: 0 1 auto; }
 .nt-rbar .faint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nt-rbar button { flex: 0 0 auto; }
+
+/* 手札 2.0.1：左栏收起、调阅按板块展开、全屏写 */
+.nt-tabs .nt-fold { flex: 0 0 38px; color: var(--faint); font-size: 18px; }
+.nt-side.min { flex: 0 0 48px; align-items: center; padding: 8px 0; gap: 6px; }
+.nt-sidebtn { width: 38px; height: 38px; padding: 0; border-radius: 10px; font-size: 17px; }
+.nt-sidebtn.on { border-color: var(--gold); }
+.nt-top { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: none; background: transparent; border-radius: 8px; padding: 7px 8px; font-weight: 600; }
+.nt-top:hover { background: var(--panel2); }
+.nt-top i { font-style: normal; width: 12px; color: var(--faint); }
+.nt-top small { margin-left: auto; color: var(--faint); font-weight: 400; font-size: 12px; }
+.nt-sub { padding-left: 14px; border-left: 1px solid var(--line); margin: 0 0 6px 13px; display: flex; flex-direction: column; gap: 2px; }
+html.nt-full .nt-book { position: fixed; inset: 0; z-index: 40; border-radius: 0; border: none; }
+html.nt-full body { overflow: hidden; }
+html.nt-full .nt-pages { padding: 12px; }
+@media (max-width: 900px) { .nt-side.min { flex-direction: row; flex: 0 0 auto; padding: 6px; } }
+.nt-bar { flex-wrap: nowrap; }
+.nt-bar input.nt-title { flex: 0 1 200px; min-width: 90px; }
+.nt-bar .nt-tools { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.nt-bar .nt-tools::-webkit-scrollbar { display: none; }
+.nt-bar .nt-tools button { flex: 0 0 auto; }
+.nt-bar > button, .nt-bar select { flex: 0 0 auto; }
+.nt-bar #ntSaved { flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.nt-typed textarea { min-height: 60px; max-height: 30vh; }

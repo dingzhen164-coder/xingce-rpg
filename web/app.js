@@ -84,6 +84,7 @@ window.xcBack = () => {
   const click = (sel) => { const b = document.querySelector(sel); if (b) b.click(); return !!b; };
   if (click(".img-zoom") || click(".cer-ok") || click(".st-btn")) return true;
   if (document.documentElement.classList.contains("drawing") && window.DRAW) { DRAW.close(); return true; }
+  if (window.NOTES && NOTES.isFull()) { NOTES.exitFull(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
   if (VIEW === "home") return false;
