@@ -73,6 +73,7 @@ function realmUp(e) {
 // ------------------------------------------------------------ 导航 / 风格
 function go(view) {
   VIEW = view;
+  if (window.DRAW) setTimeout(() => DRAW.refresh(), 0);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   render();
 }
@@ -183,8 +184,9 @@ function msgHtml(m) {
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
-  if (m.pin) return `<div class="msg sys q-pin ${PIN_MINI ? "mini" : ""}"><span class="pin-tools">${m.material?.length
-      ? `<button class="pin-btn mat-btn ${MAT_OPEN ? "on" : ""}" title="材料放在左边，对照着看">📄 ${MAT_OPEN ? "收起材料" : "弹出材料"}</button>` : ""}<button class="pin-btn pin-fold" title="${PIN_MINI ? "展开题目" : "把题目收成一行"}">📌 ${PIN_MINI ? "展开" : "收起"}</button></span>${md(m.text)}${blocks}</div>`;
+  if (m.pin) return `<div class="q-pin ${PIN_MINI ? "mini" : ""}"><div class="msg sys pin-body"><span class="pin-tools">${m.material?.length
+      ? `<button class="pin-btn mat-btn ${MAT_OPEN ? "on" : ""}" title="材料放在左边，对照着看">📄 ${MAT_OPEN ? "收起材料" : "弹出材料"}</button>` : ""}<button class="pin-btn pin-fold" title="${PIN_MINI ? "展开题目" : "把题目收成一行"}">📌 ${PIN_MINI ? "展开" : "收起"}</button></span>${md(m.text)}${blocks}</div>
+      <div class="pin-drag" title="按住上下拖：调题目框和下面解析各占多少"></div></div>`;
   return `<div class="msg sys">${md(m.text)}${blocks}</div>`;
 }
 // 题目钉在对话框顶上（往下翻解析时不动）；📌 收成一行 / 展开，每台设备记住
@@ -211,7 +213,46 @@ function zoomImg(src) {
   document.addEventListener("keydown", key);
   document.body.appendChild(el);
 }
+// 草稿笔记按题存（web/draw.js）：做题 / 复盘时是屏幕上这道题，别的页面按页面
+window.DRAW_KEY = () => {
+  if (VIEW === "train" && T.session) for (let i = T.msgs.length - 1; i >= 0; i--) if (T.msgs[i].qkey) return T.msgs[i].qkey;
+  return "page:" + VIEW;
+};
+// 题目框和下面解析之间的分隔条：按住上下拖，题目框高度记在这台设备（占屏幕高度的百分比）
+let PIN_H = (() => { try { return Number(localStorage.getItem("xrpg-pin-h")) || 0; } catch (e) { return 0; } })();
+function applyPinH() { document.documentElement.style.setProperty("--pin-h", PIN_H ? PIN_H + "vh" : "46vh"); }
+applyPinH();
+function bindPinDrag() {
+  document.querySelectorAll(".q-pin .pin-drag").forEach((h) => (h.onpointerdown = (e) => {
+    const pin = h.closest(".q-pin"), box = $("#msgs");
+    if (!pin || !box) return;
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    pin.classList.add("dragging");
+    const y0 = e.clientY, h0 = pin.getBoundingClientRect().height, maxH = box.clientHeight - 60;
+    const mv = (ev) => {
+      const px = Math.max(70, Math.min(maxH, h0 + ev.clientY - y0));
+      PIN_H = Math.round(px / innerHeight * 1000) / 10;
+      applyPinH();
+    };
+    const upf = () => {
+      h.removeEventListener("pointermove", mv); h.removeEventListener("pointerup", upf); h.removeEventListener("pointercancel", upf);
+      pin.classList.remove("dragging");
+      try { localStorage.setItem("xrpg-pin-h", String(PIN_H)); } catch (err) { /* 只管这一次 */ }
+    };
+    h.addEventListener("pointermove", mv); h.addEventListener("pointerup", upf); h.addEventListener("pointercancel", upf);
+  }));
+  bindPinReset();
+}
+function bindPinReset() {   // 双击分隔条：恢复默认高度
+  document.querySelectorAll(".q-pin .pin-drag").forEach((h) => (h.ondblclick = () => {
+    PIN_H = 0; applyPinH();
+    try { localStorage.removeItem("xrpg-pin-h"); } catch (err) { /* 只管这一次 */ }
+  }));
+}
 function bindPins() {
+  bindPinDrag();
+  if (window.DRAW) DRAW.refresh();
   document.querySelectorAll(".mat-pane img:not(.inline-img), .q-pin img:not(.inline-img)").forEach((im) => (im.onclick = () => zoomImg(im.src)));
   document.querySelectorAll(".mat-btn").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();

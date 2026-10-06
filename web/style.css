@@ -965,10 +965,19 @@ html.in-app main { padding-bottom: max(60px, env(safe-area-inset-bottom)); }
 .changelog ul { margin: 4px 0 6px; padding-left: 20px; font-size: 14px; line-height: 1.7; }
 
 /* 题目钉在对话框顶上（trainer 里 pin=True 的那条）：往下翻解析不动；太长在框里自己滚；📌 收成一行 */
-.msgs .q-pin { position: sticky; top: 0; z-index: 4; max-height: 46vh; overflow-y: auto; flex: none;
-  background: color-mix(in srgb, var(--panel2) 96%, var(--panel)); box-shadow: 0 10px 18px -12px rgba(40, 30, 10, .45); }
-.msgs .q-pin.mini { max-height: 3.4em; overflow: hidden; }
-.msgs .q-pin.mini::after { content: "…"; position: absolute; right: 12px; bottom: 4px; color: var(--muted); }
+.msgs .q-pin { position: sticky; top: 0; z-index: 4; flex: none; display: flex; flex-direction: column;
+  max-height: var(--pin-h, 46vh); border-radius: 8px; box-shadow: 0 10px 18px -12px rgba(40, 30, 10, .45); }
+.q-pin > .pin-body { min-height: 0; overflow-y: auto; border-radius: 8px 8px 0 0; padding-bottom: 6px;
+  background: color-mix(in srgb, var(--panel2) 96%, var(--panel)); }
+.q-pin.mini > .pin-body { max-height: 3.4em; overflow: hidden; position: relative; }
+.q-pin.mini > .pin-body::after { content: "…"; position: absolute; right: 12px; bottom: 4px; color: var(--muted); }
+/* 题目框和解析之间的分隔条：按住上下拖（双击恢复默认） */
+.q-pin > .pin-drag { flex: none; height: 16px; cursor: row-resize; touch-action: none; border-radius: 0 0 8px 8px;
+  background: var(--panel2); border-left: 3px solid var(--accent2); border-top: 1px dashed var(--line);
+  display: flex; align-items: center; justify-content: center; }
+.q-pin > .pin-drag::before { content: ""; width: 54px; height: 4px; border-radius: 2px; background: var(--muted); opacity: .45; }
+.q-pin > .pin-drag:hover::before, .q-pin.dragging > .pin-drag::before { opacity: .9; background: var(--gold); }
+.q-pin.mini > .pin-drag { display: none; }
 .q-pin .pin-tools { float: right; position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; margin: -2px -4px 4px 10px; }
 .q-pin .pin-btn { padding: 2px 9px; font-size: 12px; border-radius: 999px;
   background: var(--panel); color: var(--muted); z-index: 1; }
@@ -1019,7 +1028,7 @@ html.no-cmix .tri-bar .seg-drill { background: var(--c-practice); opacity: .4; }
 html.no-cmix .tri-bar .seg-rdrill { background: var(--c-review); opacity: .4; }
 html.no-cmix .lecture-card { background: var(--panel); }
 html.no-cmix .msg.me { background: var(--panel2); }
-html.no-cmix .msgs .q-pin { background: var(--panel2); box-shadow: 0 10px 18px -12px rgba(40, 30, 10, .45); }
+html.no-cmix .q-pin > .pin-body { background: var(--panel2); }
 html.no-cmix .rh-stats span, html.no-cmix .rv-board, html.no-cmix .kpi { background: var(--panel2); }
 html.no-cmix .rv-board.done, html.no-cmix .kpi.hero { border-color: var(--gold); }
 html.no-cmix .st-veil { background: rgba(6, 8, 14, .88); }
@@ -1027,3 +1036,7 @@ html.no-cmix .st-bar { background: rgba(255, 255, 255, .15); }
 html.no-cmix .bgm-btn.on { box-shadow: 0 0 8px var(--gold); }
 html.no-cmix .st-btn { background: var(--st) !important; }
 .chat.with-mat .q-pin .pin-tools { float: none; justify-content: flex-end; margin: -2px -4px 2px 0; }
+
+/* ✏ 按钮：这道题存着草稿笔记 */
+#drawBtn.has { position: relative; }
+#drawBtn.has::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }

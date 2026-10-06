@@ -1,9 +1,49 @@
 /* 草稿笔：点右上角 ✏，页面定住，盖一层透明画布可以写写画画（像粉笔 App 的草稿）。
-   笔 / 橡皮 / 撤销 / 重做 / 一键清空；鼠标、触屏、手写笔都能用。关掉草稿就清空（下一题重新画）。
+   笔 / 橡皮 / 撤销 / 重做 / 一键清空；鼠标、触屏、手写笔都能用。
+   笔记按题保存（这台设备的浏览器里）：做题 / 复盘时每道题各有一份，关掉再打开、换题再回来都还在；只有点 🗑 才清掉。
+   不在做题时按页面存。哪道题由 app.js 的 window.DRAW_KEY() 给（题目那条消息带的 qkey）。
    快捷键：Ctrl+Z 撤销，Ctrl+Y 或 Ctrl+Shift+Z 重做，Esc 关闭。 */
 (function () {
   const COLORS = ['#e53935', '#1e63d6', '#222222', '#2e9d57'];
-  const st = { on: false, tool: 'pen', color: COLORS[0], width: 3, strokes: [], redo: [], cur: null };
+  const st = { on: false, tool: 'pen', color: COLORS[0], width: 3, strokes: [], redo: [], cur: null, key: '' };
+  const PREFIX = 'xrpg-draw:', INDEX = 'xrpg-draw-index', KEEP = 300;
+
+  // ---------------------------------------------------------------- 按题存笔记
+  const keyNow = () => { try { return (window.DRAW_KEY && window.DRAW_KEY()) || 'page'; } catch (e) { return 'page'; } };
+  function visible(strokes) {           // 最后一次“清空”之后的笔画才算数
+    let from = 0;
+    strokes.forEach((s, i) => { if (s.clear) from = i + 1; });
+    return strokes.slice(from).filter((s) => s.pts && s.pts.length);
+  }
+  function load(key) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PREFIX + key) || '[]');
+      return raw.map((s) => ({ erase: !!s.e, color: s.c, width: s.w, pts: s.p }));
+    } catch (e) { return []; }
+  }
+  function save() {
+    if (!st.key) return;
+    const list = visible(st.strokes).map((s) => ({ e: s.erase ? 1 : 0, c: s.color, w: s.width, p: s.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) }));
+    try {
+      let idx = JSON.parse(localStorage.getItem(INDEX) || '[]').filter((k) => k !== st.key);
+      if (list.length) {
+        localStorage.setItem(PREFIX + st.key, JSON.stringify(list));
+        idx.push(st.key);
+      } else {
+        localStorage.removeItem(PREFIX + st.key);
+      }
+      while (idx.length > KEEP) localStorage.removeItem(PREFIX + idx.shift());     // 只留最近 300 道题的笔记
+      localStorage.setItem(INDEX, JSON.stringify(idx));
+    } catch (e) { /* 存不下（浏览器空间满了）就只留在这一次 */ }
+    refresh();
+  }
+  // ✏ 按钮上的小点：这道题有笔记
+  function refresh() {
+    if (!btn) return;
+    let has = false;
+    try { has = !!localStorage.getItem(PREFIX + keyNow()); } catch (e) { /* 读不了就不显示 */ }
+    btn.classList.toggle('has', has);
+  }
   let layer, canvas, ctx, bar;
 
   function build() {
@@ -21,7 +61,7 @@
       <button data-d="eraser" title="橡皮擦">🧽</button>
       <button data-d="undo" title="撤销（Ctrl+Z）">↶</button>
       <button data-d="redo" title="重做（Ctrl+Y）">↷</button>
-      <button data-d="clear" title="一键清空">🗑</button>`;
+      <button data-d="clear" title="清除这道题的笔记（可以撤销）">🗑</button>`;
     layer.appendChild(bar);
     document.body.appendChild(layer);
     ctx = canvas.getContext('2d');
@@ -36,7 +76,7 @@
       else if (b.dataset.d === 'eraser') st.tool = 'eraser';
       else if (b.dataset.d === 'undo') undo();
       else if (b.dataset.d === 'redo') redo();
-      else if (b.dataset.d === 'clear') { if (st.strokes.length) { st.redo = []; st.strokes.push({ clear: true }); paint(); } }
+      else if (b.dataset.d === 'clear') { if (visible(st.strokes).length) { st.redo = []; st.strokes.push({ clear: true }); paint(); save(); } }
       syncBar();
     };
     canvas.addEventListener('pointerdown', down);
@@ -122,14 +162,16 @@
     st.redo = [];
     paint();
     syncBar();
+    save();
   }
-  function undo() { if (st.strokes.length) { st.redo.push(st.strokes.pop()); paint(); syncBar(); } }
-  function redo() { if (st.redo.length) { st.strokes.push(st.redo.pop()); paint(); syncBar(); } }
+  function undo() { if (st.strokes.length) { st.redo.push(st.strokes.pop()); paint(); syncBar(); save(); } }
+  function redo() { if (st.redo.length) { st.strokes.push(st.redo.pop()); paint(); syncBar(); save(); } }
 
   function open() {
     if (!layer) build();
     st.on = true;
-    st.strokes = []; st.redo = []; st.cur = null;
+    st.key = keyNow();
+    st.strokes = load(st.key); st.redo = []; st.cur = null;     // 这道题以前写的笔记接着显示
     document.documentElement.classList.add('drawing');     // 页面定住，不能滚
     layer.classList.add('on');
     resize();
@@ -137,6 +179,7 @@
     btn.classList.add('on');
   }
   function close() {
+    if (st.on) save();                  // 关掉不清：存起来，下次打开这道题还在
     st.on = false;
     st.strokes = []; st.redo = [];
     layer.classList.remove('on');
@@ -153,5 +196,5 @@
     else if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { undo(); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { redo(); e.preventDefault(); }
   });
-  window.DRAW = { open, close, state: st };
+  window.DRAW = { open, close, refresh, state: st };
 })();

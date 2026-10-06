@@ -80,10 +80,12 @@ class TrainError(Exception):
 
 
 # ---------------------------------------------------------------- 小工具
-def _msg(who, text, blocks=None, fold=None, pin=False, material=None):
+def _msg(who, text, blocks=None, fold=None, pin=False, material=None, qkey=None):
     m = {"who": who, "text": text}
     if pin:                 # 题目：网页上钉在对话框顶上，往下翻解析时不动
         m["pin"] = True
+    if qkey:                # 这道题的身份：网页上的草稿笔记按它分开存
+        m["qkey"] = str(qkey)
     if material:            # 资料分析 / 一拖五 的共用材料：网页上“弹出材料”放在旁边，不挤在题目框里
         m["material"] = material
     if blocks:
@@ -183,7 +185,8 @@ def _recite_prompt(g, board, it, head):
 
 def _wrong_intro(g, q, head):
     return _msg("sys", f"{head}第{q['season']}季 · {q['source']} · 第{q['num']}题（上次你选了 {q['mine'] or '未作答'}）",
-                blocks=vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q))
+                blocks=vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q),
+                qkey='mock:' + q['key'])
 
 
 # ---------------------------------------------------------------- 开始
@@ -1033,10 +1036,10 @@ def _bank_show(g, s, run, events=None):
     blocks, mat = _bank_q(g, q)
     if run.get('reasoning'):
         msg += '\n\n独立拆题：问法方向 → 结论（主体/结果）→ 论据 → 底层结构 → A/B/C/D的作用与排除理由。最后单独写一行【答案】B（填你的选择）。提交后才显示标准答案。'
-        return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat)], events,
+        return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat, qkey='bank:' + q['id'])], events,
                           _remember(s, _text_input('写出拆题过程，最后一行【答案】A/B/C/D')))
     # 不在作答前展示知识点标签，避免直接提示题型；复盘时才显示。
-    return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat)], events,
+    return _bank_resp(g, s, run, [_msg('sys', msg, blocks, pin=True, material=mat, qkey='bank:' + q['id'])], events,
                       _buttons(*[('bank_answer:%s:%s' % (run['pos'], k), k) for k in 'ABCD'],
                                ('bank_pause', g.T('bank_pause'))))
 
@@ -1276,7 +1279,7 @@ def _exam_show(g, s, run, events=None, extra=None):
         btns.append(('exam_next', '下一题 →'))
     btns.append(('exam_submit', '交卷' if not left else '交卷（还有 %d 题没选）' % len(left)))
     btns.append(('bank_pause', g.T('bank_pause')))
-    msgs = [_msg('sys', msg, blocks, pin=True, material=mat), _msg('sys', sheet)] + (extra or [])
+    msgs = [_msg('sys', msg, blocks, pin=True, material=mat, qkey='bank:' + q['id']), _msg('sys', sheet)] + (extra or [])
     r = _bank_resp(g, s, run, msgs, events, _buttons(*btns))
     r['replace'] = True
     return r
@@ -1349,7 +1352,7 @@ def _review_show(g, s, run, events=None, extra=None, head=False, scroll_bottom=F
                                      总题数=group['total'], 错题数=group['total'] - group['correct']) or g.T('bank_close')))
     qb, mat = _bank_q(g, q)
     msgs.append(_msg('sys', '复盘 第 %s/%s 题 · 编号 %s · %s · 用时 %s' % (i + 1, len(qs), q['id'], '✓ 答对' if r['ok'] else '✗ 答错', _clock(r.get('seconds'))),
-                     qb, pin=True, material=mat))
+                     qb, pin=True, material=mat, qkey='bank:' + q['id']))
     msgs.append(_msg('sys', '你的答案：%s · 正确答案：%s\n知识点：%s\n\n解析：' % (r['answer'], q['answer'], q['topic']),
                      _bank_blocks(g, q['board'], q['analysis'] or '（这题没有解析，点「师傅解惑」让师傅讲）')))
     if not r['ok'] and not head:
@@ -1589,7 +1592,8 @@ def _mreview_show(g, s, events=None, extra=None, head=False, scroll_bottom=False
             msgs.append(_msg("npc", line))
     msgs.append(_msg("sys", "复盘 第 %d/%d 题 · 第%s季第 %s 题 · %s · %s" % (
         i + 1, len(qs), s["season"], q["num"], s["source"], MOCK_ICON.get(q["icon"], q["icon"])),
-        vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q)))
+        vault.render_blocks(g.paths, _fill_body(g, q), material=False), pin=True, material=vault.render_material(g.paths, q),
+        qkey="mock:" + q["key"]))
     msgs.append(_msg("sys", "你的答案：%s · 正确答案：%s\n\n复盘解析：" % (q["mine"] or "没做", q["correct"] or "?"),
                      vault.render_blocks(g.paths, {"body": q["analysis"] or "（这题还没写复盘解析，点「师傅解惑」让师傅讲；讲完自动写进这题的复盘笔记）",
                                                    "dir": q["dir"]})))
