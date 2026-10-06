@@ -218,6 +218,22 @@ window.DRAW_KEY = () => {
   if (VIEW === "train" && T.session) for (let i = T.msgs.length - 1; i >= 0; i--) if (T.msgs[i].qkey) return T.msgs[i].qkey;
   return "page:" + VIEW;
 };
+// 资料分析 / 一拖五：左边材料上的笔记按这段材料存（同一组几道题共用）；材料收起时不算
+window.DRAW_MKEY = () => {
+  if (VIEW !== "train" || !MAT_OPEN) return "";
+  const mat = currentMaterial();
+  if (!mat) return "";
+  const t = JSON.stringify(mat);
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return "mat:" + h.toString(36) + ":" + t.length;
+};
+window.DRAW_IN_MAT = (x, y) => {
+  const p = document.querySelector(".mat-pane");
+  if (!p) return false;
+  const r = p.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+};
 // 题目框和下面解析之间的分隔条：按住上下拖，题目框高度记在这台设备（占屏幕高度的百分比）
 let PIN_H = (() => { try { return Number(localStorage.getItem("xrpg-pin-h")) || 0; } catch (e) { return 0; } })();
 function applyPinH() { document.documentElement.style.setProperty("--pin-h", PIN_H ? PIN_H + "vh" : "46vh"); }

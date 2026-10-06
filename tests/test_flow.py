@@ -705,7 +705,19 @@ class FlowTest(unittest.TestCase):
         self.assertNotIn("[!abstract]", text(pin["material"]))
         self.assertFalse(any(ln.startswith(">") for ln in text(pin["material"]).splitlines()))
         sid = r["session"]
-        api.session_action({"session": sid, "action": "mr_next"})
+        # 一拖五：师傅解惑整组一起讲（一次 AI），讲解写进这组每一道题的复盘笔记，换到下一题直接看得到
+        calls = []
+        def group_chat(messages, **kw):
+            calls.append(messages[-1]["content"])
+            return "师傅整组讲解：先排表。"
+        with patch.object(ai, "chat", group_chat):
+            r = api.session_action({"session": sid, "action": "mr_explain:0"})
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(all(f"第{n}题" in calls[0] for n in (106, 107, 108)) and "瑜伽馆" in calls[0])
+        self.assertIn("整组讲解", r["messages"][-1]["text"])
+        self.assertEqual((sd / "12-一拖五.md").read_text(encoding="utf-8").count("师傅整组讲解"), 3)
+        r = api.session_action({"session": sid, "action": "mr_next"})
+        self.assertTrue(any("师傅整组讲解" in m["text"] for m in r["messages"] if m["who"] == "npc"))
         r = api.session_action({"session": sid, "action": "mr_pause"})
         self.assertTrue(r["finished"])
         self.assertIn("第 107 题", r["messages"][0]["text"])

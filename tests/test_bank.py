@@ -247,6 +247,36 @@ class BankTest(unittest.TestCase):
         with self.assertRaises(trainer.TrainError):
             trainer.start(self.g, task)
 
+    def test_group_explain_yituowu(self):
+        """一拖五：真题试炼复盘里点师傅解惑，整组（同一段条件）一起讲一次，讲解写进每一道题"""
+        mat = '某瑜伽馆计划在连续4天内安排7节体验课，每天至少1节。已知：流瑜伽在空中瑜伽之后。'
+        one = lambda n, a: ('\n## 题目 Y%s\n### 知识点\n一拖五\n### 题干\n%s\n\n第%s问：以下哪项正确？\n### 选项\n'
+                            'A. 甲\nB. 乙\nC. 丙\nD. 丁\n### 答案\n%s\n### 解析\n官方解析%s\n' % (n, mat, n, a, n))
+        f = self.paths.train / '题库/一拖五真题.md'
+        f.write_text(one('1', 'A') + one('2', 'B') + one('3', 'C'), encoding='utf-8')
+        task = {'type': 'bank', 'board': '一拖五', 'title': '实战', 'target': '一拖五', 'id': 'bank:一拖五'}
+        r = trainer.start(self.g, task)
+        sid = r['session']
+        pin = next(m for m in r['messages'] if m.get('pin'))
+        self.assertIn('瑜伽馆', str(pin['material']))
+        self.assertNotIn('瑜伽馆', str(pin['blocks']))
+        for k, a in enumerate('ABD'):
+            trainer.action(self.g, sid, 'exam_pick:%d:%s' % (k, a))
+        trainer.action(self.g, sid, 'exam_submit')
+        calls = []
+        def fake_chat(messages, **kw):
+            calls.append(messages[-1]['content'])
+            return '整组讲解：先排表。'
+        with patch.object(trainer.ai, 'available', return_value=True), patch.object(trainer.ai, 'chat', side_effect=fake_chat):
+            r = trainer.action(self.g, sid, 'exam_explain:0')
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(all('【Y%s】' % n in calls[0] for n in '123'))
+        self.assertIn('学员选了：D', calls[0])
+        self.assertIn('一拖五整组讲解', str(r))
+        self.assertEqual(f.read_text(encoding='utf-8').count('整组讲解：先排表。'), 3)
+        r = trainer.action(self.g, sid, 'exam_rnext')
+        self.assertIn('整组讲解：先排表。', str(r))                      # 第 2 题直接显示同一份
+
     def test_exam_submit_review_explain(self):
         f = self.paths.train / '题库/类比推理真题.md'
         f.write_text(''.join(question(x) for x in ('01', '02', '03')), encoding='utf-8')

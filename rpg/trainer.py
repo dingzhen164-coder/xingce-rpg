@@ -1400,6 +1400,9 @@ def _review_action(g, s, run, act):
         if not ai.available():   # 没连 AI：说一句，不记成“讲过了”
             return _review_show(g, s, run, extra=[_msg('npc', (_say(g, '试炼·解惑没AI') or '为师今日闭关（没连上 AI）。先把解析读三遍。')
                                                        + '\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）')])
+        mat = split_stem(qs[i]['board'], qs[i]['stem'])[0] if qs[i]['board'] in GROUP_BOARDS else ''
+        if mat:                  # 一拖五：这段条件下的几道题一起讲，讲解存进每一道
+            return _bank_group_explain(g, s, run, i, mat)
         text, skill, used = _explain(g, qs[i], res[i])
         run.setdefault('explain', {})[str(i)] = text
         question_bank.save_tutor_note(g.paths, qs[i], text, g.t)        # 备份一份（历年题库重新转换时不丢）
@@ -1419,6 +1422,52 @@ def _review_action(g, s, run, act):
     else:
         raise TrainError('这一步请使用当前题目的按钮')
     return _review_show(g, s, run)
+
+
+GROUP_BOARDS = ("一拖五",)      # 一段条件管几道题：师傅解惑整组一起讲，几道题共用一份讲解
+
+
+def _explain_group(g, board, material, items):
+    """一拖五：材料 + 这组几道题一起交给师傅（按板块 skill）。items 见 prompts.group_explain。返回 (讲解, skill 名, 读到的 skill 文件)"""
+    skill = _skill_name(g, board)
+    digest, used = vault.skill_for_tutor(g.paths, skill) if skill else ("", [])
+    try:
+        text = ai.chat(prompts.group_explain(g.persona, material, items, digest, skill), temperature=0.5, max_tokens=2800)
+    except ai.AIError as e:
+        raise TrainError("师傅没回话：%s" % e)
+    return text, skill, used
+
+
+def _skill_note(skill, used):
+    return ("\n📜 依据 skill「%s」：%s" % (skill, "、".join(used[:8]) + (" 等 %d 个文件" % len(used) if len(used) > 8 else ""))
+            if used else "\n⚠ 这个板块没找到 skill 资料（%s），师傅只能按通用方法讲" % (skill or "未配置"))
+
+
+def _bank_group_explain(g, s, run, i, mat):
+    """真题试炼复盘里的一拖五：从题库找出同一段条件下的全部题（这一组里没抽到的也算上），一起讲"""
+    qs, res = run['questions'], run['results']
+    board = qs[i]['board']
+    same = lambda q: q['board'] == board and split_stem(board, q['stem'])[0] == mat
+    mine = {q['id']: r['answer'] for q, r in zip(qs, res) if same(q)}
+    try:
+        group = [q for q in question_bank.read(g.paths, board)[0] if same(q)]
+    except Exception:
+        group = []
+    if not any(q['id'] == qs[i]['id'] for q in group):
+        group = [q for q in qs if same(q)]
+    items = [{"label": q['id'], "stem": split_stem(board, q['stem'])[1] + "\n" + "\n".join("%s. %s" % kv for kv in q['options'].items()),
+              "answer": q['answer'], "mine": mine.get(q['id']) or "（这次没做）"} for q in group]
+    text, skill, used = _explain_group(g, board, mat, items)
+    for k, q in enumerate(qs):
+        if same(q):
+            run.setdefault('explain', {})[str(k)] = text
+    saved = 0
+    for q in group:
+        question_bank.save_tutor_note(g.paths, q, text, g.t)
+        saved += bool(question_bank.save_tutor_to_bank(g.paths, q, text, g.t))
+    note = '📌 一拖五整组讲解（%s），已写进题库里这 %d 道题的解析末尾（原解析保留；再问一次会换成新的）' % (
+        '、'.join(q['id'] for q in group), saved) + _skill_note(skill, used)
+    return _review_show(g, s, run, extra=[_msg('sys', note)], scroll_bottom=True)
 
 
 def _explain(g, q, r):
@@ -1659,6 +1708,8 @@ def _mreview_action(g, s, act):
             return _mreview_show(g, s, extra=[_msg("npc", (_say(g, "试炼·解惑没AI") or "为师今日闭关（没连上 AI）。先把解析读三遍。")
                                                      + "\n（在“设置”里填 AI 的 API key 后，师傅就能按功法给你讲题。）")])
         q = qs[i]
+        if s["source"] in GROUP_BOARDS and q.get("material"):     # 一拖五：整组一起讲
+            return _mreview_group_explain(g, s, i)
         text, skill, used = _explain(g, _mreview_pq(s, q), {"answer": q["mine"] or "未作答"})
         s["explain"][str(i)] = text
         where = vault.save_tutor_note(g.paths, q["key"], text, g.t)
@@ -1682,6 +1733,25 @@ def _mreview_action(g, s, act):
     else:
         raise TrainError("这一步请使用当前题目的按钮")
     return _mreview_show(g, s)
+
+
+def _mreview_group_explain(g, s, i):
+    """大比复盘里的一拖五：这段材料下的几道题（只看错题时没列出来的也算上）一起讲，讲解写进每一道的复盘笔记"""
+    q = s["qs"][i]
+    d, _ = mock_boards(g, s["season"])
+    allq = [dict(x, key="%s|%s|%s" % (s["season"], s["source"], x["num"]))
+            for x in vault.parse_board_file(vault.board_file(d, s["source"]))]
+    group = [x for x in allq if x["material"] == q["material"]] or [q]
+    items = [{"label": "第%s题" % x["num"], "stem": x["body"], "answer": x["correct"], "mine": x["mine"] or "未作答"} for x in group]
+    text, skill, used = _explain_group(g, s["board"] or s["source"], vault.material_text(q), items)
+    nums = {x["num"] for x in group}
+    for k, x in enumerate(s["qs"]):
+        if x["num"] in nums:
+            s["explain"][str(k)] = text
+    saved = [x["num"] for x in group if vault.save_tutor_note(g.paths, x["key"], text, g.t)]
+    note = ("📌 一拖五整组讲解：第 %s 题共用这一份，已写进这 %d 道题的复盘笔记（再问一次会换成新的）" % (
+        "、".join(str(n) for n in sorted(nums)), len(saved))) + _skill_note(skill, used)
+    return _mreview_show(g, s, extra=[_msg("sys", note)], scroll_bottom=True)
 
 
 def _mreview_chat(g, s, text):

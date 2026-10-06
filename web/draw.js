@@ -2,6 +2,8 @@
    笔 / 橡皮 / 撤销 / 重做 / 一键清空；鼠标、触屏、手写笔都能用。
    笔记按题保存（这台设备的浏览器里）：做题 / 复盘时每道题各有一份，关掉再打开、换题再回来都还在；只有点 🗑 才清掉。
    不在做题时按页面存。哪道题由 app.js 的 window.DRAW_KEY() 给（题目那条消息带的 qkey）。
+   资料分析 / 一拖五：起笔在左边材料框里的笔画算“材料笔记”，存在这段材料名下（window.DRAW_MKEY()），同一组几道题共用；
+   其余笔画还是这道题自己的。
    快捷键：Ctrl+Z 撤销，Ctrl+Y 或 Ctrl+Shift+Z 重做，Esc 关闭。 */
 (function () {
   const COLORS = ['#e53935', '#1e63d6', '#222222', '#2e9d57'];
@@ -10,30 +12,42 @@
 
   // ---------------------------------------------------------------- 按题存笔记
   const keyNow = () => { try { return (window.DRAW_KEY && window.DRAW_KEY()) || 'page'; } catch (e) { return 'page'; } };
+  const mkeyNow = () => { try { return (window.DRAW_MKEY && window.DRAW_MKEY()) || ''; } catch (e) { return ''; } };
+  const inMat = (x, y) => { try { return !!(window.DRAW_IN_MAT && window.DRAW_IN_MAT(x, y)); } catch (e) { return false; } };
   function visible(strokes) {           // 最后一次“清空”之后的笔画才算数
     let from = 0;
     strokes.forEach((s, i) => { if (s.clear) from = i + 1; });
     return strokes.slice(from).filter((s) => s.pts && s.pts.length);
   }
-  function load(key) {
+  function load(key, mat) {
+    if (!key) return [];
     try {
       const raw = JSON.parse(localStorage.getItem(PREFIX + key) || '[]');
-      return raw.map((s) => ({ erase: !!s.e, color: s.c, width: s.w, pts: s.p }));
+      return raw.map((s) => ({ erase: !!s.e, color: s.c, width: s.w, pts: s.p, mat: !!mat }));
     } catch (e) { return []; }
+  }
+  function store(key, strokes) {
+    const list = strokes.map((s) => ({ e: s.erase ? 1 : 0, c: s.color, w: s.width, p: s.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) }));
+    let idx = JSON.parse(localStorage.getItem(INDEX) || '[]').filter((k) => k !== key);
+    if (list.length) {
+      localStorage.setItem(PREFIX + key, JSON.stringify(list));
+      idx.push(key);
+    } else {
+      localStorage.removeItem(PREFIX + key);
+    }
+    while (idx.length > KEEP) localStorage.removeItem(PREFIX + idx.shift());     // 只留最近 300 份笔记
+    localStorage.setItem(INDEX, JSON.stringify(idx));
   }
   function save() {
     if (!st.key) return;
-    const list = visible(st.strokes).map((s) => ({ e: s.erase ? 1 : 0, c: s.color, w: s.width, p: s.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) }));
+    const all = visible(st.strokes);
     try {
-      let idx = JSON.parse(localStorage.getItem(INDEX) || '[]').filter((k) => k !== st.key);
-      if (list.length) {
-        localStorage.setItem(PREFIX + st.key, JSON.stringify(list));
-        idx.push(st.key);
+      if (st.mkey) {                    // 材料笔记、题目笔记分开存
+        store(st.mkey, all.filter((s) => s.mat));
+        store(st.key, all.filter((s) => !s.mat));
       } else {
-        localStorage.removeItem(PREFIX + st.key);
+        store(st.key, all);
       }
-      while (idx.length > KEEP) localStorage.removeItem(PREFIX + idx.shift());     // 只留最近 300 道题的笔记
-      localStorage.setItem(INDEX, JSON.stringify(idx));
     } catch (e) { /* 存不下（浏览器空间满了）就只留在这一次 */ }
     refresh();
   }
@@ -41,7 +55,7 @@
   function refresh() {
     if (!btn) return;
     let has = false;
-    try { has = !!localStorage.getItem(PREFIX + keyNow()); } catch (e) { /* 读不了就不显示 */ }
+    try { has = !!localStorage.getItem(PREFIX + keyNow()) || (!!mkeyNow() && !!localStorage.getItem(PREFIX + mkeyNow())); } catch (e) { /* 读不了就不显示 */ }
     btn.classList.toggle('has', has);
   }
   let layer, canvas, ctx, bar;
@@ -61,7 +75,7 @@
       <button data-d="eraser" title="橡皮擦">🧽</button>
       <button data-d="undo" title="撤销（Ctrl+Z）">↶</button>
       <button data-d="redo" title="重做（Ctrl+Y）">↷</button>
-      <button data-d="clear" title="清除这道题的笔记（可以撤销）">🗑</button>`;
+      <button data-d="clear" title="清除屏幕上的笔记（这道题的，和左边材料上的；可以撤销）">🗑</button>`;
     layer.appendChild(bar);
     document.body.appendChild(layer);
     ctx = canvas.getContext('2d');
@@ -146,7 +160,7 @@
     if (e.button && e.button !== 0) return;
     canvas.setPointerCapture(e.pointerId);
     const erase = st.tool === 'eraser' || e.button === 5;          // 手写笔的橡皮头也算橡皮
-    st.cur = { erase, color: st.color, width: erase ? 22 : st.width, pts: [[e.clientX, e.clientY]] };
+    st.cur = { erase, color: st.color, width: erase ? 22 : st.width, pts: [[e.clientX, e.clientY]], mat: !!st.mkey && inMat(e.clientX, e.clientY) };
     paint();
     e.preventDefault();
   }
@@ -173,7 +187,8 @@
     if (!layer) build();
     st.on = true;
     st.key = keyNow();
-    st.strokes = load(st.key); st.redo = []; st.cur = null;     // 这道题以前写的笔记接着显示
+    st.mkey = mkeyNow();
+    st.strokes = load(st.mkey, true).concat(load(st.key)); st.redo = []; st.cur = null;     // 这段材料的笔记 + 这道题的笔记接着显示
     try { window.getSelection().removeAllRanges(); } catch (e) { /* 没有选中 */ }   // 平板上按 ✏ 时可能顺带选中了字
     document.documentElement.classList.add('drawing');     // 页面定住，不能滚
     layer.classList.add('on');
