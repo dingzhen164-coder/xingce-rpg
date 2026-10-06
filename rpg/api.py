@@ -8,6 +8,7 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
     POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
     GET  /api/changelog            版本更新记录（rpg/data/changelog.md）
+    GET  /api/notes …              灵台手札：本子列表；POST get {id} / save / delete / compile（师傅编纂）；GET tree（库里的 md）；POST md {p}（读一篇）
     GET  /api/app/latest           平板 App 的最新版本（电脑替平板去 GitHub 下安装包）；/app/xingce-xiuxian.apk 拿安装包
     POST /api/theme                {"theme": "修仙"|"玄幻"}  切换风格
     POST /api/retreat/start        {"board", "minutes"}  闭关；POST /api/retreat/end 提前出关
@@ -68,7 +69,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appapk, appearance, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -630,7 +631,9 @@ def settings_get(body):
     key = a["api_key"]
     return {"vault": str(find_vault() or ""), "vault_setting": s.get("vault", ""),
             "base_url": a["base_url"], "model": a["model"],
-            "has_key": bool(key), "key_tail": key[-4:] if key else ""}
+            "has_key": bool(key), "key_tail": key[-4:] if key else "",
+            "vision_model": s.get("vision_model", ""), "vision_base_url": s.get("vision_base_url", ""),
+            "vision_has_key": bool(s.get("vision_api_key"))}
 
 
 def settings_set(body):
@@ -644,6 +647,9 @@ def settings_set(body):
         s["vault"] = v
     for k in ("api_key", "base_url", "model"):
         if k in body and str(body[k]).strip():
+            s[k] = str(body[k]).strip()
+    for k in ("vision_model", "vision_base_url", "vision_api_key"):     # 识图模型可以清空
+        if k in body and (k != "vision_api_key" or str(body[k]).strip()):
             s[k] = str(body[k]).strip()
     save_settings(s)
     return settings_get({})
@@ -762,6 +768,47 @@ def app_latest(body):
     return dict(appapk.latest(), apk_port=RUNTIME.get("apk_port") or 0, path="/app/" + appapk.NAME)
 
 
+# ---------------------------------------------------------------- 灵台手札
+def _notes_call(fn, *a):
+    with open_game(save=False) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        try:
+            return fn(g.paths, *a)
+        except notes.NotesError as e:
+            raise ApiError(str(e))
+        except ai.AIError as e:
+            raise ApiError("师傅编纂失败：%s" % e)
+
+
+def notes_list(body):
+    return {"notebooks": _notes_call(notes.listing), "vision": ai.vision_available(), "ai": ai.available()}
+
+
+def notes_get(body):
+    return _notes_call(notes.get, body.get("id"))
+
+
+def notes_save(body):
+    return _notes_call(notes.save, body)
+
+
+def notes_delete(body):
+    return _notes_call(notes.delete, body.get("id"))
+
+
+def notes_compile(body):
+    return _notes_call(notes.compile, body.get("id"), body.get("images") or [], body.get("text"))
+
+
+def notes_tree(body):
+    return {"files": _notes_call(notes.md_tree)}
+
+
+def notes_md(body):
+    return _notes_call(notes.read_md, body.get("p") or body.get("path"))
+
+
 def changelog_get(body):
     from . import changelog
     return {"entries": changelog.entries()}
@@ -777,6 +824,13 @@ def version_get(body):
 ROUTES[("GET", "/api/version")] = version_get
 ROUTES[("GET", "/api/changelog")] = changelog_get
 ROUTES[("GET", "/api/app/latest")] = app_latest
+ROUTES[("GET", "/api/notes")] = notes_list
+ROUTES[("POST", "/api/notes/get")] = notes_get
+ROUTES[("POST", "/api/notes/save")] = notes_save
+ROUTES[("POST", "/api/notes/delete")] = notes_delete
+ROUTES[("POST", "/api/notes/compile")] = notes_compile
+ROUTES[("GET", "/api/notes/tree")] = notes_tree
+ROUTES[("POST", "/api/notes/md")] = notes_md
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply
 ROUTES[("GET", "/api/lan")] = lan_get

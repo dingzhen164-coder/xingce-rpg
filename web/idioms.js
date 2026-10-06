@@ -19,10 +19,16 @@
           <span class="faint small">${esc(s.paper || "")}${s.blanks > 1 ? ` · 第 ${s.blank} 空` : ""} · 正确选项 ${esc(s.answer)}「${esc(s.option_text)}」 · 收于 ${esc(s.date)}</span></div>
       </div>`).join("");
     if (EDIT === e.word) return editCard(e);
+    const d = e.detail, o = d?.origin || {};
+    const detail = !d ? "" : `<div class="id-detail">
+        ${(d.chars || []).length ? `<div class="id-chars"><span class="id-k">🔍 逐字</span>${d.chars.map((c) => `<span class="id-char"><b>${esc(c.char)}</b>：${esc(c.meaning)}${
+          (c.like || []).length ? `<i>（同样用法：${c.like.map(esc).join("、")}）</i>` : ""}</span>`).join("")}</div>` : ""}
+        ${o.from || o.text || o.note ? `<div class="id-origin"><span class="id-k">📜 出处</span>${o.from && o.from !== "不详" ? `<b>${esc(o.from)}</b>` : ""}${
+          o.text ? `<span class="id-quote">“${esc(o.text)}”</span>` : ""}${o.note ? `<span class="id-onote">${esc(o.note)}</span>` : ""}</div>` : ""}</div>`;
     return `<div class="id-card" id="idw-${esc(e.word)}"><div class="id-head"><span class="id-word">${esc(e.word)}</span><span class="id-letter">${esc(e.letter)}</span>
-        ${e.sources.length > 1 ? `<span class="tag">考过 ${e.sources.length} 次</span>` : ""}</div>${srcs}
+        ${e.sources.length > 1 ? `<span class="tag">考过 ${e.sources.length} 次</span>` : ""}</div>${detail}${srcs}
       <div class="id-acts"><button class="ghost small" data-idedit="${esc(e.word)}">✏ 修改</button><button class="ghost small" data-iddel="${esc(e.word)}">🗑 删除</button>
-        <button class="small id-tutor" data-idtutor="${esc(e.word)}" title="让师傅把这几个词的区别用一句话讲清，替换上面的辨析">🧙 师傅答疑</button></div></div>`;
+        <button class="small id-tutor" data-idtutor="${esc(e.word)}" title="让师傅把这几个词的区别用一句话讲清（替换上面的辨析）；成语再讲关键字和出处">🧙 师傅答疑</button></div></div>`;
   }
 
   function editCard(e) {

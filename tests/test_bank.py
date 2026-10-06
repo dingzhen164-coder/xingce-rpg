@@ -406,9 +406,15 @@ class BankTest(unittest.TestCase):
         self.assertEqual(len(idioms.data(self.g)['方兴未艾']['sources']), 1)
         # 师傅答疑：一句话辨析替换原辨析，解析没写的释义补上
         reply = {'辨析': '方兴未艾重“正在兴起”，如火如荼重“热烈”，此处写发展势头，选方兴未艾。', '释义': {'崭露头角': '比喻初显才能'}}
-        with patch.object(trainer.ai, 'chat_json', return_value=reply) as m:
+        detail = {'逐字': [{'字': '艾', '义': '停止、尽', '同用法': ['自怨自艾']}],
+                  '出处': {'出自': '宋·陆游《上殿札子》', '原文': '方兴未艾', '说明': '形容正在兴起、一时不会停止'}}
+        with patch.object(trainer.ai, 'chat_json', side_effect=[reply, detail]) as m:
             idioms.ask_tutor(self.g, '方兴未艾')
-        self.assertIn('方兴未艾', m.call_args[0][0][-1]['content'])
+        self.assertIn('方兴未艾', m.call_args_list[0][0][0][-1]['content'])
+        self.assertIn('逐字', m.call_args_list[1][0][0][-1]['content'])                 # 成语：再问关键字和出处
+        det = idioms.data(self.g)['方兴未艾']['detail']
+        self.assertEqual((det['chars'][0]['char'], det['chars'][0]['like'], det['origin']['from']), ('艾', ['自怨自艾'], '宋·陆游《上殿札子》'))
+        self.assertIn('- **逐字**：艾 = 停止、尽（同样用法：自怨自艾）', (self.paths.train / '成语实词录.md').read_text(encoding='utf-8'))
         s = idioms.data(self.g)['方兴未艾']['sources'][0]
         self.assertEqual((s['compare'], s['tutor']), (reply['辨析'], True))
         self.assertEqual(s['others'][2]['meaning'], '比喻初显才能')

@@ -72,6 +72,7 @@ function realmUp(e) {
 
 // ------------------------------------------------------------ 导航 / 风格
 function go(view) {
+  if (VIEW === "notes" && view !== "notes" && window.NOTES) NOTES.flush();
   VIEW = view;
   if (window.DRAW) setTimeout(() => DRAW.refresh(), 0);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
@@ -133,10 +134,12 @@ function banner() {
 async function render() {
   const v = $("#view");
   document.documentElement.classList.remove("in-chat");
+  document.documentElement.classList.toggle("in-notes", VIEW === "notes");
   try {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
     else if (VIEW === "contest") { if (!DASH) await refresh(); await CONTEST.render(v); }
+    else if (VIEW === "notes") { if (!DASH) await refresh(); await NOTES.render(v); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
     else if (VIEW === "bank") { HALL = 'shizhan'; return go('train'); }   // 试炼塔并进了修炼殿
     else if (VIEW === "wrong") {
@@ -173,14 +176,51 @@ function recentList(ev) {
     <span>${esc(e.note)}</span><span class="spacer"></span>${e.xp ? `<b style="color:var(--gold)">+${e.xp}</b>` : ""}</div>`).join("");
 }
 // 消息里的网页块：文字（夹着的 ![[库内路径]] 是行内小图，如公式）、图片、成绩表
-function blocksHtml(list, trim = false) {
+// 题目：去掉题干、问题、选项之间的空行；连着的 A/B/C/D 行排成选项格（layoutOpts 按最长选项决定一行放 4 个、2 个还是 1 个）
+const OPT_RE = /^\s*-?\s*(?:\*\*)?([A-D])\s*[.．、](?:\*\*)?\s*(.*)$/;
+function qTextHtml(text, inline) {
+  const lines = String(text || "").split("\n").filter((l) => l.trim());
+  const out = [];
+  let buf = [], opts = [];
+  const flushText = () => { if (buf.length) { out.push(`<div class="q-text">${inline(md(buf.join("\n")))}</div>`); buf = []; } };
+  const flushOpts = () => {
+    if (!opts.length) return;
+    if (opts.length < 2 || opts[0][0] !== "A") { buf.push(...opts.map((o) => o[2])); opts = []; return; }   // 不像选项：当正文
+    flushText();
+    out.push(`<div class="opts">${opts.map(([k, v]) => `<div class="opt"><b>${k}.</b> ${inline(md(v))}</div>`).join("")}</div>`);
+    opts = [];
+  };
+  for (const l of lines) {
+    const m = l.match(OPT_RE);
+    if (m && (!opts.length || m[1].charCodeAt(0) === opts[opts.length - 1][0].charCodeAt(0) + 1)) { if (!opts.length) flushText(); opts.push([m[1], m[2], l]); }
+    else { flushOpts(); buf.push(l); }
+  }
+  flushOpts(); flushText();
+  return out.join("");
+}
+function layoutOpts(root = document) {
+  root.querySelectorAll(".opts").forEach((el) => {
+    const W = el.clientWidth;
+    if (!W) return;
+    el.classList.add("measure");
+    const widest = Math.max(...[...el.children].map((c) => c.getBoundingClientRect().width));
+    el.classList.remove("measure");
+    const gap = 18;
+    const cols = widest * 4 + gap * 3 <= W ? 4 : widest * 2 + gap <= W ? 2 : 1;
+    el.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  });
+}
+let OPT_T = null;
+addEventListener("resize", () => { clearTimeout(OPT_T); OPT_T = setTimeout(() => layoutOpts(), 150); });
+function blocksHtml(list, trim = false, question = false) {
   const inline = (h) => h.replace(/!\[\[([^\]]+)\]\]/g, (_, p) => `<img class="inline-img" src="/vault-file?p=${encodeURIComponent(p.replace(/&amp;/g, '&'))}">`);
   const table = (b) => `<div class="tbl-wrap"><table class="result-table"><thead><tr>${b.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
     b.rows.map(r => `<tr class="${r.includes('✗') ? 'bad' : r.includes('✓') ? 'good' : 'sum'}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return (list || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}${trim ? "&trim=1" : ""}">` : b.t === "table" ? table(b) : `<div>${inline(md(b.v))}</div>`).join("");
+  return (list || []).map((b) => b.t === "img" ? `<img src="/vault-file?p=${encodeURIComponent(b.v)}${trim ? "&trim=1" : ""}">` : b.t === "table" ? table(b)
+    : question ? qTextHtml(b.v, inline) : `<div>${inline(md(b.v))}</div>`).join("");
 }
 function msgHtml(m) {
-  const blocks = blocksHtml(m.blocks);
+  const blocks = blocksHtml(m.blocks, false, !!m.pin);
   if (m.fold) return `<details class="fold"><summary>${esc(m.fold)}</summary><div>${md(m.text)}</div></details>`;
   if (m.who === "npc") return `<div class="npc">${tutorFace()}<div class="say"><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(m.text)}</div></div>`;
   if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
@@ -267,6 +307,7 @@ function bindPinReset() {   // 双击分隔条：恢复默认高度
   }));
 }
 function bindPins() {
+  layoutOpts();
   bindPinDrag();
   if (window.DRAW) DRAW.refresh();
   document.querySelectorAll(".mat-pane img:not(.inline-img), .q-pin img:not(.inline-img)").forEach((im) => (im.onclick = () => zoomImg(im.src)));
@@ -520,6 +561,13 @@ const views = {
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><label class="small muted">接口地址</label><input id="sBase" value="${esc(s.base_url)}"></div>
         <div style="flex:1"><label class="small muted">模型</label><input id="sModel" value="${esc(s.model)}"></div></div>
+      <details class="sv-vision" style="margin-top:10px"${s.vision_model ? " open" : ""}><summary class="small">🪶 识图模型（手札「师傅编纂」认手写字用，可不填）</summary>
+      <p class="small muted">填一个能看图的模型（如 qwen-vl-max、gpt-4o、glm-4v），师傅直接看手写页面整理；不填就先用本机认字（Windows / Mac 自带）再交给上面的模型排版。接口地址、key 和上面一样时留空。</p>
+      <div class="row">
+        <div style="flex:1"><label class="small muted">识图模型</label><input id="sVModel" value="${esc(s.vision_model || "")}" placeholder="如 qwen-vl-max"></div>
+        <div style="flex:2"><label class="small muted">接口地址（留空 = 同上）</label><input id="sVBase" value="${esc(s.vision_base_url || "")}" placeholder="${esc(s.base_url)}"></div></div>
+      <label class="small muted">识图 API key ${s.vision_has_key ? "（已单独填写；不改就留空）" : "（留空 = 用上面的 key）"}</label>
+      <input id="sVKey" type="password" placeholder="sk-……"></details>
       <div class="row" style="margin-top:12px"><button class="primary" id="sSave">保存</button><button id="sTest">测试 AI 连接</button><span id="sMsg" class="small muted"></span></div></div>
       <div class="card"><h3>改规则 / 人设 / 台词</h3>
       <p>在 Obsidian 里直接编辑库里的这些文件，保存后刷新网页就生效：</p>
@@ -1416,6 +1464,8 @@ function bindSettings() {
   $("#sSave").onclick = async () => {
     const body = { vault: $("#sVault").value, base_url: $("#sBase").value, model: $("#sModel").value };
     if ($("#sKey").value.trim()) body.api_key = $("#sKey").value.trim();
+    body.vision_model = $("#sVModel").value.trim(); body.vision_base_url = $("#sVBase").value.trim();
+    if ($("#sVKey").value.trim()) body.vision_api_key = $("#sVKey").value.trim();
     try { await api("/api/settings", body); $("#sMsg").textContent = "已保存"; await refresh(); } catch (e) { showError(e); }
   };
   $("#sTest").onclick = async () => {

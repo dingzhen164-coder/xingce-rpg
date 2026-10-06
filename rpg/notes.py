@@ -1,0 +1,237 @@
+"""灵台手札：手写笔记本（像 Notability）+ 师傅编纂（手写 → Markdown）+ 调阅库里的 Markdown 笔记。
+
+- 本子存在库里 训练/手札/手写/<id>.json（坚果云同步，平板上写的电脑上也有）：
+  {"id", "title", "paper": "lines|grid|blank", "pages": [{"strokes": [{"t": "pen|hl|er", "c", "w", "p": [[x, y], …]}]}],
+   "text": 打字补充, "compiled": 编纂出的 md（库内路径）, "updated"}
+  坐标是“纸”上的逻辑坐标（一页宽 1000、高 1414，A4 比例），和屏幕大小无关。
+- 师傅编纂：网页把每页画成白底 PNG 传上来 →
+  配了识图模型（设置里的 vision_model）就直接让它认字 + 排版；没有就用系统自带 OCR（Windows / Mac）认字，再让 AI 排版。
+  排好的 Markdown 存到 训练/手札/<标题>.md。
+- 调阅：列出库里的 .md（不含 .obsidian、存档这类），读一篇时把 ![[图片]] 换成能在网页上显示的库内路径。
+"""
+import base64
+import datetime as dt
+import json
+import re
+import time
+from pathlib import Path
+
+from . import ai, vault
+
+PAGE_W, PAGE_H = 1000, 1414
+PAPERS = ("lines", "grid", "blank")
+SKIP_DIRS = {".obsidian", ".trash", ".git", "存档", "node_modules", ".stfolder"}
+
+
+class NotesError(Exception):
+    pass
+
+
+def folder(paths):
+    return paths.train / "手札"
+
+
+def data_dir(paths):
+    d = folder(paths) / "手写"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _file(paths, nid):
+    if not re.fullmatch(r"[0-9a-z\-]{6,40}", str(nid or "")):
+        raise NotesError("本子编号不对")
+    return data_dir(paths) / ("%s.json" % nid)
+
+
+def listing(paths):
+    out = []
+    for f in sorted(data_dir(paths).glob("*.json")):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out.append({"id": d.get("id") or f.stem, "title": d.get("title") or f.stem, "updated": d.get("updated", ""),
+                    "pages": len(d.get("pages") or []), "compiled": d.get("compiled", "")})
+    return sorted(out, key=lambda x: x["updated"], reverse=True)
+
+
+def get(paths, nid):
+    f = _file(paths, nid)
+    if not f.is_file():
+        raise NotesError("这本手札不见了（可能在另一台电脑上删了）")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+def _clean_pages(pages):
+    out = []
+    for pg in (pages or [])[:200]:
+        strokes = []
+        for s in (pg or {}).get("strokes") or []:
+            pts = [[round(float(x), 1), round(float(y), 1)] for x, y in (s.get("p") or [])[:4000]]
+            if pts:
+                strokes.append({"t": s.get("t") if s.get("t") in ("pen", "hl", "er") else "pen",
+                                "c": str(s.get("c") or "#222222")[:9], "w": max(0.5, min(60.0, float(s.get("w") or 3))), "p": pts})
+        out.append({"strokes": strokes})
+    return out or [{"strokes": []}]
+
+
+def save(paths, body):
+    nid = body.get("id") or (dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000))
+    f = _file(paths, nid)
+    old = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    d = {"id": nid,
+         "title": (str(body.get("title") or "").strip() or old.get("title") or dt.datetime.now().strftime("手札 %m-%d %H:%M"))[:60],
+         "paper": body.get("paper") if body.get("paper") in PAPERS else old.get("paper", "lines"),
+         "pages": _clean_pages(body["pages"]) if "pages" in body else old.get("pages") or [{"strokes": []}],
+         "text": str(body["text"])[:20000] if "text" in body else old.get("text", ""),
+         "compiled": old.get("compiled", ""),
+         "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(f)
+    return {"id": nid, "title": d["title"], "updated": d["updated"]}
+
+
+def delete(paths, nid):
+    f = _file(paths, nid)
+    if f.is_file():
+        f.unlink()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- 师傅编纂
+def _png(data_url):
+    m = re.match(r"^data:image/(png|jpeg);base64,(.+)$", str(data_url or ""), re.S)
+    if not m:
+        raise NotesError("页面图片格式不对")
+    return base64.b64decode(m.group(2))
+
+
+VISION_PROMPT = ("下面是学员手写的行测学习笔记（%d 页，按顺序）。请把手写内容认出来，整理成一份排版清楚的 Markdown 笔记：\n"
+                 "1）忠实于原笔记的内容和结构，不要添加笔记里没有的知识；认不清的字用［?］标出；\n"
+                 "2）用标题（## / ###）、列表、加粗、表格整理层次；画的框图、箭头关系用列表或表格表达；\n"
+                 "3）开头一行 `# 标题`（按内容起一个简短的标题）；\n"
+                 "4）只输出 Markdown 本身，不要解释。%s")
+
+
+def _organize_prompt(title, ocr_pages, typed):
+    pages = "\n\n".join("【第 %d 页 认出来的字】\n%s" % (i + 1, t.strip() or "（这页没认出字）") for i, t in enumerate(ocr_pages))
+    return [{"role": "system", "content": "你是一位整理行测学习笔记的助手。只输出 Markdown，不要解释。"},
+            {"role": "user", "content": (
+                f"学员手写笔记「{title}」，先用 OCR 认了字（手写识别可能有错字、断行、顺序乱），另外还有学员打字补充的内容。\n"
+                f"{pages}\n\n【打字补充】\n{typed.strip() or '（无）'}\n\n"
+                "请整理成一份排版清楚的 Markdown 笔记：1）根据上下文和行测知识修正明显的 OCR 错字，拿不准的用［?］标出；"
+                "2）忠实于笔记内容，不要添加笔记里没有的知识；3）用标题（## / ###）、列表、加粗、表格整理层次；"
+                "4）开头一行 `# 标题`。只输出 Markdown 本身。")}]
+
+
+def compile(paths, nid, images, typed=""):
+    d = get(paths, nid)
+    pngs = [_png(x) for x in (images or [])][:30]
+    typed = str(typed if typed is not None else d.get("text", ""))
+    if not pngs and not typed.strip():
+        raise NotesError("这本手札还是空的：先写点什么，或者在下面“打字补充”里打几句")
+    how = ""
+    if pngs and ai.vision_available():
+        content = [{"type": "text", "text": VISION_PROMPT % (len(pngs), ("\n学员另外打字补充：\n" + typed) if typed.strip() else "")}]
+        content += [{"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(b).decode("ascii")}} for b in pngs]
+        md = ai.chat([{"role": "user", "content": content}], vision=True, temperature=0.2, max_tokens=4000, timeout=240)
+        how = "识图模型（%s）" % ai.settings()["vision_model"]
+    else:
+        texts = []
+        if pngs:
+            from . import report
+            for b in pngs:
+                try:
+                    texts.append(report.ocr(b))
+                except report.ReportError as e:
+                    if not typed.strip():
+                        raise NotesError("认不了手写：%s。可以在设置里填一个“识图模型”（能看图的 AI，认手写最好），"
+                                         "或者在“打字补充”里把要点打进去再编纂" % str(e).split("：")[0])
+                    texts.append("")
+        if ai.available():
+            md = ai.chat(_organize_prompt(d["title"], texts, typed), temperature=0.2, max_tokens=4000, timeout=180)
+            how = "系统 OCR 认字 + AI 排版" if pngs else "AI 排版（打字补充）"
+        else:
+            md = "# %s\n\n%s\n\n%s\n" % (d["title"], "\n\n".join(t.strip() for t in texts if t.strip()), typed.strip())
+            how = "系统 OCR 认字（没有 AI，没排版）" if any(t.strip() for t in texts) else "打字补充（没有 AI，没排版）"
+    md = re.sub(r"^```(?:markdown|md)?\s*\n(.*?)\n```\s*$", r"\1", md.strip(), flags=re.S).strip() + "\n"
+    name = re.sub(r'[\\/:*?"<>|#^\[\]]+', " ", d["title"]).strip()[:50] or nid
+    out = folder(paths) / (name + ".md")
+    head = "> 灵台手札 · 师傅编纂（%s）· %s\n\n" % (how, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    if md.startswith("# "):
+        first, _, rest = md.partition("\n")
+        text = first + "\n\n" + head + rest.lstrip("\n")
+    else:
+        text = "# %s\n\n%s%s" % (d["title"], head, md)
+    out.write_text(text, encoding="utf-8", newline="\n")
+    rel = out.relative_to(paths.vault).as_posix()
+    d["compiled"] = rel
+    f = _file(paths, nid)
+    f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    return {"path": rel, "markdown": text, "how": how}
+
+
+# ---------------------------------------------------------------- 调阅库里的 Markdown
+def md_tree(paths, limit=4000):
+    """库里的 .md：[{path, name, dir}]，按文件夹、文件名排"""
+    root = paths.vault
+    out = []
+
+    def walk(d, depth):
+        if depth > 8 or len(out) >= limit:
+            return
+        try:
+            items = sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name))
+        except OSError:
+            return
+        for p in items:
+            if p.name.startswith(".") or p.name in SKIP_DIRS:
+                continue
+            if p.is_dir():
+                walk(p, depth + 1)
+            elif p.suffix.lower() == ".md":
+                rel = p.relative_to(root).as_posix()
+                out.append({"path": rel, "name": p.stem, "dir": rel.rsplit("/", 1)[0] if "/" in rel else ""})
+                if len(out) >= limit:
+                    return
+    walk(root, 0)
+    return out
+
+
+_IMG_INDEX = {"t": 0, "map": {}}
+
+
+def _image_index(paths):
+    if time.time() - _IMG_INDEX["t"] > 60:
+        m = {}
+        for p in paths.vault.rglob("*"):
+            if p.suffix.lower() in vault.IMAGE_EXT and not any(part.startswith(".") for part in p.relative_to(paths.vault).parts):
+                m.setdefault(p.name, p.relative_to(paths.vault).as_posix())
+        _IMG_INDEX.update(t=time.time(), map=m)
+    return _IMG_INDEX["map"]
+
+
+def read_md(paths, rel):
+    p = (paths.vault / str(rel or "")).resolve()
+    try:
+        p.relative_to(paths.vault.resolve())
+    except ValueError:
+        raise NotesError("只能看库里的笔记")
+    if p.suffix.lower() != ".md" or not p.is_file():
+        raise NotesError("找不到这篇笔记")
+    text = p.read_text(encoding="utf-8-sig", errors="replace")
+    idx = _image_index(paths)
+    images = {}
+    for m in re.finditer(r"!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]|!\[[^\]]*\]\(([^)\s]+)\)", text):
+        name = (m.group(1) or m.group(2) or "").strip()
+        if name in images:
+            continue
+        base = Path(name).name
+        cand = (p.parent / name).resolve()
+        try:
+            local = cand.relative_to(paths.vault.resolve()).as_posix() if cand.is_file() else ""
+        except ValueError:
+            local = ""
+        images[name] = local or idx.get(base, "")
+    return {"path": Path(rel).as_posix(), "name": p.stem, "text": text, "images": images}

@@ -1045,3 +1045,99 @@ html.no-cmix .st-btn { background: var(--st) !important; }
 .draw-layer, .draw-layer *, html.drawing body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .draw-bar button:focus { outline: none; }
 #drawBtn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* 题目里的选项：一行 4 个 / 2 个 / 1 个（app.js layoutOpts 按最长的选项量出来，保证选项不折行） */
+.q-pin .q-text + .q-text { margin-top: 2px; }
+.opts { display: grid; grid-template-columns: 1fr; gap: 4px 18px; margin: 6px 0 2px; }
+.opts .opt { min-width: 0; }
+.opts .opt b { color: var(--accent2); }
+.opts.measure { grid-template-columns: max-content !important; }
+.opts.measure .opt { white-space: nowrap; width: max-content; }
+
+/* 成语实词录 · 师傅答疑：逐字、出处 */
+.id-detail { margin: 6px 0 4px; padding: 8px 12px; border-radius: 8px; background: var(--panel2); border-left: 3px solid var(--gold); font-size: 14px; line-height: 1.8; }
+.id-chars, .id-origin { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.id-origin { margin-top: 4px; }
+.id-char i, .id-onote { font-style: normal; color: var(--muted); }
+.id-quote { font-family: var(--display); }
+.id-onote { flex-basis: 100%; }
+
+/* ------------------------------------------------------------ 🪶 灵台手札（web/notes.js）：左边本子 / 调阅，右边纸页和阅读 */
+html.in-notes main { max-width: 1600px; padding-bottom: 12px; }
+.notes { display: flex; gap: 14px; height: calc(100vh - 92px); min-height: 420px; }
+.nt-side { flex: 0 0 230px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.nt-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.nt-tabs button { flex: 1; border: none; border-radius: 0; background: transparent; padding: 10px 4px; color: var(--muted); }
+.nt-tabs button.on { color: var(--text); font-weight: 700; box-shadow: inset 0 -2px 0 var(--gold); }
+.nt-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+#ntQ { width: 100%; box-sizing: border-box; margin-bottom: 4px; }
+.nt-new { margin-bottom: 6px; }
+.nt-item, .nt-file { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 7px 9px; }
+.nt-item b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-item small { color: var(--faint); font-size: 12px; }
+.nt-item:hover, .nt-file:hover { background: var(--panel2); }
+.nt-item.on, .nt-file.on { background: var(--panel2); border-color: var(--gold); }
+.nt-file { padding: 5px 9px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-dir { margin: 8px 2px 2px; font-size: 12px; color: var(--faint); border-bottom: 1px dashed var(--line); padding-bottom: 2px; }
+.nt-main { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.nt-main > * { flex: 1; min-width: 0; }
+.nt-main.split { display: grid; grid-template-columns: 45fr 55fr; gap: 12px; }
+.nt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius); padding: 30px; }
+.nt-empty h2 { margin: 0; font-family: var(--display); color: var(--gold); letter-spacing: 4px; }
+.nt-empty-mark { font-size: 54px; }
+.nt-book, .nt-reader { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.nt-bar, .nt-rbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.nt-title { flex: 0 1 220px; min-width: 120px; font-weight: 700; }
+.nt-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.nt-tools button { min-width: 36px; height: 36px; padding: 0 6px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
+.nt-tools button.on { border-color: var(--gold); background: var(--panel); box-shadow: 0 0 0 2px var(--gold) inset; }
+.nt-tools button:disabled { opacity: .4; }
+.nt-dot::before { content: ""; width: 18px; height: 18px; border-radius: 50%; background: var(--c); }
+.nt-w i { display: block; width: 18px; border-radius: 3px; background: var(--text); }
+.nt-pages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--panel2); }
+.nt-page { position: relative; width: min(100%, 900px); aspect-ratio: 1000 / 1414; flex: 0 0 auto; background: #fff; border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
+.nt-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.nt-page .nt-ink { touch-action: pan-y; cursor: crosshair; }
+.nt-page, .nt-page canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.nt-pno { position: absolute; right: 10px; bottom: 6px; font-size: 12px; color: #9a9080; pointer-events: none; }
+.nt-addpage { flex: 0 0 auto; }
+.nt-foot { border-top: 1px solid var(--line); padding: 8px 10px; }
+.nt-foot-row { align-items: center; gap: 8px; margin-top: 6px; }
+.nt-typed summary { cursor: pointer; font-size: 14px; }
+.nt-typed textarea { width: 100%; box-sizing: border-box; min-height: 90px; margin-top: 6px; }
+.nt-rbar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.nt-md { flex: 1; overflow-y: auto; padding: 14px 22px 30px; line-height: 1.85; font-size: 16px; }
+.nt-md h1, .nt-md h2, .nt-md h3, .nt-md h4 { font-family: var(--display); color: var(--gold); margin: 1.1em 0 .4em; line-height: 1.4; }
+.nt-md h1 { font-size: 1.6em; } .nt-md h2 { font-size: 1.35em; } .nt-md h3 { font-size: 1.15em; }
+.nt-md p { margin: .5em 0; }
+.nt-md img { max-width: 100%; border-radius: 6px; cursor: zoom-in; }
+.nt-md hr { border: none; border-top: 1px solid var(--line); margin: 1em 0; }
+.nt-md blockquote { margin: .6em 0; padding: 4px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.nt-md code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.nt-md pre { background: var(--panel2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+.nt-md pre code { background: none; padding: 0; }
+.nt-md mark { background: #ffe58a; color: #2a2016; padding: 0 2px; border-radius: 2px; }
+.nt-md ul, .nt-md ol { padding-left: 1.5em; margin: .4em 0; }
+.nt-md a[data-wiki] { color: var(--accent2); border-bottom: 1px dashed currentColor; text-decoration: none; }
+.nt-callout { margin: .7em 0; padding: 8px 12px; border-radius: 8px; border-left: 4px solid var(--accent2); background: var(--panel2); }
+.nt-co-title { font-weight: 700; color: var(--accent2); }
+.nt-co-tip, .nt-co-success { border-left-color: var(--green); } .nt-co-tip .nt-co-title, .nt-co-success .nt-co-title { color: var(--green); }
+.nt-co-warning, .nt-co-danger, .nt-co-bug { border-left-color: var(--red); } .nt-co-warning .nt-co-title, .nt-co-danger .nt-co-title { color: var(--red); }
+.nt-co-abstract, .nt-co-summary, .nt-co-example { border-left-color: var(--gold); } .nt-co-abstract .nt-co-title { color: var(--gold); }
+.nt-table { border-collapse: collapse; margin: .6em 0; font-size: .95em; }
+.nt-table th, .nt-table td { border: 1px solid var(--line); padding: 4px 10px; }
+.nt-table th { background: var(--panel2); }
+.nt-fm { margin-bottom: 8px; font-size: 13px; color: var(--faint); }
+.nt-fm pre { margin: 4px 0; }
+@media (max-width: 900px) {
+  .notes { flex-direction: column; height: auto; }
+  .nt-side { flex: 0 0 auto; max-height: 260px; }
+  .nt-main, .nt-main.split { display: flex; flex-direction: column; }
+  .nt-book, .nt-reader { min-height: 70vh; }
+}
+.nt-bar input.nt-title, .nt-bar select { width: auto; }
+.nt-bar select { flex: 0 0 auto; }
+.nt-rbar { flex-wrap: nowrap; }
+.nt-rbar b { flex: 0 1 auto; }
+.nt-rbar .faint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-rbar button { flex: 0 0 auto; }

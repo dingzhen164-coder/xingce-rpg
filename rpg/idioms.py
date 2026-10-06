@@ -425,6 +425,19 @@ def ask_tutor(g, word):
             for o in s.get('others', []):
                 if not o.get('meaning') and means.get(o['word']):
                     o['meaning'] = str(means[o['word']]).strip()[:60]
+    if len(word) >= 4:                    # 成语：再讲关键字和出处
+        try:
+            d = ai.chat_json(prompts.idiom_detail(g.persona, word, next((s.get('meaning') for s in e['sources'] if s.get('meaning')), '')),
+                             temperature=0.3, max_tokens=700)
+        except Exception:
+            d = {}
+        chars = [{'char': str(c.get('字') or '')[:2], 'meaning': str(c.get('义') or '')[:40],
+                  'like': [str(x)[:12] for x in (c.get('同用法') or [])][:4]}
+                 for c in (d.get('逐字') or []) if isinstance(c, dict) and c.get('字')][:3]
+        src = d.get('出处') if isinstance(d.get('出处'), dict) else {}
+        origin = {'from': str(src.get('出自') or '')[:60], 'text': str(src.get('原文') or '')[:160], 'note': str(src.get('说明') or '')[:200]}
+        if chars or any(origin.values()):
+            e['detail'] = {'chars': chars, 'origin': origin}
     write_file(g)
     return e
 
@@ -463,6 +476,14 @@ def write_file(g):
             cur = e['letter']
             out += ['## %s' % cur, '']
         out += ['### %s' % e['word'], '']
+        det = e.get('detail') or {}
+        for c in det.get('chars') or []:
+            out.append('- **逐字**：%s = %s%s' % (c['char'], c['meaning'], '（同样用法：%s）' % '、'.join(c['like']) if c.get('like') else ''))
+        o = det.get('origin') or {}
+        if any(o.values()):
+            out.append('- **出处**：%s%s%s' % (o.get('from') or '', ('“%s”' % o['text']) if o.get('text') else '', ('。' + o['note']) if o.get('note') else ''))
+        if det:
+            out.append('')
         for s in e['sources']:
             link = '[[%s#题目 %s|%s]]' % (_bank_file(s), s['id'], s['id']) if _bank_file(s) else s['id']
             out.append('- **释义**：%s' % (s['meaning'] or '（解析里没有单独解释，见辨析）'))
