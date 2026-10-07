@@ -14,6 +14,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -83,6 +84,14 @@ public class MainActivity extends Activity {
         s.setUserAgentString(s.getUserAgentString() + " XingceApp/" + BuildInfo.VERSION);
         CookieManager.getInstance().setAcceptCookie(true);
         web.addJavascriptInterface(new Bridge(), "XC");
+        // 网页里的下载（手札导出的 PDF 等）：交给系统浏览器去下（链接里带着口令，不用 cookie）
+        web.setDownloadListener(new DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String ua, String disposition, String mime, long length) {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+                catch (Exception e) { Toast.makeText(MainActivity.this, "没有能下载的浏览器", Toast.LENGTH_SHORT).show(); }
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {

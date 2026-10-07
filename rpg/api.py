@@ -67,7 +67,7 @@ import re
 import traceback
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import appapk, appearance, cardgen, cards, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
@@ -849,6 +849,30 @@ def notes_compile(body):
     return _notes_call(notes.compile, body.get("id"), body.get("images") or [], body.get("text"))
 
 
+def notes_pdf(body):
+    r = _notes_call(notes.export_pdf, body.get("id"), body.get("images") or [])
+    r["url"] = "/notes-file?p=%s&t=%s" % (quote(r["path"]), export_token(r["path"]))
+    return r
+
+
+def notes_open(body):
+    with open_game(save=False) as g:
+        p = notes.export_file(g.paths, body.get("path")) if g.paths.vault else None
+    if not p:
+        raise ApiError("找不到导出的 PDF")
+    try:
+        notes.open_local(p)
+    except Exception as e:
+        raise ApiError("打不开：%s（文件在 %s）" % (e, p))
+    return {"ok": True}
+
+
+def export_token(rel):
+    """平板下载导出的 PDF 用的口令（系统浏览器下载时没有 cookie）：按文件路径 + 局域网口令算"""
+    import hashlib
+    return hashlib.sha256(("xingce-pdf:%s:%s" % (lan.settings().get("code", ""), rel)).encode("utf-8")).hexdigest()[:20]
+
+
 def notes_tree(body):
     return {"files": _notes_call(notes.md_tree)}
 
@@ -1028,11 +1052,13 @@ ROUTES[("POST", "/api/notes/delete")] = notes_delete
 ROUTES[("POST", "/api/notes/compile")] = notes_compile
 ROUTES[("GET", "/api/notes/tree")] = notes_tree
 ROUTES[("POST", "/api/notes/md")] = notes_md
+ROUTES[("POST", "/api/notes/pdf")] = notes_pdf
+ROUTES[("POST", "/api/notes/open")] = notes_open
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply
 ROUTES[("GET", "/api/lan")] = lan_get
 ROUTES[("POST", "/api/lan")] = lan_set
-LOCAL_ONLY = {"/api/lan", "/api/settings", "/api/update/apply"}     # 只有电脑本机能改的
+LOCAL_ONLY = {"/api/lan", "/api/settings", "/api/update/apply", "/api/notes/open"}     # 只有电脑本机能改的
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1091,6 +1117,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return True
+        if url.path == "/notes-file" and method == "GET":       # 导出的手札 PDF：带对的 t 就给（平板交给系统浏览器下载，没有 cookie）
+            q = parse_qs(url.query)
+            rel = unquote(q.get("p", [""])[0])
+            if lan.authorized(addr, self.headers.get("Cookie")) or q.get("t", [""])[0] == export_token(rel):
+                p = notes.export_file(Paths(find_vault()), rel)
+                if not p:
+                    self._send(404, {"error": "文件不存在"})
+                    return True
+                from urllib.parse import quote
+                data = p.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''%s" % quote(p.name))
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return True
         if url.path == "/lan/login" and method == "POST":
             n = int(self.headers.get("Content-Length") or 0)
             code = parse_qs(self.rfile.read(n).decode("utf-8", errors="ignore")).get("code", [""])[0].strip()

@@ -114,7 +114,7 @@ def delete(paths, nid):
 
 # ---------------------------------------------------------------- 师傅编纂
 def _png(data_url):
-    m = re.match(r"^data:image/(png|jpeg);base64,(.+)$", str(data_url or ""), re.S)
+    m = re.match(r"^data:image/(png|jpeg|jpg);base64,(.+)$", str(data_url or ""), re.S)
     if not m:
         raise NotesError("页面图片格式不对")
     return base64.b64decode(m.group(2))
@@ -183,6 +183,61 @@ def compile(paths, nid, images, typed=""):
     f = _file(paths, nid)
     f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
     return {"path": rel, "markdown": text, "how": how}
+
+
+# ---------------------------------------------------------------- 导出 PDF
+EXPORT_DIR = ("手札", "导出")
+
+
+def export_pdf(paths, nid, images):
+    """网页把每页（纸 + 笔迹）画成图片传上来 → 拼成 A4 的 PDF，存到 训练/手札/导出/<标题>.pdf（同名覆盖）"""
+    d = get(paths, nid)
+    pics = [_png(x) for x in (images or [])][:200]
+    if not pics:
+        raise NotesError("这本手札还是空的，没有可以导出的页")
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            raise NotesError("导出 PDF 需要 pymupdf 组件（exe / App 里自带；用 Python 运行的请在 PowerShell 运行 pip install pymupdf）")
+    doc = fitz.open()
+    w, h = fitz.paper_size("a4")
+    for b in pics:
+        page = doc.new_page(width=w, height=h)
+        page.insert_image(page.rect, stream=b)
+    doc.set_metadata({"title": d["title"], "creator": "行测修仙传 · 灵台手札"})
+    out = paths.train.joinpath(*EXPORT_DIR)
+    out.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r'[\\/:*?"<>|#^\[\]]+', " ", d["title"]).strip()[:50] or nid
+    f = out / (name + ".pdf")
+    tmp = f.with_suffix(".tmp")
+    tmp.write_bytes(doc.tobytes(deflate=True, garbage=3))
+    tmp.replace(f)
+    return {"path": f.relative_to(paths.vault).as_posix(), "name": f.name, "pages": len(pics), "size": f.stat().st_size}
+
+
+def export_file(paths, rel):
+    """导出的 PDF 的真实路径（只认 训练/手札/导出/ 里的 .pdf）"""
+    root = paths.train.joinpath(*EXPORT_DIR).resolve()
+    p = (paths.vault / str(rel or "")).resolve()
+    if p.suffix.lower() != ".pdf" or root not in p.parents or not p.is_file():
+        return None
+    return p
+
+
+def open_local(p):
+    """在电脑上用默认程序打开（只给本机用）"""
+    import os
+    import subprocess
+    import sys
+    if sys.platform.startswith("win"):
+        os.startfile(str(p))  # noqa
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(p)])
+    else:
+        subprocess.Popen(["xdg-open", str(p)])
 
 
 # ---------------------------------------------------------------- 调阅库里的 Markdown

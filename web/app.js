@@ -570,8 +570,8 @@ const views = {
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><label class="small muted">接口地址 <select id="sPreset" class="ai-preset"><option value="">常用接口…</option>${AI_PRESETS.map((p, i) => `<option value="${i}">${esc(p[0])}</option>`).join("")}</select></label><input id="sBase" value="${esc(s.base_url)}"></div>
         <div style="flex:1"><label class="small muted">模型</label><input id="sModel" value="${esc(s.model)}"></div></div>
-      <details class="sv-vision" style="margin-top:10px"${s.vision_model ? " open" : ""}><summary class="small">🪶 识图模型（手札「师傅编纂」认手写字用，可不填）</summary>
-      <p class="small muted">填一个能看图的模型（如 qwen-vl-max、gpt-4o、glm-4v），师傅直接看手写页面整理；不填就先用本机认字（Windows / Mac 自带）再交给上面的模型排版。接口地址、key 和上面一样时留空。</p>
+      <details class="sv-vision" style="margin-top:10px"${s.vision_model ? " open" : ""}><summary class="small">🪶 识图模型（师傅制卡读扫描版 PDF 用，可不填）</summary>
+      <p class="small muted">填一个能看图的模型（如 qwen-vl-max、gpt-4o、glm-4v）：「🧙 师傅制卡」遇到扫描版 PDF（页面是图片）时让它看图认字。接口地址、key 和上面一样时留空。</p>
       <div class="row">
         <div style="flex:1"><label class="small muted">识图模型</label><input id="sVModel" value="${esc(s.vision_model || "")}" placeholder="如 qwen-vl-max"></div>
         <div style="flex:2"><label class="small muted">接口地址（留空 = 同上）</label><input id="sVBase" value="${esc(s.vision_base_url || "")}" placeholder="${esc(s.base_url)}"></div></div>

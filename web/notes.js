@@ -1,8 +1,8 @@
-/* 灵台手札：手写笔记本（像 Notability）+ 🧙 师傅编纂（手写 → Markdown）+ 📚 调阅库里的 Markdown 笔记。
+/* 灵台手札：手写笔记本（像 Notability）+ 📄 导出 PDF + 📚 调阅库里的 Markdown 笔记。
    数据：/api/notes（本子列表）、/api/notes/get|save|delete|compile、/api/notes/tree、/api/notes/md（见 rpg/notes.py）。
    - 每页是“纸”上的逻辑坐标（宽 1000、高 1414），屏幕多大都对得上；两层画布：底下纸（横线 / 方格 / 空白），上面笔迹。
    - 平板上用过手写笔之后，手指只滚动、不写字（防手掌误触）；电脑上鼠标直接写。
-   - 写完自动保存到库里 训练/手札/手写/（坚果云同步）；师傅编纂把每页画成白底图片交给电脑，排成 Markdown 存到 训练/手札/。
+   - 写完自动保存到库里 训练/手札/手写/（坚果云同步）；导出 PDF 把每页（纸 + 笔迹）画成图片交给电脑，拼成 A4 PDF 存到 训练/手札/导出/。
    - 调阅：左边列出库里所有 .md，点开在阅读栏里看（标题、列表、表格、引用、图片都排好）；可以和本子左右并排，边看边记。 */
 (function () {
   const PW = 1000, PH = 1414;
@@ -44,7 +44,7 @@
 
   function side() {
     const books = BOOKS.map((b) => `<button class="nt-item ${NB && NB.id === b.id ? "on" : ""}" data-nb="${esc(b.id)}">
-        <span class="nt-del" data-del="${esc(b.id)}" title="删除这本手札">🗑</span><b>${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页${b.compiled ? " · 已编纂" : ""}</small></button>`).join("");
+        <span class="nt-del" data-del="${esc(b.id)}" title="删除这本手札">🗑</span><b>${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页</small></button>`).join("");
     if (SIDE_MIN) return `<aside class="nt-side min"><button class="nt-sidebtn" id="ntSideOpen" title="展开左栏">»</button>
         <button class="nt-sidebtn ${TAB === "books" ? "on" : ""}" data-ntab="books" title="手札">📓</button>
         <button class="nt-sidebtn ${TAB === "library" ? "on" : ""}" data-ntab="library" title="调阅">📚</button></aside>`;
@@ -125,7 +125,7 @@
     if (!READ && !NB) {
       m.innerHTML = `<div class="nt-empty"><div class="nt-empty-mark">🪶</div><h2>灵台手札</h2>
         <p>像在纸上一样手写笔记：选纸（横线 / 方格 / 空白）、换笔、荧光笔、橡皮、撤销。写完自动存进库里，平板上写的电脑上也有。</p>
-        <p>写完点本子右上角的「🧙 师傅编纂」，师傅把手写认出来，排成一份 Markdown 笔记存进 训练/手札/。</p>
+        <p>写完点本子右上角的「📄 导出 PDF」，整本连纸带字存成 PDF（训练/手札/导出/），打印、发给别人都方便。</p>
         <p>左边「📚 调阅」能翻库里所有的 Markdown 笔记，还能和本子并排打开，边看边记。</p>
         <button class="primary" id="ntNew2">＋ 新本子</button></div>`;
       document.getElementById("ntNew2").onclick = newBook;
@@ -149,7 +149,7 @@
   }
   async function delBook(id) {
     const b = BOOKS.find((x) => x.id === id);
-    if (!confirm(`删除手札「${b ? b.title : id}」？手写的笔迹会删掉（已经编纂出的 Markdown 留着）。`)) return;
+    if (!confirm(`删除手札「${b ? b.title : id}」？手写的笔迹会删掉（已经导出的 PDF 留着）。`)) return;
     try {
       await api("/api/notes/delete", { id });
       if (NB && NB.id === id) { setFull(false); NB = null; dirty = false; }
@@ -165,7 +165,7 @@
     const sel = (v, t) => `<option value="${v}" ${NB.paper === v ? "selected" : ""}>${t}</option>`;
     return `<div class="nt-book">
       <div class="nt-bar">
-        <input class="nt-title" id="ntTitle" value="${esc(NB.title)}" maxlength="60" title="本子名字（编纂出的 Markdown 也用这个名字）">
+        <input class="nt-title" id="ntTitle" value="${esc(NB.title)}" maxlength="60" title="本子名字（导出的 PDF 也用这个名字）">
         <select id="ntPaper" title="纸">${sel("lines", "横线纸")}${sel("grid", "方格纸")}${sel("blank", "白纸")}</select>
         <span class="nt-tools">
           ${COLORS.map((c) => `<button class="nt-dot ${tool.t === "pen" && tool.c === c ? "on" : ""}" data-col="${c}" style="--c:${c}" title="笔"></button>`).join("")}
@@ -177,7 +177,7 @@
           ${touchDev() ? `<button data-act="finger" class="${FINGER === "draw" ? "on" : ""}" title="手指写字（关掉 = 手指只翻页，笔写字）">☝</button>` : ""}
         </span>
         <span class="spacer"></span>
-        <button class="primary nt-compile" id="ntCompile" title="${INFO.vision ? "师傅用识图模型认手写，排成 Markdown 存进 训练/手札/" : INFO.ai ? "师傅用电脑自带认字读手写，再排成 Markdown（认不准时可在设置里填识图模型）" : "没填 AI：只能认字，不排版"}">🧙 师傅编纂</button>
+        <button class="primary nt-compile" id="ntPdf" title="整本（连横线 / 方格纸）存成 A4 PDF：训练/手札/导出/本子名.pdf">📄 导出 PDF</button>
         <button class="ghost small nt-fullbtn" id="ntFull" title="全屏写（再点一次退出）">${fullIcon(isFull())}</button>
         <button class="ghost small" id="ntClose" title="收起本子（已自动保存）">✕</button>
       </div>
@@ -210,7 +210,7 @@
     };
     $$("ntClose").onclick = async () => { if (await flush()) { setFull(false); NB = null; repaintSide(); paintMain(); } };
     $$("ntFull").onclick = () => setFull(!isFull());
-    $$("ntCompile").onclick = compile;
+    $$("ntPdf").onclick = exportPdf;
     document.querySelectorAll(".nt-tools [data-col]").forEach((b) => (b.onclick = () => { tool = { t: "pen", c: b.dataset.col, w: tool.t === "pen" ? tool.w : WIDTHS[1] }; syncTools(); }));
     document.querySelectorAll(".nt-tools [data-w]").forEach((b) => (b.onclick = () => { if (tool.t === "er") tool.t = "pen"; tool.w = Number(b.dataset.w); syncTools(); }));
     document.querySelectorAll(".nt-tools [data-tool]").forEach((b) => (b.onclick = () => { tool.t = tool.t === b.dataset.tool ? "pen" : b.dataset.tool; syncTools(); }));
@@ -448,39 +448,51 @@
   }
   addEventListener("beforeunload", () => { if (NB && dirty) navigator.sendBeacon?.("/api/notes/save", new Blob([JSON.stringify({ id: NB.id, title: NB.title, paper: NB.paper, pages: NB.pages, text: NB.text })], { type: "application/json" })); });
 
-  // ---------------------------------------------------------------- 师傅编纂
+  // ---------------------------------------------------------------- 📄 导出 PDF
+  // 每页画成图片（纸的横线 / 方格 + 笔迹，橡皮擦掉的地方露出纸），末尾没写字的空白页不要
   function pageImages() {
-    const out = [];
-    NB.pages.forEach((pg) => {
-      if (!pg.strokes.some((s) => s.t !== "er")) return;
+    const K = 1.6, out = [];
+    let last = -1;
+    NB.pages.forEach((pg, i) => { if (pg.strokes.some((s) => s.t !== "er")) last = i; });
+    for (let i = 0; i <= last; i++) {
       const c = document.createElement("canvas");
-      c.width = PW; c.height = PH;
+      c.width = PW * K; c.height = PH * K;
+      drawPaper(c);
       const ink = document.createElement("canvas");
-      ink.width = PW; ink.height = PH;
+      ink.width = PW * K; ink.height = PH * K;
       const ix = ink.getContext("2d");
-      for (const s of pg.strokes) strokeOn(ix, s);
+      ix.setTransform(K, 0, 0, K, 0, 0);
+      for (const s of NB.pages[i].strokes) strokeOn(ix, s);
       const x = c.getContext("2d");
-      x.fillStyle = "#ffffff"; x.fillRect(0, 0, PW, PH);
+      x.setTransform(1, 0, 0, 1, 0, 0);
       x.drawImage(ink, 0, 0);
-      out.push(c.toDataURL("image/png"));
-    });
+      out.push(c.toDataURL("image/jpeg", 0.88));
+    }
     return out;
   }
-  async function compile() {
+  async function exportPdf() {
     if (busy) return;
     if (!(await flush())) return;
-    const b = document.getElementById("ntCompile");
-    busy = true; b.disabled = true; b.textContent = "🧙 编纂中…";
+    const b = document.getElementById("ntPdf");
+    busy = true; b.disabled = true; b.textContent = "📄 导出中…";
     try {
-      const r = await api("/api/notes/compile", { id: NB.id, images: pageImages(), text: NB.text || "" });
-      NB.compiled = r.path;
-      READ = { path: r.path, name: r.path.split("/").pop().replace(/\.md$/, ""), text: r.markdown, images: {} };
-      toast(`🧙 编纂好了（${esc(r.how)}）：存在 ${esc(r.path)}`);
-      BOOKS = (await api("/api/notes")).notebooks;
-      repaintSide(); paintMain();
+      const imgs = pageImages();
+      if (!imgs.length) throw new Error("这本手札还没写字，没有可以导出的页");
+      const r = await api("/api/notes/pdf", { id: NB.id, images: imgs });
+      const local = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+      const el = document.createElement("div");
+      el.className = "toast nt-pdf-toast";
+      el.innerHTML = `📄 导出好了：${r.pages} 页 · ${(r.size / 1024 / 1024).toFixed(1)} MB<div class="small muted">${esc(r.path)}</div>
+        <div class="row">${local ? '<button class="small primary" data-o="open">打开</button>' : `<a class="small" href="${esc(r.url)}" download="${esc(r.name)}" target="_blank" rel="noopener">⬇ 下载到这台设备</a>`}
+          <span class="spacer"></span><button class="small ghost" data-o="x">关</button></div>`;
+      document.getElementById("toasts").appendChild(el);
+      const tm = setTimeout(() => el.remove(), 20000);
+      el.querySelector('[data-o="x"]').onclick = () => { clearTimeout(tm); el.remove(); };
+      const o = el.querySelector('[data-o="open"]');
+      if (o) o.onclick = async () => { try { await api("/api/notes/open", { path: r.path }); } catch (e) { showError(e); } };
     } catch (e) { showError(e); }
     busy = false;
-    const b2 = document.getElementById("ntCompile"); if (b2) { b2.disabled = false; b2.textContent = "🧙 师傅编纂"; }
+    const b2 = document.getElementById("ntPdf"); if (b2) { b2.disabled = false; b2.textContent = "📄 导出 PDF"; }
   }
 
   // ---------------------------------------------------------------- 阅读栏
