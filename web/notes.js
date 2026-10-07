@@ -191,7 +191,7 @@
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
   }
   function pageHtml(i) {
-    return `<div class="nt-page" data-pg="${i}"><canvas class="nt-bg"></canvas><canvas class="nt-ink" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
+    return `<div class="nt-page" data-pg="${i}"><canvas class="nt-bg"></canvas><canvas class="nt-ink" data-pg="${i}"></canvas><canvas class="nt-live" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
   }
   function bindBook() {
     sizePages();
@@ -276,19 +276,42 @@
     }
     x.restore();
   }
-  function inkCtx(i) {
-    const c = document.querySelector(`.nt-ink[data-pg="${i}"]`);
+  function inkCtx(i, cls = "nt-ink") {
+    const c = document.querySelector(`.${cls}[data-pg="${i}"]`);
     if (!c) return null;
     const x = c.getContext("2d"), k = c.width / PW;
     x.setTransform(k, 0, 0, k, 0, 0);
     return x;
   }
-  function repaint(i, extra) {
+  // 整页重画只在撤销 / 重做 / 换尺寸时做；写字时只画正在写的这一笔（以前每动一下都把整页重画一遍，写得越多越卡）
+  function repaint(i) {
     const x = inkCtx(i);
     if (!x) return;
     x.clearRect(0, 0, PW, PH);
     for (const s of NB.pages[i].strokes) strokeOn(x, s);
-    if (extra) strokeOn(x, extra);
+  }
+  let liveRaf = 0, livePage = -1, liveStroke = null;
+  function drawLive() {
+    liveRaf = 0;
+    const s = liveStroke;
+    if (!s) return;
+    if (s.t === "er") { const x = inkCtx(livePage); if (x) strokeOn(x, s); return; }   // 橡皮直接擦在墨迹层上（重复擦同一处结果不变）
+    const x = inkCtx(livePage, "nt-live");
+    if (!x) return;
+    x.clearRect(0, 0, PW, PH);
+    strokeOn(x, s);
+  }
+  function live(i, s) {
+    livePage = i; liveStroke = s;
+    if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);     // 一帧最多画一次
+  }
+  function commitLive(i, s) {
+    if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = 0; }
+    const lx = inkCtx(i, "nt-live");
+    if (lx) lx.clearRect(0, 0, PW, PH);
+    const x = inkCtx(i);
+    if (x) strokeOn(x, s);                                       // 只把这一笔加到墨迹层上
+    liveStroke = null;
   }
   // 笔 / 鼠标 → 写；手指 → 翻页（FINGER=scroll 时，翻页由这里自己做，浏览器不插手，笔写字时页面不会跟着滑）
   let inking = false;
@@ -317,7 +340,7 @@
       pid = e.pointerId; inking = true;
       const er = tool.t === "er" || e.button === 5;
       cur = { t: er ? "er" : tool.t, c: tool.t === "hl" ? "#f5d000" : tool.c, w: er ? 26 : tool.t === "hl" ? 22 : tool.w, p: [pt(e)] };
-      repaint(i, cur);
+      live(i, cur);
     };
     c.onpointermove = (e) => {
       if (drag && e.pointerId === drag.id) {
@@ -330,7 +353,7 @@
       if (!cur || e.pointerId !== pid) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       for (const ev of evs) cur.p.push(pt(ev));
-      repaint(i, cur);
+      live(i, cur);
     };
     c.onpointerup = c.onpointercancel = (e) => {
       if (drag && e.pointerId === drag.id) {
@@ -341,8 +364,9 @@
       if (!cur || e.pointerId !== pid) return;
       NB.pages[i].strokes.push(cur);
       undo.push({ page: i, stroke: cur }); redo = [];
+      commitLive(i, cur);
       cur = null; pid = null; inking = false; lastWrite = Date.now();
-      repaint(i); syncTools(); queueSave();
+      syncTools(); queueSave();
     };
   }
   let flingT = 0;
@@ -397,21 +421,30 @@
   });
 
   // ---------------------------------------------------------------- 存
+  let ver = 0, saving = null;      // ver：每改一次加一；存的时候又写了新笔画，存完还要再存（以前会把存盘途中写的几笔当成已存，丢掉）
   function queueSave() {
-    dirty = true;
+    dirty = true; ver++;
     clearTimeout(saveT);
     saveT = setTimeout(flush, 1200);
   }
   async function flush() {
     clearTimeout(saveT);
+    if (saving) { await saving; }
     if (!NB || !dirty) return true;
+    const v0 = ver, book = NB;
+    const body = JSON.stringify({ id: book.id, title: book.title, paper: book.paper, pages: book.pages, text: book.text });
+    let done;
+    saving = new Promise((r) => (done = r));
     try {
-      const r = await api("/api/notes/save", { id: NB.id, title: NB.title, paper: NB.paper, pages: NB.pages, text: NB.text });
-      dirty = false;
-      const b = BOOKS.find((x) => x.id === NB.id);
-      if (b && (b.title !== r.title || b.pages !== NB.pages.length)) { b.title = r.title; b.pages = NB.pages.length; repaintSide(); }
+      const r = await fetch("/api/notes/save", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((x) => x.json());
+      if (r.error) throw new Error(r.error);
+      saving = null; done();
+      const b = BOOKS.find((x) => x.id === book.id);
+      if (b && (b.title !== r.title || b.pages !== book.pages.length)) { b.title = r.title; b.pages = book.pages.length; repaintSide(); }
+      if (NB === book && ver !== v0) return flush();       // 存的这会儿又写了：接着存，直到存上最新的
+      if (NB === book) dirty = false;
       return true;
-    } catch (e) { showError(e); return false; }
+    } catch (e) { saving = null; done(); showError(e); return false; }
   }
   addEventListener("beforeunload", () => { if (NB && dirty) navigator.sendBeacon?.("/api/notes/save", new Blob([JSON.stringify({ id: NB.id, title: NB.title, paper: NB.paper, pages: NB.pages, text: NB.text })], { type: "application/json" })); });
 

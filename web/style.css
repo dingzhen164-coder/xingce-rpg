@@ -1098,6 +1098,7 @@ html.in-notes main { max-width: 1600px; padding-bottom: 12px; }
 .nt-page { position: relative; width: min(100%, 900px); aspect-ratio: 1000 / 1414; flex: 0 0 auto; background: #fff; border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
 .nt-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .nt-page .nt-ink { touch-action: none; cursor: crosshair; }
+.nt-page .nt-live { pointer-events: none; }
 .nt-page, .nt-page canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .nt-pno { position: absolute; right: 10px; bottom: 6px; font-size: 12px; color: #9a9080; pointer-events: none; }
 .nt-addpage { flex: 0 0 auto; }
