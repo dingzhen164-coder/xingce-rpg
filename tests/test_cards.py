@@ -170,3 +170,68 @@ class CardsApiTest(unittest.TestCase):
         self.assertEqual(r["card"]["front"], "“不刊之论”的刊？")
         d = api.dashboard({})
         self.assertTrue(any(t["type"] == "cards" for t in d["plan"]["tasks"]))
+
+
+class CardGenTest(CardsApiTest):
+    """🧙 师傅制卡（PDF / Markdown → AI 出卡草稿 → 刻入）和 AI 方案切换"""
+
+    def _pdf(self):
+        import pymupdf
+        doc = pymupdf.open()
+        for i, t in enumerate(["第一章 增长\n隔年增长率 = r1 + r2 + r1×r2，用于求隔一年的增长率。" * 3,
+                               "第二章 比重\n现期比重 = 部分 / 整体。" * 3, ""]):
+            p = doc.new_page()
+            if t:
+                p.insert_text((50, 72), t, fontname="china-s", fontsize=11)
+        doc.set_toc([[1, "第一章 增长", 1], [1, "第二章 比重", 2], [1, "插图", 3]])
+        return "data:application/pdf;base64," + __import__("base64").b64encode(doc.tobytes()).decode()
+
+    def test_pdf_to_cards(self):
+        from unittest.mock import patch
+        from rpg import ai
+        info = api.cardgen_load({"kind": "file", "name": "花生资料分析.pdf", "data": self._pdf()})
+        self.assertEqual((info["kind"], info["pages"], [t["title"] for t in info["toc"]]), ("pdf", 3, ["第一章 增长", "第二章 比重", "插图"]))
+        plan = api.cardgen_chunks({"src": info["src"], "sections": [0]})
+        self.assertEqual([c["pages"] for c in plan["chunks"]], [[1]])
+        plan = api.cardgen_chunks({"src": info["src"], "pages": [1, 3]})
+        self.assertEqual(sum(len(c["pages"]) for c in plan["chunks"]), 3)
+        reply = ('```json\n{"cards": [{"type": "问答", "front": "隔年增长率公式？", "back": "r1 + r2 + r1×r2", "tags": ["#增长"]},'
+                 '{"type": "填空", "front": "现期比重 = {{c1::部分}} / 整体", "back": "", "tags": "比重"},'
+                 '{"type": "问答", "front": "没有答案的卡", "back": ""}]}\n```')
+        with patch.object(ai, "available", return_value=True), patch.object(ai, "vision_available", return_value=False), \
+                patch.object(ai, "chat", return_value=reply) as chat:
+            r = api.cardgen_gen({"src": info["src"], "chunk": plan["chunks"][0], "deck": "资料分析", "density": "精简", "types": "问答"})
+        self.assertIn("隔年增长率", chat.call_args.args[0][1]["content"])
+        self.assertIn("只出问答卡", chat.call_args.args[0][1]["content"])
+        self.assertEqual(r["skipped"], [3])                                  # 第 3 页没字、没识图模型：跳过
+        self.assertEqual([(c["type"], c["tags"]) for c in r["cards"]], [("问答", ["增长"]), ("填空", ["比重"])])
+        self.assertTrue(r["cards"][0]["extra"].startswith("出自《花生资料分析》"))
+        a = api.cards_add_many({"deck": "资料分析::速算", "cards": r["cards"] + [{"type": "填空", "front": "没挖空"}]})
+        self.assertEqual((a["added"], a["skipped"]), (2, 1))
+        self.assertEqual(api.cards_search({"deck": "资料分析"})["total"], 2)
+
+    def test_markdown_sections(self):
+        md = "---\ntags: x\n---\n# 增长\n## 隔年增长\n" + "隔年增长率内容。\n\n" * 5 + "## 混合增长\n混合增长率内容。\n# 比重\n比重内容。\n"
+        info = api.cardgen_load({"kind": "paste", "name": "笔记", "text": md})
+        self.assertEqual([t["title"] for t in info["toc"]], ["增长", "隔年增长", "混合增长", "比重"])
+        plan = api.cardgen_chunks({"src": info["src"], "sections": [1]})
+        self.assertEqual(len(plan["chunks"]), 1)
+        self.assertIn("隔年增长率内容", plan["chunks"][0]["text"])
+        self.assertNotIn("混合增长率内容", plan["chunks"][0]["text"])
+        self.assertNotIn("tags: x", api.cardgen_chunks({"src": info["src"]})["chunks"][0]["text"])
+
+    def test_ai_profiles_switch(self):
+        api.settings_set({"api_key": "sk-deep", "base_url": "https://api.deepseek.com", "model": "deepseek-chat"})
+        api.ai_profile({"action": "save", "name": "DeepSeek"})
+        api.settings_set({"api_key": "sk-qwen", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus"})
+        s = api.settings_get({})
+        self.assertEqual(s["ai_active"], "")                                 # 改了设置：不再是 DeepSeek 那套
+        api.ai_profile({"action": "save", "name": "千问"})
+        s = api.ai_profile({"action": "use", "name": "DeepSeek"})
+        self.assertEqual((s["model"], s["key_tail"], s["ai_active"]), ("deepseek-chat", "deep", "DeepSeek"))
+        self.assertEqual([p["name"] for p in s["ai_profiles"]], ["DeepSeek", "千问"])
+        self.assertNotIn("api_key", s["ai_profiles"][0])                      # key 不回给网页
+        s = api.ai_profile({"action": "use", "name": "千问"})
+        self.assertEqual(s["base_url"], "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        api.ai_profile({"action": "delete", "name": "千问"})
+        self.assertEqual(api.settings_get({})["ai_active"], "")

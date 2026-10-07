@@ -630,6 +630,33 @@ def add(g, body):
     return {"id": n["id"], "cards": len(card_ords(n))}
 
 
+def add_many(g, deck, items):
+    """一次刻入多枚（师傅制卡审完后）：[{type, front, back, tags, extra}]，格式不对的跳过"""
+    deck = _clean_deck(deck)
+    notes, headers = load(g.paths)
+    taken = {x["id"] for x in notes}
+    added, bad = 0, 0
+    for it in items or []:
+        typ = it.get("type") if it.get("type") in TYPES else "问答"
+        tags = it.get("tags") or []
+        if isinstance(tags, str):
+            tags = re.split(r"[\s,，、]+", tags)
+        n = {"id": _new_id(taken), "deck": _clean_deck(it.get("deck") or deck), "type": typ,
+             "tags": [str(t) for t in tags if str(t).strip()][:20], "front": str(it.get("front") or "").strip(),
+             "back": str(it.get("back") or "").strip(), "extra": str(it.get("extra") or "").strip()}
+        try:
+            _check(n)
+        except CardError:
+            bad += 1
+            continue
+        n["file"] = _safe_file(n["deck"])
+        notes.append(n)
+        added += 1
+    save_notes(g.paths, notes, headers, {_safe_file(deck)} | {n["file"] for n in notes[-added:]} if added else set())
+    data(g)["decks"].setdefault(deck, {})
+    return {"added": added, "skipped": bad}
+
+
 def update(g, body):
     notes, headers = load(g.paths)
     n = next((x for x in notes if x["id"] == body.get("id")), None)

@@ -1318,3 +1318,28 @@ html.in-app .yj-top { padding-left: max(16px, env(safe-area-inset-left)); paddin
   .yj-rate b { font-size: 16px; letter-spacing: 1px; }
 }
 html.yj-on #toasts { bottom: 96px; }
+.ai-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin: 4px 0 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.ai-switch select { width: auto; flex: 1 1 220px; }
+select.ai-preset { width: auto; padding: 2px 6px; font-size: 12px; margin-left: 6px; }
+/* 🧙 师傅制卡 */
+.yj-gen { width: min(1000px, 100%); margin: 0 auto; padding: 16px; box-sizing: border-box; }
+.yj-gen .card h3 { margin-top: 0; }
+.yj-gsrc { margin-top: 10px; }
+.yj-gsrc textarea { width: 100%; box-sizing: border-box; margin-top: 6px; }
+.yj-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px; border: 2px dashed var(--jade-line); border-radius: 12px; cursor: pointer; background: var(--jade-soft); }
+.yj-gfiles { max-height: 260px; overflow-y: auto; margin-top: 6px; display: flex; flex-direction: column; }
+.yj-gfiles a { padding: 5px 8px; border-radius: 6px; cursor: pointer; color: var(--text); text-decoration: none; }
+.yj-gfiles a:hover { background: var(--jade-soft); }
+.yj-ginfo { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.yj-toc { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; }
+.yj-toc label { padding: 3px 6px 3px calc(6px + var(--lv, 0) * 18px); border-radius: 6px; cursor: pointer; }
+.yj-toc label:hover { background: var(--jade-soft); }
+.yj-toc input, .yj-gcard input[type=checkbox] { width: auto; }
+input.yj-pg { width: 80px; display: inline-block; padding: 4px 8px; }
+.yj-gcards { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.yj-gcard { border: 1px solid var(--jade-line); border-radius: 10px; padding: 8px 10px; background: var(--panel); }
+.yj-gcard.off { opacity: .45; border-color: var(--line); }
+.yj-gcard textarea { width: 100%; box-sizing: border-box; min-height: 0; margin-top: 6px; font-size: 15px; }
+.yj-gcard a[data-del] { cursor: pointer; color: var(--faint); padding: 0 6px; }
+input.yj-gtags { width: 180px; padding: 3px 8px; font-size: 12px; }
+#gAll, #gNone { cursor: pointer; }

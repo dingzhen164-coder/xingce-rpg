@@ -559,10 +559,16 @@ const views = {
       <label class="small muted">行测库路径（含 copilot/skills 的文件夹；程序放在库里时会自动找到）</label>
       <input id="sVault" value="${esc(s.vault_setting)}" placeholder="${esc(s.vault || "例如 C:\\Users\\你\\Desktop\\行测obsidian\\行测")}">
       <div class="small faint">当前使用：${esc(s.vault || "未找到")}</div><br>
+      <div class="ai-switch"><b>🤖 当前 AI</b>
+        <select id="sProf">${(s.ai_profiles || []).map(p => `<option value="${esc(p.name)}" ${p.name === s.ai_active ? "selected" : ""}>${esc(p.name)} · ${esc(p.model)}</option>`).join("")}
+          ${s.ai_active && (s.ai_profiles || []).some(p => p.name === s.ai_active) ? "" : `<option value="" selected>（当前设置：${esc(s.model)}，还没存成方案）</option>`}</select>
+        <button class="small" id="sProfSave" title="把下面这套 接口地址 + 模型 + key 存成一套，起个名字">💾 存为一套</button>
+        ${(s.ai_profiles || []).length ? '<button class="small ghost" id="sProfDel" title="删掉下拉里选中的这套">🗑</button>' : ""}</div>
+      <p class="small muted" style="margin-top:2px">常用的几套（DeepSeek、通义千问、Kimi、智谱…）各存一套，下拉一选就换；导师、师傅解惑、师傅讲讲、师傅制卡都跟着换。新加一套：下面「常用接口」选一个、填 key 和模型 → 保存 → 「存为一套」。</p>
       <label class="small muted">AI 的 API key ${s.has_key ? `（已填写，末尾 ${esc(s.key_tail)}；不改就留空）` : ""}</label>
       <input id="sKey" type="password" placeholder="sk-……">
       <div class="row" style="margin-top:8px">
-        <div style="flex:2"><label class="small muted">接口地址</label><input id="sBase" value="${esc(s.base_url)}"></div>
+        <div style="flex:2"><label class="small muted">接口地址 <select id="sPreset" class="ai-preset"><option value="">常用接口…</option>${AI_PRESETS.map((p, i) => `<option value="${i}">${esc(p[0])}</option>`).join("")}</select></label><input id="sBase" value="${esc(s.base_url)}"></div>
         <div style="flex:1"><label class="small muted">模型</label><input id="sModel" value="${esc(s.model)}"></div></div>
       <details class="sv-vision" style="margin-top:10px"${s.vision_model ? " open" : ""}><summary class="small">🪶 识图模型（手札「师傅编纂」认手写字用，可不填）</summary>
       <p class="small muted">填一个能看图的模型（如 qwen-vl-max、gpt-4o、glm-4v），师傅直接看手写页面整理；不填就先用本机认字（Windows / Mac 自带）再交给上面的模型排版。接口地址、key 和上面一样时留空。</p>
@@ -581,6 +587,17 @@ const views = {
       <p class="small muted">头像：把图片放进 <b>训练/</b>，文件名写进角色设定.md 的“头像”“修仙.导师头像”。</p></div>`;
   },
 };
+
+// 设置里「常用接口」：[名字, 接口地址, 默认模型]（都是 OpenAI 兼容接口；模型名可以自己改）
+const AI_PRESETS = [
+  ["DeepSeek", "https://api.deepseek.com", "deepseek-chat"],
+  ["DeepSeek（深度思考）", "https://api.deepseek.com", "deepseek-reasoner"],
+  ["通义千问（阿里百炼）", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"],
+  ["Kimi（月之暗面）", "https://api.moonshot.cn/v1", ""],
+  ["智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"],
+  ["硅基流动", "https://api.siliconflow.cn/v1", ""],
+  ["OpenAI", "https://api.openai.com/v1", ""],
+];
 
 // ------------------------------------------------------------ 交互绑定
 function bindTaskClicks(root) {
@@ -1445,12 +1462,39 @@ function bindSettings() {
   document.querySelectorAll("button[data-style]").forEach((b) => (b.onclick = async () => {   // 风格按钮（不能用 data-theme：<html data-theme> 是明暗）
     try { await api("/api/theme", { theme: b.dataset.style }); await refresh(); render(); } catch (e) { showError(e); }
   }));
-  $("#sSave").onclick = async () => {
+  const prof = $("#sProf");
+  if (prof) prof.onchange = async () => {
+    if (!prof.value) return;
+    try { await api("/api/settings/ai_profile", { action: "use", name: prof.value }); toast(`🤖 已换成「${esc(prof.value)}」`); await refresh(); render(); } catch (e) { showError(e); }
+  };
+  const ps = $("#sProfSave");
+  if (ps) ps.onclick = async () => {
+    const name = prompt("给这套 AI 起个名字（如 DeepSeek、通义千问、Kimi）。会存下面填的接口地址、模型和 key：", $("#sModel").value || "");
+    if (!name) return;
+    try { await api("/api/settings", formBody()); await api("/api/settings/ai_profile", { action: "save", name }); toast(`💾 已存为「${esc(name)}」`); await refresh(); render(); } catch (e) { showError(e); }
+  };
+  const pd = $("#sProfDel");
+  if (pd) pd.onclick = async () => {
+    if (!prof.value || !confirm(`删掉「${prof.value}」这套？（当前用着的设置不变）`)) return;
+    try { await api("/api/settings/ai_profile", { action: "delete", name: prof.value }); render(); } catch (e) { showError(e); }
+  };
+  const pre = $("#sPreset");
+  if (pre) pre.onchange = () => {
+    const p = AI_PRESETS[+pre.value];
+    if (!p) return;
+    $("#sBase").value = p[1]; $("#sModel").value = p[2]; $("#sKey").value = ""; $("#sKey").placeholder = `${p[0]} 的 API key`;
+    toast(`已填好 ${esc(p[0])} 的接口地址${p[2] ? "和模型" : "，模型名填一下"}；再填 key，点「保存」`);
+    pre.value = "";
+  };
+  function formBody() {
     const body = { vault: $("#sVault").value, base_url: $("#sBase").value, model: $("#sModel").value };
     if ($("#sKey").value.trim()) body.api_key = $("#sKey").value.trim();
     body.vision_model = $("#sVModel").value.trim(); body.vision_base_url = $("#sVBase").value.trim();
     if ($("#sVKey").value.trim()) body.vision_api_key = $("#sVKey").value.trim();
-    try { await api("/api/settings", body); $("#sMsg").textContent = "已保存"; await refresh(); } catch (e) { showError(e); }
+    return body;
+  }
+  $("#sSave").onclick = async () => {
+    try { await api("/api/settings", formBody()); $("#sMsg").textContent = "已保存"; await refresh(); } catch (e) { showError(e); }
   };
   $("#sTest").onclick = async () => {
     $("#sMsg").textContent = "测试中…";

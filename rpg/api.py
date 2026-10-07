@@ -69,7 +69,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appapk, appearance, cards, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, cardgen, cards, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -641,7 +641,10 @@ def settings_get(body):
             "base_url": a["base_url"], "model": a["model"],
             "has_key": bool(key), "key_tail": key[-4:] if key else "",
             "vision_model": s.get("vision_model", ""), "vision_base_url": s.get("vision_base_url", ""),
-            "vision_has_key": bool(s.get("vision_api_key"))}
+            "vision_has_key": bool(s.get("vision_api_key")),
+            "ai_profiles": [{"name": x.get("name", ""), "base_url": x.get("base_url", ""), "model": x.get("model", ""),
+                             "key_tail": (x.get("api_key") or "")[-4:]} for x in s.get("ai_profiles") or []],
+            "ai_active": s.get("ai_active", "")}
 
 
 def settings_set(body):
@@ -653,12 +656,49 @@ def settings_set(body):
             if not looks_like_vault(Path(v).expanduser()):
                 raise ApiError("这个文件夹里没有 copilot/skills 或 FB模考试卷复盘，不像行测库根目录")
         s["vault"] = v
+    changed = False
     for k in ("api_key", "base_url", "model"):
         if k in body and str(body[k]).strip():
+            changed |= s.get(k) != str(body[k]).strip()
             s[k] = str(body[k]).strip()
+    if changed:                  # 手改了接口 / 模型 / key：已经不是哪一套方案了（要留着就再“存为一套”，同名会覆盖）
+        s["ai_active"] = ""
     for k in ("vision_model", "vision_base_url", "vision_api_key"):     # 识图模型可以清空
         if k in body and (k != "vision_api_key" or str(body[k]).strip()):
             s[k] = str(body[k]).strip()
+    save_settings(s)
+    return settings_get({})
+
+
+def ai_profile(body):
+    """AI 方案：把几套 接口地址 + 模型 + key 存起来，随时切换（切换 = 把那套抄到当前设置）。
+    {action: save（把当前这套存成 name）| use | delete, name}"""
+    s = load_settings()
+    profs = [x for x in s.get("ai_profiles") or [] if x.get("name")]
+    name = str(body.get("name") or "").strip()[:30]
+    act = body.get("action")
+    if not name:
+        raise ApiError("先给这套 AI 起个名字")
+    if act == "save":
+        cur = ai.settings()
+        if not cur["api_key"]:
+            raise ApiError("当前还没填 API key，先填好再存")
+        p = {"name": name, "base_url": cur["base_url"], "model": cur["model"], "api_key": cur["api_key"]}
+        profs = [x for x in profs if x["name"] != name] + [p]
+        s["ai_active"] = name
+    elif act == "use":
+        p = next((x for x in profs if x["name"] == name), None)
+        if not p:
+            raise ApiError("没有这套 AI：%s" % name)
+        s.update(base_url=p["base_url"], model=p["model"], api_key=p["api_key"])
+        s["ai_active"] = name
+    elif act == "delete":
+        profs = [x for x in profs if x["name"] != name]
+        if s.get("ai_active") == name:
+            s["ai_active"] = ""
+    else:
+        raise ApiError("不认识的操作")
+    s["ai_profiles"] = profs
     save_settings(s)
     return settings_get({})
 
@@ -909,6 +949,39 @@ def cards_image(body):
     return _cards(lambda g: cards.save_image(g.paths, body.get("data")), save=False)
 
 
+def cards_add_many(body):
+    return _cards(lambda g: cards.add_many(g, body.get("deck"), body.get("cards") or []))
+
+
+def _gen(fn, body):
+    with open_game(save=False) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        p = g.paths
+    try:
+        return fn(p, body)
+    except (cardgen.GenError, notes.NotesError) as e:
+        raise ApiError(str(e))
+    except ai.AIError as e:
+        raise ApiError(str(e))
+
+
+def cardgen_load(body):
+    return _gen(cardgen.load, body)
+
+
+def cardgen_chunks(body):
+    return _gen(cardgen.chunks, body)
+
+
+def cardgen_files(body):
+    return _gen(lambda p, b: cardgen.vault_files(p), body)
+
+
+def cardgen_gen(body):
+    return _gen(cardgen.gen, body)
+
+
 def cards_explain(body):
     """🙋 师傅讲讲：翻面后看不懂，问 AI（可追问）"""
     with open_game(save=False) as g:
@@ -941,10 +1014,12 @@ ROUTES[("GET", "/api/version")] = version_get
 ROUTES[("GET", "/api/changelog")] = changelog_get
 ROUTES[("GET", "/api/app/latest")] = app_latest
 ROUTES[("GET", "/api/cards")] = cards_overview
+ROUTES[("POST", "/api/settings/ai_profile")] = ai_profile
 for _n, _f in (("next", cards_next), ("answer", cards_answer), ("undo", cards_undo), ("add", cards_add), ("note", cards_note),
                ("update", cards_update), ("delete", cards_delete), ("suspend", cards_suspend), ("forget", cards_forget),
                ("move", cards_move), ("deck", cards_deck), ("search", cards_search), ("info", cards_info),
-               ("stats", cards_stats), ("import", cards_import), ("image", cards_image), ("explain", cards_explain)):
+               ("stats", cards_stats), ("import", cards_import), ("image", cards_image), ("explain", cards_explain),
+               ("add_many", cards_add_many), ("gen/load", cardgen_load), ("gen/chunks", cardgen_chunks), ("gen/run", cardgen_gen), ("gen/files", cardgen_files)):
     ROUTES[("POST", "/api/cards/" + _n)] = _f
 ROUTES[("GET", "/api/notes")] = notes_list
 ROUTES[("POST", "/api/notes/get")] = notes_get
