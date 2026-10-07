@@ -73,6 +73,7 @@ function realmUp(e) {
 // ------------------------------------------------------------ 导航 / 风格
 function go(view) {
   if (VIEW === "notes" && view !== "notes" && window.NOTES) NOTES.flush();
+  if (window.CARDS && CARDS.isOpen()) CARDS.close();
   VIEW = view;
   if (window.DRAW) setTimeout(() => DRAW.refresh(), 0);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
@@ -85,6 +86,7 @@ window.xcBack = () => {
   if (click(".img-zoom") || click(".cer-ok") || click(".st-btn")) return true;
   if (document.documentElement.classList.contains("drawing") && window.DRAW) { DRAW.close(); return true; }
   if (window.NOTES && NOTES.isFull()) { NOTES.exitFull(); return true; }
+  if (window.CARDS && CARDS.isOpen()) { CARDS.close(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
   if (VIEW === "home") return false;
@@ -123,7 +125,7 @@ function updatePill() {
 function banner() {
   const w = [];
   if (!DASH.vault) w.push("还没找到行测库，请到“设置”里填写库的路径。");
-  if (!DASH.ai) w.push(`还没填写 AI 的 API key：${W("recite")}和${W("kill")}可以自评，导师聊天 / ${W("feynman")} / ${W("apply")} / 生成${W("skeleton")}需要 AI。去“设置”填写。`);
+  if (!DASH.ai) w.push(`还没填写 AI 的 API key：${W("yj_review")}、${W("kill")}、真题试炼都能用；导师聊天、「🙋 师傅讲讲」、「🧙 师傅解惑」需要 AI。去“设置”填写。`);
   if (DASH.rest > 0) w.push(`${W("qi")}预警：还需调息 ${DASH.rest} 分钟。站起来走走、喝口水。`);
   (DASH.notices || []).forEach((n) => w.push(esc(n)));
   if (DASH.upgraded?.length) w.push("程序升级了配置文件：" + DASH.upgraded.map((n) => `训练/${esc(n)}`).join("、") + "。原来的版本备份成了同名的“.旧版.md”。");
@@ -446,7 +448,7 @@ const views = {
   async skeleton() {
     const tabs = `<div class="lib-head"><h2>${esc(NAV('skeleton'))}</h2><div class="lib-tabs">
       <button class="${LIB.tab === 'gongfa' ? 'on' : ''}" data-libtab="gongfa">📜 功法</button>
-      <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">💠 玉简 · 题库</button>
+      <button class="${LIB.tab === 'yujian' ? 'on' : ''}" data-libtab="yujian">📖 经卷 · 题库</button>
       <button class="${LIB.tab === 'idioms' ? 'on' : ''}" data-libtab="idioms">📗 成语实词录</button></div></div>`;
     if (LIB.tab === 'idioms') return tabs + `<div class="id-root">${await IDIOMS.render()}</div>`;
     if (LIB.tab === 'yujian') return tabs + await yujianHtml() + importCardHtml();
@@ -511,7 +513,7 @@ const views = {
     const d = DASH;
     const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
     const opts = boardOptions(boards);
-    return `<div class="card hongchen"><h3>📥 好题收进题库玉简 <small>纸质资料、其他 App 上碰到的好题收进来；做题记录在${esc(NAV("home"))}的「${esc(W("practice_title"))}」里记</small></h3>
+    return `<div class="card hongchen"><h3>📥 好题收进题库经卷 <small>纸质资料、其他 App 上碰到的好题收进来；做题记录在${esc(NAV("home"))}的「${esc(W("practice_title"))}」里记</small></h3>
       <div class="hc-grid">
         <div>
           <div class="row"><select id="aqBoard" style="flex:1">${opts}</select><input id="aqTopic" placeholder="知识点，如 削弱-他因" style="flex:1.4"><input id="aqSrc" placeholder="出处（可空）" style="flex:1.2"></div>
@@ -519,7 +521,7 @@ const views = {
           ${"ABCD".split("").map((k) => `<div class="row aq-opt"><b>${k}</b><input id="aq${k}" placeholder="选项 ${k}" style="flex:1"></div>`).join("")}
           <div class="row" style="margin-top:6px"><label class="small">答案 <select id="aqAns"><option value="">待补</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label></div>
           <textarea id="aqAna" rows="4" placeholder="解析（可空，以后让师傅解惑补上）" style="margin-top:6px;width:100%"></textarea>
-          <div class="row" style="margin-top:6px"><button class="primary" id="aqBtn">收进题库</button><span class="small muted">追加到 训练/题库/&lt;板块&gt;真题.md，编号 自练-日期-序号；之后试炼、知识点试炼、玉简搜索都能用</span></div>
+          <div class="row" style="margin-top:6px"><button class="primary" id="aqBtn">收进题库</button><span class="small muted">追加到 训练/题库/&lt;板块&gt;真题.md，编号 自练-日期-序号；之后试炼、知识点试炼、经卷搜索都能用</span></div>
         </div>
       </div></div>
     <div class="grid g2">
@@ -582,7 +584,9 @@ const views = {
 
 // ------------------------------------------------------------ 交互绑定
 function bindTaskClicks(root) {
-  root.querySelectorAll("[data-task]").forEach((el) => (el.onclick = () => startTask({ task_id: el.dataset.task })));
+  root.querySelectorAll("[data-task]").forEach((el) => (el.onclick = () => el.dataset.task === "cards:all" && window.CARDS
+    ? (VIEW === "train" ? CARDS.review("") : (HALL = "xiulian", go("train"), setTimeout(() => CARDS.review(""), 300)))
+    : startTask({ task_id: el.dataset.task })));
 }
 function bindRetreatTimer() {
   const el = $("#retreatLeft"), btn = $("#retreatEnd");
@@ -995,46 +999,25 @@ async function hubHtml() {
   const tower = d.tower;
   const gates = `<div class="hall-gates">
     <div class="gate ${HALL === 'xiulian' ? 'on' : ''}" data-hall="xiulian"><div class="gate-cloud"></div><div class="gate-icon">🧘</div>
-      <div class="gate-name">修 炼</div><div class="gate-sub">参悟功法 · 自选大项</div><div class="gate-stat">口诀 · 论道 · 化境 · 试剑 · 斩心魔</div></div>
+      <div class="gate-name">修 炼</div><div class="gate-sub">${esc(W('yj'))}温习 · 斩心魔</div><div class="gate-stat">${esc(W('yj_add'))} · ${esc(W('yj_review'))} · ${esc(W('yj_browse'))} · ${esc(W('yj_stats'))}</div></div>
     <div class="gate ${HALL === 'shizhan' ? 'on' : ''}" data-hall="shizhan"><div class="gate-cloud"></div><div class="gate-icon">⚔</div>
       <div class="gate-name">实 战</div><div class="gate-sub">试炼塔 · 真题成套</div><div class="gate-stat">${tower ? (tower.summit ? '百层已登顶' : `正在攀登第 ${tower.current} 层`) : '真题试炼'}</div></div></div>`;
   const body = HALL === 'shizhan' ? await shizhanHtml() : await xiulianHtml();
   return gates + `<div class="hall-body">${body}</div>`;
 }
 
+// 修炼：上面是玉简（照 Anki 的记忆卡片，web/cards.js），下面斩心魔（模考错题）
 async function xiulianHtml() {
-  const [sk, wr] = await Promise.all([api('/api/skeletons'), api('/api/wrong')]);
+  const [yj, wr] = await Promise.all([window.CARDS ? CARDS.hubHtml() : '', api('/api/wrong')]);
   const tasks = DASH?.plan?.tasks || [];
   const left = tasks.filter(t => !t.done).length;
-  const rec = `<details class="card rec-card" ${left && !XL_BOARD ? 'open' : ''}><summary><b>📜 师尊荐课</b> <span class="small muted">程序按进度排的建议（到期温习、心魔回炉），做不做由你 · 还剩 ${left} 项</span></summary>
+  const rec = `<details class="card rec-card"><summary><b>📜 师尊荐课</b> <span class="small muted">程序按进度排的建议（温简、心魔回炉、真题试炼），做不做由你 · 还剩 ${left} 项</span></summary>
     ${tasks.map(taskRow).join('') || '<div class="muted small">今天没有推荐</div>'}</details>`;
-  const boards = sk.boards;
-  if (!XL_BOARD || !boards.find(b => b.board === XL_BOARD)) XL_BOARD = (boards.find(b => b.final) || boards[0] || {}).board || '';
-  const wmap = Object.fromEntries((wr.boards || []).map(b => [b.board, b]));
-  const seals = `<div class="board-seals">${boards.map(b => {
-    const w = wmap[b.board];
-    const dot = b.final ? '' : '<i class="seal-dot" title="功法还没定稿"></i>';
-    return `<a class="seal ${b.board === XL_BOARD ? 'on' : ''}" data-xlboard="${esc(b.board)}">${esc(b.board)}${dot}${w && w.redo ? `<em>${w.redo}</em>` : ''}</a>`;
-  }).join('')}</div>`;
-  const b = boards.find(x => x.board === XL_BOARD);
-  if (!b) return rec + seals;
-  const w = wmap[b.board] || { total: 0, new: 0, redo: 0, done: 0 };
-  const today = DASH?.today || new Date().toISOString().slice(0, 10);
-  const head = `<div class="art-head"><div><div class="art-title">${esc(b.board)}</div>
-      <div class="small muted">${b.hasSkill ? 'skill：' + esc(b.skill) : '<span style="color:var(--red)">skill 未接入</span>'} · ${b.items.length} 大项 · 入门 ${b.items.filter(i => i.level > 0).length}</div></div><span class="spacer"></span>
-    <button class="primary" data-xlwrong="${esc(b.board)}" ${w.total ? '' : 'disabled'} title="模考板块复盘里做错的题">👹 斩心魔 <small>${w.redo ? `回炉 ${w.redo}` : `未交手 ${w.new}`}</small></button>
-    <button data-xlpill="${esc(b.board)}" ${b.final ? '' : 'disabled'}>⚗ 开炉炼丹</button>
-    ${b.final ? '' : `<button data-skel="${esc(b.board)}">${b.status === '草稿' ? '审阅 / 定稿功法' : '编撰功法'}</button>`}</div>`;
-  if (!b.final) return rec + seals + `<div class="card art-hall">${head}<p class="muted">「${esc(b.board)}」的功法还没定稿：先编撰、定稿，才能逐项修炼。斩心魔可以先做。</p></div>`;
-  const acts = [['teach', '📖'], ['recite', '📿'], ['feynman', '🗣'], ['example', '🌀'], ['apply', '🗡']];
-  const cards = b.items.map(it => {
-    const due = it.next && it.next <= today;
-    return `<div class="art-card ${due ? 'due' : ''} lv${it.level}">
-      <div class="row"><b>${esc(it.name)}</b><span class="spacer"></span><span class="lvchip ${it.rusty ? 'rust' : 'l' + it.level}">${esc(it.rusty && it.level === 0 ? W('rust') : it.levelName)}</span></div>
-      <div class="small muted">${it.terms} ${esc(W('term'))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? '已过' : '待过'}${due ? ' · <b class="due-tag">今日该温习</b>' : it.next ? ' · 下次 ' + it.next : ''}</div>
-      <div class="art-acts">${acts.map(([t, ic]) => `<a data-free="${esc(it.id)}" data-train="${t}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${ic} ${esc(W(t))}</a>`).join('')}</div></div>`;
-  }).join('');
-  return rec + seals + `<div class="card art-hall">${head}<div class="art-grid">${cards}</div></div>`;
+  const boards = (wr.boards || []).filter(b => b.total);
+  const kill = `<div class="card kill-card"><div class="row"><h3 style="margin:0">👹 ${esc(W('kill'))}</h3><span class="small muted">模考板块复盘里做错的题，一只只斩掉</span></div>
+    <div class="kill-grid">${boards.map(b => `<button data-xlwrong="${esc(b.board)}" title="${b.redo ? `回炉 ${b.redo}` : ''}${b.new ? ` 未交手 ${b.new}` : ''}">${esc(b.board)}
+      <small>${b.redo ? `回炉 ${b.redo}` : b.new ? `未交手 ${b.new}` : '已斩尽'}</small></button>`).join('') || '<p class="small muted">还没有模考错题：模考后到宗门大比导入成绩，错题会出现在这里。</p>'}</div></div>`;
+  return rec + yj + kill;
 }
 
 let KP_BOARD = '';               // 知识点试炼里选中的板块
@@ -1049,7 +1032,7 @@ function pointHtml(c, count, order) {
   return `<div class="card kp-card"><div class="row"><h3 style="margin:0">📖 知识点试炼</h3><span class="small muted">挑一类考点连着刷，一组 ${count} 道没做过的，交卷判分</span><span class="spacer"></span>${orderSel(order)}</div>
     <div class="board-seals small-seals">${boards.map(x => `<a class="seal ${x.board === KP_BOARD ? 'on' : ''}" data-kpboard="${esc(x.board)}">${esc(x.board)}</a>`).join('')}</div>
     <div class="toc">${b.topics.map(t => `<a class="toc-chip kp ${t.left ? '' : 'done'}" data-kp="${esc(b.board)}" data-kptopic="${esc(t.name)}" title="未做 ${t.left} / 共 ${t.count}">${esc(t.name)} <span>${t.left}/${t.count}</span></a>`).join('')}
-      ${b.more_topics ? `<span class="small muted">…另有 ${b.more_topics} 个小类，可在藏经阁玉简里搜</span>` : ''}</div>
+      ${b.more_topics ? `<span class="small muted">…另有 ${b.more_topics} 个小类，可在藏经阁经卷里搜</span>` : ''}</div>
     ${b.topics.length <= 2 ? '<p class="small muted">这个板块的知识点还很粗（只有大类）：用导入页「⑨ 补蒸馏解析」后会细分成考点。</p>' : ''}</div>`;
 }
 async function shizhanHtml() {
@@ -1071,7 +1054,7 @@ async function shizhanHtml() {
         ${b.errors.length ? `<div class="warn small">${b.errors.slice(0, 2).map(esc).join('<br>')}</div>` : ''}
         <div class="row"><button class="primary small" data-bank="${esc(b.board)}" data-mode="new" ${!b.active && (!b.remaining || b.errors.length) ? 'disabled' : ''}>${b.active ? '续闯' : '闯关'}</button>
           <button class="small" data-bank="${esc(b.board)}" data-mode="review" ${b.active || !b.wrong ? 'disabled' : ''}>回炉${b.wrong ? ' ' + b.wrong : ''}</button></div></div>`).join('')
-        || '<p class="muted">题库还是空的：到藏经阁「💠 玉简 · 题库」最下面的「📥 导入真题」入库。</p>'}</div></div>
+        || '<p class="muted">题库还是空的：到藏经阁「📖 经卷 · 题库」最下面的「📥 导入真题」入库。</p>'}</div></div>
     <details class="card"><summary><b>📜 ${esc(W('bank_history'))}</b> <span class="small muted">最近 ${d.groups.length} 组</span></summary>${d.groups.map(x => `<div class="row"><span>${esc(x.date)} · ${esc(x.label || x.board)} · ${esc(W(x.mode === 'new' ? 'bank' : 'bank_review'))}</span><span class="spacer"></span><span class="tag ok">${esc(W('bank_rank.' + x.rank))}</span><span>${x.correct}/${x.total}</span>${x.seconds ? `<span class="small muted">⏱ ${clock(x.seconds)}</span>` : ''}</div>`).join('') || '<p class="muted small">尚未留下试炼战绩。</p>'}</details>
     <p class="small muted">点选项的组按考试来：全部选完交卷才揭晓对错，再逐题复盘，看不懂点「🧙 师傅解惑」。首次作答得${esc(W('xp'))}，回炉连续答对 ${d.streak_need} 次消除残影。</p>`;
 }
@@ -1105,6 +1088,7 @@ function bindHub() {
   document.querySelectorAll('[data-xlpill]').forEach(b => b.onclick = () =>
     startTask({ task: { type: 'alchemy', board: b.dataset.xlpill, target: b.dataset.xlpill, title: `⚗ ${W('alchemy')} · ${b.dataset.xlpill}` } }));
   bindTaskClicks($('#view'));
+  if (window.CARDS) CARDS.bindHub($('#view'));
   bindSkeleton();   // 大项练习按钮、编撰功法
   if ($('#bankCount')) bindBank();
 }
@@ -1326,19 +1310,18 @@ function skeletonCard(sk, b) {
     const cls = it.rusty ? "rust" : "l" + it.level;
     return `<tr><td>${esc(it.name)}</td><td class="small muted">${it.terms} ${esc(W("term"))} · ${it.thoughts} 思路 · 举例${it.exampleOk ? "已过" : "待过"}</td>
       <td><span class="lvchip ${cls}">${it.rusty && it.level === 0 ? esc(W("rust")) : esc(it.levelName)}${sub(it)}${it.lapCheck ? ` · 待${esc(W("speedrun"))}` : ""}</span></td>
-      <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td>
-      <td>${b.final ? `${["teach", "recite", "feynman", "example", "apply"].map(type => `<a data-free="${esc(it.id)}" data-train="${type}" data-board="${esc(b.board)}" data-name="${esc(it.name)}">${esc(W(type))}</a>`).join(" · ")}` : ""}</td></tr>`;
+      <td class="small muted">${it.next ? esc(W("review")) + " " + it.next : ""}</td></tr>`;
   }).join("");
   return `<div class="card tome-open"><div class="row"><h3 style="margin:0">📜 ${esc(b.board)} ${st}</h3>${skill}<span class="spacer"></span>
     ${b.final ? "" : `<button class="small" data-skel="${esc(b.board)}">${b.status === "草稿" ? "审阅 / 定稿" : "编撰" + esc(W("skeleton"))}</button>`}</div>
     <div class="small faint">文件：${esc(b.file)}</div>
-    ${rows ? `<table style="margin-top:8px"><tr><th>${esc(W("item"))}（大项）</th><th>内容</th><th>掌握</th><th></th><th></th></tr>${rows}</table>` : '<p class="muted small">这部功法还没有编撰，点右上角按钮开始。</p>'}</div>`;
+    ${rows ? `<table style="margin-top:8px"><tr><th>${esc(W("item"))}（大项）</th><th>内容</th><th>掌握</th><th></th></tr>${rows}</table>` : '<p class="muted small">这部功法还没有编撰，点右上角按钮开始。</p>'}</div>`;
 }
-// 导入真题放在玉简 · 题库最下面：每次模考完第一步就是把试卷 PDF 导入题库
+// 导入真题放在经卷 · 题库最下面：每次模考完第一步就是把试卷 PDF 导入题库
 function importCardHtml() {
   return `<details class="card import-card" id="importCard" style="margin-top:18px"><summary><b>📥 导入真题</b> <span class="small muted">模考 PDF（每周模考完先导这里）、txt、PDF 练习册一键入库；导入一份模考给${esc(W("practice_title"))}记 120 分钟</span></summary><div id="importBody">载入中…</div></details>`;
 }
-// ---- 玉简：题库目录 + 搜题
+// ---- 经卷：题库目录 + 搜题
 const YJ_STATUS = { '': '全部', new: '未做', done: '做对', wrong: '做错（心魔）', pending: '答案待补' };
 const YJ_TAG = { new: '<span class="tag">未做</span>', done: '<span class="tag ok">✓ 做对</span>', wrong: '<span class="tag bad">✗ 心魔</span>', pending: '<span class="tag lock">待补</span>' };
 async function yujianHtml() {
@@ -1350,13 +1333,13 @@ async function yujianHtml() {
     <select id="yjStatus">${Object.entries(YJ_STATUS).map(([k, v]) => `<option value="${k}" ${k === y.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <button class="primary" id="yjGo">搜索</button></div></div>`;
   if (!(y.q || y.board || y.status)) {
-    return bar + `<p class="small muted lib-tip">共 ${c.total} 枚玉简。点一个板块翻目录，或直接在上面搜。</p><div class="tome-grid">${c.boards.map((b, i) => `
+    return bar + `<p class="small muted lib-tip">共 ${c.total} 卷经卷。点一个板块翻目录，或直接在上面搜。</p><div class="tome-grid">${c.boards.map((b, i) => `
       <div class="tome-slot"><div class="slip" data-slip="${esc(b.board)}" style="--d:${(i % 6) * 0.7}s">
         <div class="slip-label">${vlabel(b.board)}</div><div class="slip-count">${b.total}</div></div>
         <div class="tome-cap">做过 ${b.done + b.wrong} · 心魔 ${b.wrong}${b.pending ? ` · 待补 ${b.pending}` : ''}</div></div>`).join('')}</div>`;
   }
   const bd = c.boards.find(b => b.board === y.board);
-  const home = `<button class="ghost small" id="yjHome">← 回到玉简阁</button>`;
+  const home = `<button class="ghost small" id="yjHome">← 回到经卷目录</button>`;
   const toc = bd && bd.topics.length > 1 ? `<div class="card"><div class="row"><b>📖 ${esc(bd.board)} · 目录</b><span class="small muted">按知识点</span><span class="spacer"></span>${home}</div>
     <div class="toc">${[{ name: '', count: bd.total }].concat(bd.topics).map(t => `<a class="toc-chip ${t.name === y.topic ? 'on' : ''}" data-topic="${esc(t.name)}">${esc(t.name || '全部')} <span>${t.count}</span></a>`).join('')}${bd.more_topics ? `<span class="small muted">…另有 ${bd.more_topics} 个小知识点，用搜索找</span>` : ''}</div></div>`
     : `<div class="row">${home}</div>`;
@@ -1369,9 +1352,9 @@ async function yjList() {
   try {
     const r = await api('/api/library/search', { q: y.q, board: y.board, topic: y.topic, status: y.status, page: y.page });
     const pager = r.pages > 1 ? `<div class="row"><button class="ghost small" id="yjPrev" ${r.page ? '' : 'disabled'}>上一页</button><span class="small muted">第 ${r.page + 1}/${r.pages} 页</span><button class="ghost small" id="yjNext" ${r.page + 1 < r.pages ? '' : 'disabled'}>下一页</button></div>` : '';
-    box.innerHTML = `<div class="row"><b>找到 ${r.total} 枚玉简</b>${y.topic ? `<span class="tag">${esc(y.topic)}</span>` : ''}<span class="spacer"></span><span class="small muted">点一枚展开</span></div>
+    box.innerHTML = `<div class="row"><b>找到 ${r.total} 卷经卷</b>${y.topic ? `<span class="tag">${esc(y.topic)}</span>` : ''}<span class="spacer"></span><span class="small muted">点一卷展开</span></div>
       ${r.rows.map(x => `<div class="yj-row" data-key="${esc(x.key)}"><div class="row"><span class="small faint">${esc(x.id)}</span><span class="small muted">${esc(x.board)} · ${esc(x.topic)}</span><span class="spacer"></span>${YJ_TAG[x.status] || ''}</div>
-        <div class="yj-text">${esc(x.text)}</div>${x.paper ? `<div class="small faint">${esc(x.paper)}</div>` : ''}<div class="yj-detail" hidden></div></div>`).join('') || '<p class="muted">没有符合的玉简。</p>'}${pager}`;
+        <div class="yj-text">${esc(x.text)}</div>${x.paper ? `<div class="small faint">${esc(x.paper)}</div>` : ''}<div class="yj-detail" hidden></div></div>`).join('') || '<p class="muted">没有符合的经卷。</p>'}${pager}`;
     if ($('#yjPrev')) $('#yjPrev').onclick = () => { y.page--; yjList(); };
     if ($('#yjNext')) $('#yjNext').onclick = () => { y.page++; yjList(); };
     box.querySelectorAll('.yj-row').forEach(row => row.onclick = (e) => { if (!e.target.closest('.yj-detail')) yjOpen(row); });
@@ -1389,7 +1372,7 @@ async function yjList() {
 async function yjOpen(row) {
   const d = row.querySelector('.yj-detail');
   if (!d.hidden) { d.hidden = true; return; }
-  d.hidden = false; d.innerHTML = '展开玉简…';
+  d.hidden = false; d.innerHTML = '展开经卷…';
   try {
     const q = await api('/api/library/question', { key: row.dataset.key });
     const hist = q.history.length ? q.history.map(h => `${esc(h.date || '')} 选 ${esc(h.answer || '')} ${h.ok ? '✓' : '✗'}${h.seconds ? ' · ' + clock(h.seconds) : ''}`).join('<br>') : '还没做过';
@@ -1476,7 +1459,7 @@ function bindSettings() {
 }
 
 // ------------------------------------------------------------ 修炼计时（心跳）
-// 只在“真正修炼”时计时：开着一项功课（背诵 / 论道 / 试剑 / 斩心魔 / 温养 / 渡劫 / 炼丹，或刚做完在看解析），
+// 只在“真正修炼”时计时：开着一项功课（真题试炼 / 斩心魔 / 渡劫 / 炼丹……，或刚做完在看解析）、在温简、在手札里写字，
 // 页面可见，并且 2 分钟内有键盘鼠标操作（或正在等 AI 判题）。只是开着网页、看面板、和导师闲聊都不计时。
 // 后端也会核对会话是否真的在进行（rpg/trainer.is_studying），前端条件只是省掉无用的上报。
 const BEAT = 30;
@@ -1490,9 +1473,10 @@ function studyingNow() {
 }
 // 在 🪶 手札里写字也算复习：按秒累计“1 分钟内写过字”的时间，心跳时连同本子编号一起报（服务器核对这本最近真的存过笔迹）
 let noteSec = 0;
-setInterval(() => { if (window.NOTES && NOTES.writingId()) noteSec += 1; }, 1000);
+let cardSec = 0;   // 温简也算复习：按秒累计正在温简的时间（web/cards.js 的 active：在温、看得见、2 分钟内有操作）
+setInterval(() => { if (window.NOTES && NOTES.writingId()) noteSec += 1; if (window.CARDS && CARDS.active()) cardSec += 1; }, 1000);
 function updateStudyDot() {
-  const on = studyingNow() || !!(window.NOTES && NOTES.writingId());
+  const on = studyingNow() || !!(window.NOTES && NOTES.writingId()) || !!(window.CARDS && CARDS.active());
   $("#todayPill").classList.toggle("on", on);
   $("#todayPill").title = on ? "正在计时：修炼中" : "未计时：只有做功课时才算修炼时间";
 }
@@ -1501,13 +1485,15 @@ setInterval(async () => {
   updateStudyDot();
   const on = studyingNow();
   beatCount += 1;
-  if (!on && !noteSec && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
+  if (!on && !noteSec && !cardSec && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
   try {
     const nid = !on && window.NOTES ? NOTES.writingId() || (noteSec ? NOTES.lastId() : "") : "";
-    const sec = on ? BEAT : Math.min(BEAT, noteSec);
-    noteSec = 0;
+    const carding = !on && !nid && cardSec > 0;
+    const sec = on ? BEAT : Math.min(BEAT, nid ? noteSec : cardSec);
+    noteSec = 0; cardSec = 0;
     if (nid && sec) await NOTES.save();          // 先把刚写的存上，服务器才认得“最近写过”
-    const r = await api("/api/heartbeat", { seconds: sec, session: on ? T.session : null, notes: nid || null });
+    const r = await api("/api/heartbeat", { seconds: sec, session: on ? T.session : null, notes: nid || null,
+      cards: carding || null, cards_board: carding ? CARDS.board() : null });
     if (DASH) { DASH.minutes.today = r.minutes; DASH.other_device = r.other_device; DASH.rest = r.rest; updatePill(); banner(); }
     handleEvents(r.events);
     if (DASH?.retreat && !r.retreat_on && VIEW === "home") render();

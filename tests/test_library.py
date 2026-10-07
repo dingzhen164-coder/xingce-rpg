@@ -1,4 +1,4 @@
-"""藏经阁·玉简：目录、搜题、看题。"""
+"""藏经阁·经卷：目录、搜题、看题。"""
 import datetime as dt
 import tempfile
 import unittest

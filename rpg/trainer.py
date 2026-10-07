@@ -203,7 +203,7 @@ def _log_file(g, iid):
 
 
 def _msg_text(m):
-    """记进修炼记录的文字：师傅和自己说的话全记；系统消息只记标题行（例题只留“例题 1（真题-xxx）”，题干去玉简里查）"""
+    """记进修炼记录的文字：师傅和自己说的话全记；系统消息只记标题行（例题只留“例题 1（真题-xxx）”，题干去经卷里查）"""
     if m.get("who") == "sys":
         return (m.get("text") or "").strip()
     parts = [m.get("text") or ""] + [b["v"] for b in m.get("blocks", []) if b.get("t") == "text"]
@@ -1606,7 +1606,7 @@ def _start_mreview(g, task):
         raise TrainError("选一季模考再复盘")
     d, boards = mock_boards(g, season)
     if not boards:
-        raise TrainError("第%s季还没有板块复盘：先到藏经阁 → 玉简 · 题库 → 导入真题，导入这一季的模考 PDF" % season)
+        raise TrainError("第%s季还没有板块复盘：先到藏经阁 → 经卷 · 题库 → 导入真题，导入这一季的模考 PDF" % season)
     src = task.get("board") if task.get("board") in boards else boards[0]
     s = new_session("mock_review", "", task, season=season, only_wrong=bool(task.get("only_wrong")))
     _mreview_load(g, s, src)

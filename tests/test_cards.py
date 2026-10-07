@@ -1,0 +1,172 @@
+"""玉简（记忆卡片）：Markdown 存取、FSRS 排期、每日上限、撤销、简匣、导入、藏简阁、心跳计时。"""
+import datetime as dt
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+from rpg import api, cards, config, engine, paths, store
+
+
+class CardsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name)
+        (self.vault / "copilot/skills").mkdir(parents=True)
+        self.p = paths.Paths(self.vault)
+        self.p.ensure_train_dir()
+        self.day = dt.date(2026, 10, 7)
+        self.g = engine.Game(self.p, config.Rules(), config.Persona(), config.Lines(), store.new_state(self.day), self.day)
+        cards._CACHE["key"] = None
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, front, back="答", deck="资料分析::速算", typ="问答", tags=""):
+        return cards.add(self.g, {"deck": deck, "type": typ, "front": front, "back": back, "tags": tags})
+
+    def test_markdown_round_trip_and_obsidian_edits(self):
+        r = self.add("隔年增长率怎么算？", "r = r1 + r2 + r1×r2", tags="增长 公式")
+        f = self.vault / "训练/卡片/资料分析.md"
+        text = f.read_text(encoding="utf-8")
+        self.assertIn("## 玉简 %s\n简匣: 资料分析::速算\n类型: 问答\n标签: 增长 公式\n### 正\n隔年增长率怎么算？" % r["id"], text)
+        # 在 Obsidian 里手写一枚没编号的：读到时补上编号，写回文件
+        f.write_text(text + "## 玉简\n简匣: 资料分析\n类型: 填空\n### 正\n比重差小于 {{c1::增长率差}}，{{c2::右边}}\n### 反\n\n", encoding="utf-8")
+        notes, _ = cards.load(self.p)
+        self.assertEqual(len(notes), 2)
+        self.assertTrue(notes[1]["id"])
+        self.assertIn("## 玉简 %s\n" % notes[1]["id"], f.read_text(encoding="utf-8"))
+        self.assertEqual(cards.card_ords(notes[1]), ["c1", "c2"])
+        # 改内容不丢进度
+        key = "%s#1" % r["id"]
+        cards.answer(self.g, key, 4)
+        cards.update(self.g, {"id": r["id"], "back": "r1 + r2 + r1·r2"})
+        self.assertEqual(self.g.state["cards"]["sched"][key]["st"], 2)
+        # 换到别的顶层简匣 = 换文件
+        cards.move(self.g, [r["id"]], "数量关系::工程")
+        self.assertIn(r["id"], (self.vault / "训练/卡片/数量关系.md").read_text(encoding="utf-8"))
+        self.assertNotIn(r["id"], f.read_text(encoding="utf-8"))
+
+    def test_fsrs_learning_steps_and_intervals(self):
+        r = self.add("问")
+        key = "%s#1" % r["id"]
+        now = time.time()
+        iv = cards.intervals(self.g, key, "资料分析::速算", now)
+        self.assertEqual((iv[1], iv[2], iv[3]), ("1分钟", "6分钟", "10分钟"))
+        self.assertTrue(iv[4].endswith("天"))
+        cards.answer(self.g, key, 3, now=now)                       # 通透 → 第二步 10 分钟
+        s = self.g.state["cards"]["sched"][key]
+        self.assertEqual((s["st"], s["step"]), (1, 1))
+        cards.answer(self.g, key, 3, now=now + 700)                 # 再通透 → 毕业，进复习
+        s = self.g.state["cards"]["sched"][key]
+        self.assertEqual(s["st"], 2)
+        self.assertGreaterEqual(s["ivl"], 1)
+        # 复习卡：四个评分的间隔 晦涩 ≤ 通透 < 了然，再参进入重参
+        s.update(due=self.g.state["cards"]["today"]["d"], last=(dt.date.fromisoformat(s["due"]) - dt.timedelta(days=4)).isoformat())
+        iv = cards.intervals(self.g, key, "资料分析::速算", now)
+        days = [float(iv[k][:-1]) for k in (2, 3, 4)]
+        self.assertTrue(days[0] <= days[1] < days[2])
+        self.assertEqual(iv[1], "10分钟")
+        cards.answer(self.g, key, 1, now=now)
+        s = self.g.state["cards"]["sched"][key]
+        self.assertEqual((s["st"], s["lapses"]), (3, 1))
+
+    def test_queue_limits_undo_and_siblings(self):
+        for i in range(5):
+            self.add("问%d" % i)
+        rev = self.add("正", "反", typ="问答+反向")
+        cards.deck_action(self.g, {"action": "options", "name": "资料分析", "options": {"new_per_day": 3}})
+        order, counts, _ = cards.queue(self.g, "资料分析")
+        self.assertEqual(counts["new"], 3)                          # 上层的每日新简数管着子匣
+        first = order[0]
+        xp = self.g.state["xp"]
+        cards.answer(self.g, first, 4)
+        self.assertEqual(self.g.state["xp"], xp + cards.XP[4])
+        _, counts, _ = cards.queue(self.g, "资料分析")
+        self.assertEqual(counts["new"], 2)
+        self.assertEqual(cards.undo(self.g), first)
+        _, counts, _ = cards.queue(self.g, "资料分析")
+        self.assertEqual(counts["new"], 3)
+        self.assertEqual(self.g.state["xp"], xp)
+        self.assertNotIn(first, self.g.state["cards"]["sched"])
+        # 反向玉简：正向温过后，反向今天不再出
+        cards.deck_action(self.g, {"action": "options", "name": "资料分析", "options": {"new_per_day": 50}})
+        cards.answer(self.g, rev["id"] + "#1", 4)
+        order, _, _ = cards.queue(self.g, "资料分析")
+        self.assertNotIn(rev["id"] + "#2", order)
+        # 暂停的卡不出
+        cards.suspend(self.g, [order[0]])
+        self.assertNotIn(order[0], cards.queue(self.g, "资料分析")[0])
+
+    def test_tree_rename_delete_and_search(self):
+        self.add("甲", deck="资料分析::速算")
+        self.add("乙", deck="资料分析::比重", tags="比重")
+        tree = {d["name"]: d for d in cards.tree(self.g)}
+        self.assertIn("政治理论", tree)                              # 默认 12 个板块
+        self.assertEqual((tree["资料分析"]["new"], tree["资料分析::速算"]["new"], tree["资料分析::速算"]["depth"]), (2, 1, 1))
+        cards.deck_action(self.g, {"action": "rename", "name": "资料分析::速算", "new": "资料分析::速算技巧"})
+        self.assertEqual(cards.search(self.g, {"q": "甲"})["rows"][0]["deck"], "资料分析::速算技巧")
+        self.assertEqual(cards.search(self.g, {"q": "比重"})["total"], 1)
+        with self.assertRaises(cards.CardError):
+            cards.deck_action(self.g, {"action": "delete", "name": "资料分析"})
+        cards.deck_action(self.g, {"action": "delete", "name": "资料分析", "with_cards": True})
+        self.assertEqual(cards.search(self.g, {})["total"], 0)
+        with self.assertRaises(cards.CardError):
+            self.add("{{c1}}不对", typ="填空")
+
+    def test_import_anki_text_and_markdown_table(self):
+        txt = "#separator:tab\n#html:true\n<b>增长量</b>公式？\t现期×r/(1+r)\t增长\n{{c1::基期}} = 现期/(1+r)\t\n坏行\n"
+        r = cards.import_text(self.g, {"deck": "资料分析", "text": txt})
+        self.assertEqual((r["added"], r["skipped"]), (2, 1))
+        rows = cards.search(self.g, {"deck": "资料分析"})["rows"]
+        self.assertEqual(cards.note_get(self.g, rows[0]["id"])["front"], "**增长量**公式？")   # Anki 的粗体转成 Markdown
+        self.assertEqual(rows[0]["front"], "增长量公式？")                                       # 藏简阁列表里显示纯文字
+        self.assertEqual(rows[1]["type"], "填空")
+        table = "Question | Answer | Tags\n------- | -------- | --------\n什么是比重？ | 部分/整体 | 比重\n"
+        self.assertEqual(cards.import_text(self.g, {"deck": "资料分析", "text": table.replace(" | ", "|")}) ["added"], 0)
+        r = cards.import_text(self.g, {"deck": "资料分析", "text": "#separator:pipe\n" + table})
+        self.assertEqual(r["added"], 1)
+
+    def test_stats_and_info(self):
+        r = self.add("问")
+        key = r["id"] + "#1"
+        cards.answer(self.g, key, 4, secs=12)
+        st = cards.stats(self.g)
+        self.assertEqual((st["total_reviews"], st["streak"], st["retention"]), (1, 1, 1.0))
+        self.assertEqual(sum(st["forecast"]), 1)
+        inf = cards.info(self.g, key)
+        self.assertEqual(inf["history"][0]["rating"], "了然")
+        self.assertEqual(inf["sched"]["state"], "复习")
+
+
+class CardsApiTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name)
+        (self.vault / "copilot/skills").mkdir(parents=True)
+        self._settings = paths.SETTINGS_FILE, paths.SETTINGS_DIR
+        paths.SETTINGS_DIR = self.vault / ".home"
+        paths.SETTINGS_FILE = paths.SETTINGS_DIR / "settings.json"
+        paths.save_settings({"vault": str(self.vault)})
+        cards._CACHE["key"] = None
+
+    def tearDown(self):
+        paths.SETTINGS_FILE, paths.SETTINGS_DIR = self._settings
+        self.tmp.cleanup()
+
+    def test_review_flow_and_heartbeat(self):
+        api.cards_add({"deck": "言语", "type": "问答", "front": "“不刊之论”的刊？", "back": "删改"})
+        r = api.cards_next({"deck": "言语"})
+        self.assertEqual(r["card"]["front"], "“不刊之论”的刊？")
+        self.assertEqual(r["intervals"]["1"] if "1" in r["intervals"] else r["intervals"][1], "1分钟")
+        cards.LAST_ANSWER["t"] = 0
+        self.assertFalse(api.heartbeat({"seconds": 30, "cards": True})["studying"])      # 没温简不算
+        r = api.cards_answer({"deck": "言语", "key": r["card"]["key"], "rating": 4, "secs": 8})
+        self.assertTrue(r["done"])
+        hb = api.heartbeat({"seconds": 60, "cards": True})
+        self.assertTrue(hb["studying"])
+        self.assertEqual(hb["minutes"], 1)
+        r = api.cards_undo({"deck": "言语"})
+        self.assertEqual(r["card"]["front"], "“不刊之论”的刊？")
+        d = api.dashboard({})
+        self.assertTrue(any(t["type"] == "cards" for t in d["plan"]["tasks"]))

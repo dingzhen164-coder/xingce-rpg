@@ -180,7 +180,7 @@ class FlowTest(unittest.TestCase):
         d = api.dashboard({})
         self.assertEqual(d["realm"]["name"], "凡人 · 未入道")
         titles = [t["title"] for t in d["plan"]["tasks"]]
-        self.assertIn("编撰「论证逻辑」功法（生成骨架）", titles)
+        self.assertFalse(any(t["type"] in ("skeleton", "recite", "feynman", "apply") for t in d["plan"]["tasks"]))   # 修炼殿改成玉简
         self.assertTrue(any("斩心魔" in t for t in titles))
 
         # 生成功法 → 定稿
@@ -269,7 +269,7 @@ class FlowTest(unittest.TestCase):
         r = api.session_action({"session": r["session"], "action": "discuss_end"})
         self.assertTrue(r["finished"])
 
-        # 另一重也圆满 → 秘境打通、论证灵根觉醒；从藏经阁发起的练习也会勾掉今日功课
+        # 另一重也圆满 → 秘境打通、论证灵根觉醒
         api.plan_regenerate({})
         t2 = {"board": "论证逻辑", "target": "论证逻辑::加强题", "title": "x"}
         for typ in ("recite", "recite", "feynman", "example", "apply", "apply"):
@@ -277,7 +277,6 @@ class FlowTest(unittest.TestCase):
         s = self.state()
         self.assertIn(1, s["cleared"]["1"])
         self.assertTrue(s["roots"]["论证逻辑"]["on"])
-        self.assertTrue(any(t["done"] for t in s["plan"]["tasks"] if t["target"] == "论证逻辑::加强题"))
 
         # 修为推到筑基线 → 瓶颈；两次大比 ≥ 60 → 可以渡劫
         with api.open_game() as g:

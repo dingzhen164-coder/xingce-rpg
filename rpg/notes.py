@@ -238,6 +238,26 @@ def _image_index(paths):
     return _IMG_INDEX["map"]
 
 
+def resolve_images(paths, text, base=None):
+    """文字里的 ![[图]] / ![](图) → {写法: 库内路径}；先按相对 base 的路径找，再按文件名在全库找，找不到为空"""
+    idx, images, root = _image_index(paths), {}, paths.vault.resolve()
+    for m in re.finditer(r"!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]|!\[[^\]]*\]\(([^)\s]+)\)", text or ""):
+        name = (m.group(1) or m.group(2) or "").strip()
+        if name in images:
+            continue
+        local = ""
+        for cand in ([(base / name)] if base else []) + [paths.vault / name]:
+            try:
+                c = cand.resolve()
+                if c.is_file():
+                    local = c.relative_to(root).as_posix()
+                    break
+            except (ValueError, OSError):
+                continue
+        images[name] = local or idx.get(Path(name).name, "")
+    return images
+
+
 def read_md(paths, rel):
     p = (paths.vault / str(rel or "")).resolve()
     try:
@@ -247,17 +267,5 @@ def read_md(paths, rel):
     if p.suffix.lower() != ".md" or not p.is_file():
         raise NotesError("找不到这篇笔记")
     text = p.read_text(encoding="utf-8-sig", errors="replace")
-    idx = _image_index(paths)
-    images = {}
-    for m in re.finditer(r"!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]|!\[[^\]]*\]\(([^)\s]+)\)", text):
-        name = (m.group(1) or m.group(2) or "").strip()
-        if name in images:
-            continue
-        base = Path(name).name
-        cand = (p.parent / name).resolve()
-        try:
-            local = cand.relative_to(paths.vault.resolve()).as_posix() if cand.is_file() else ""
-        except ValueError:
-            local = ""
-        images[name] = local or idx.get(base, "")
+    images = resolve_images(paths, text, p.parent)
     return {"path": Path(rel).as_posix(), "name": p.stem, "text": text, "images": images}

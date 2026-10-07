@@ -97,13 +97,14 @@ class BankTest(unittest.TestCase):
 
     def test_plan_after_skeleton_and_old_state(self):
         self.file.write_text(question('1'), encoding='utf-8')
-        tasks = [self.g._task('recite','论证逻辑','复习','test1'),
+        tasks = [dict(self.g._task('recite','论证逻辑','复习','test1'), done=True),
                  self.g._task('apply','论证逻辑','应用','test2')]
-        self.g.state['plan'] = {'date': self.g.t, 'tasks': tasks}
+        # 修炼殿改成玉简后：今天旧计划里没做的背诵 / 应用拿掉（做完的留着），当前秘境的板块补一项真题试炼
+        self.g.state['plan'] = {'date': self.g.t, 'tasks': tasks, 'boards': ['论证逻辑']}
         self.g.state.pop('bank')
         result = self.g.plan()['tasks']
-        self.assertEqual([t['type'] for t in result], ['recite','apply','bank'])
-        self.assertEqual(len(self.g.plan()['tasks']), 3)
+        self.assertEqual([t['type'] for t in result], ['recite','bank'])
+        self.assertEqual(len(self.g.plan()['tasks']), 2)
         self.assertEqual(self.g.rules.num('每日目标分钟'), 300)   # 修炼 + 听道合计
 
     def test_trial_reward_once_and_theme_feedback(self):

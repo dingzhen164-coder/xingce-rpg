@@ -209,7 +209,7 @@
   function html(d) {
     const o = d.overall, ss = d.seasons;
     if (!ss.length) {
-      return `<div class="card contest-hero"><h2>⚔ ${esc(W("boss"))}</h2><p class="muted">还没有模考。模考完先到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面的「📥 导入真题」导入模考 PDF，这里就会出现成绩与走势。</p></div>`;
+      return `<div class="card contest-hero"><h2>⚔ ${esc(W("boss"))}</h2><p class="muted">还没有模考。模考完先到「${esc(NAV("skeleton"))} → 📖 经卷 · 题库」最下面的「📥 导入真题」导入模考 PDF，这里就会出现成绩与走势。</p></div>`;
     }
     const lr = o.latest_rank;
     const head = `<div class="card contest-hero"><div class="row"><h2>⚔ ${esc(W("boss"))}</h2><span class="small muted">共 ${o.count} 季模考 · 录了成绩单的 ${o.scored} 季</span></div>
@@ -254,7 +254,7 @@
         <tbody>${rows}</tbody></table></div></div>
       ${marksCard(d)}
       ${form(d)}
-      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 💠 玉简 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里导入答题卡截图（对错）→ ③ 录成绩单 → ④ 「📜 大比复盘」逐题复盘 → ⑤ 点「🧙 师傅大比分析」→ ⑥ 去心魔录斩错题。</p>`;
+      <p class="small muted">模考流程：① 到「${esc(NAV("skeleton"))} → 📖 经卷 · 题库」最下面「📥 导入真题」导入模考 PDF（自动拆成板块复盘、入题库，并给演武 · 历练记记 120 分钟）→ ② 在这里导入答题卡截图（对错）→ ③ 录成绩单 → ④ 「📜 大比复盘」逐题复盘 → ⑤ 点「🧙 师傅大比分析」→ ⑥ 去心魔录斩错题。</p>`;
   }
 
   async function loadConv(season) {

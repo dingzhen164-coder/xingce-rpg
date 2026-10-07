@@ -109,7 +109,7 @@
       try { DATA = await api("/api/idioms/tutor", { word: w }); toast("师傅答疑好了：「" + w + "」的辨析已更新"); rerender(); scrollTo(w); }
       catch (e) { showError(e); b.disabled = false; b.textContent = "🧙 师傅答疑"; }
     }));
-    // 真题跳转：切到玉简，搜这道题的编号并直接展开
+    // 真题跳转：切到经卷，搜这道题的编号并直接展开
     document.querySelectorAll(".id-jump").forEach((b) => (b.onclick = () => {
       LIB.tab = "yujian";
       Object.assign(LIB.yj, { q: b.dataset.idq, board: b.dataset.idboard, topic: "", status: "", page: 0, openKey: b.dataset.idkey, from: "idioms" });

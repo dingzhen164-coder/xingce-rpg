@@ -1339,14 +1339,16 @@ class Game:
             t.update(extra)
         return t
 
+    # 修炼殿改成玉简（记忆卡片）后，背诵 / 论道 / 化法为镜 / 试剑 / 温养 / 编撰功法不再进师尊荐课
+    OLD_TASKS = ('recite', 'review', 'speedrun', 'feynman', 'example', 'apply', 'skeleton')
+
     def plan(self, force=False):
         p = self.state.get("plan")
         if p and p.get("date") == self.t and not force:
-            for index, task in enumerate(p["tasks"]):
-                st = self.state["items"].get(task.get("target"), {})
-                if task["type"] == "apply" and not task.get("done") and st.get("level") == 2 and not st.get("example_ok"):
-                    p["tasks"][index] = self._task("example", task["board"], self.T("example") + " · " + task["board"], task["target"])
+            heal = {h["target"] for h in self.state["trib"].get("heal", [])}
+            p["tasks"] = [t for t in p["tasks"] if t.get("done") or t["type"] not in self.OLD_TASKS or t["target"] in heal]
             self._merge_wrong(p["tasks"])
+            self._add_cards_task(p["tasks"])
             self._add_bank_tasks(p["tasks"])
             return p
         tasks, used = [], set()
@@ -1362,61 +1364,42 @@ class Game:
         for t in self._heal_tasks():
             tasks.append(t)
             used.add(t["target"])
-
-        # 2) 功法：当前秘境里还没定稿的板块
-        for b in cur_boards:
-            s = self.skel(b)
-            if not s or not s["final"]:
-                title = f"审阅「{b}」{self.T('skeleton')}草稿并定稿" if s else f"编撰「{b}」{self.T('skeleton')}（生成骨架）"
-                tasks.append(self._task("skeleton", b, title, b))
-
-        # 3) 温养（到期）+ 重温（新周天）
-        due = []
-        for b in self.boards:
-            for it in self.final_items(b):
-                st = self.state["items"].get(it["id"])
-                if not st or st["level"] < 3 or it["id"] in used:
-                    continue
-                if st.get("lap_check") and b in cur_boards:
-                    due.append((0, "speedrun", b, it))
-                elif not st.get("lap_check") and st.get("next") and st["next"] <= self.t:
-                    due.append((1, "review", b, it))
-        for _, typ, b, it in sorted(due, key=lambda x: x[0])[: int(self.rules.num("每日复查上限"))]:
-            tasks.append(self._task(typ, b, f"{self.label(typ)} · {b}「{it['name']}」", it["id"]))
-            used.add(it["id"])
-
-        # 4) 心魔
+        # 2) 温简：今天到期的玉简
+        self._add_cards_task(tasks)
+        # 3) 心魔
         tasks += self._plan_wrong(cur, cur_boards, used)
-
-        # 5) 新修：当前秘境里有定稿功法的板块，按“最久没练”轮换
-        ready = [b for b in cur_boards if self.final_items(b)]
-        last = {b: max([e["d"] for e in self.state["events"] if e.get("board") == b] or [""]) for b in ready}
-        chosen = sorted(ready, key=lambda b: last[b])[: int(self.rules.num("每日新学板块数"))]
-        per = math.ceil(self.rules.num("每日新学大项") / len(chosen)) if chosen else 0
-        for b in chosen:
-            n = 0
-            for it in self.final_items(b):
-                st = self.item(it["id"])
-                if st["level"] >= 3 or it["id"] in used or n >= per:
-                    continue
-                typ = ["recite", "feynman", "apply"][st["level"]]
-                if typ == "apply" and not st.get("example_ok"):
-                    typ = "example"
-                tasks.append(self._task(typ, b, f"{self.label(typ)} · {b}「{it['name']}」", it["id"]))
-                n += 1
-                used.add(it["id"])
-
+        # 4) 真题试炼：当前秘境的板块
+        self.state["plan"] = {"date": self.t, "tasks": tasks, "boards": cur_boards}
         self._add_bank_tasks(tasks)
-        self.state["plan"] = {"date": self.t, "tasks": tasks}
         return self.state["plan"]
+
+    def _add_cards_task(self, tasks):
+        """师尊荐课里的“温简”：今天到期 + 可学的新简；没刻过玉简就不出"""
+        from . import cards
+        try:
+            order, counts, _ = cards.queue(self, "")
+        except Exception:
+            return
+        total = counts["new"] + counts["learn"] + counts["review"]
+        t = next((x for x in tasks if x["type"] == "cards"), None)
+        if t is None:
+            if not total:
+                return
+            t = self._task("cards", "", "", "all")
+            tasks.insert(next((i for i, x in enumerate(tasks) if x["type"] not in ("tribulation",) and x not in self._heal_tasks()), len(tasks)), t)
+        t["title"] = ("温简 · 待温 %d · 参悟中 %d · 新简 %d" % (counts["review"], counts["learn"], counts["new"])) if total else "温简 · 今天的玉简已温完"
+        t["minutes"] = max(1, round((counts["review"] * 10 + counts["learn"] * 10 + counts["new"] * 20) / 60)) if total else 0
+        t["done"] = not total
+        t["ok"] = True if not total else None
 
     def _add_bank_tasks(self, tasks):
         from . import question_bank
-        # 旧日计划立即兼容新入口；保留已经完成的任务，不重复生成实战。
+        # 当前秘境的每个板块一项真题试炼（做过今天这组就打勾）；旧日计划也补上
         data = question_bank.state(self)
-        candidates = list(dict.fromkeys(t['board'] for t in tasks
-                          if t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'example', 'apply')))
-        for b in candidates:
+        p = self.state.get("plan") or {}
+        cur = self.current_batch()
+        boards = p.get("boards") if p.get("date") == self.t and p.get("boards") is not None else (self.batch_boards(cur) if cur is not None else [])
+        for b in boards:
             if any(t['id'] == 'bank:' + b for t in tasks):
                 for t in tasks:
                     if t['id'] == 'bank:' + b:
@@ -1435,9 +1418,7 @@ class Game:
             task['minutes'] = n * max(0, self.rules.num('分钟.实战每题'))
             task['done'] = completed
             task['ok'] = True if completed else None
-            ix = max(i for i, t in enumerate(tasks) if t['board'] == b
-                     and t['type'] in ('recite', 'review', 'speedrun', 'feynman', 'example', 'apply'))
-            tasks.insert(ix + 1, task)
+            tasks.append(task)
 
     def _heal_tasks(self):
         out = []

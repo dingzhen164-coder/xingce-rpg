@@ -69,7 +69,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import appapk, appearance, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, cards, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -466,15 +466,16 @@ def heartbeat(body):
     sec = max(0, min(90, int(body.get("seconds", 0))))
     studying = trainer.is_studying(body.get("session"))
     noting = not studying and bool(body.get("notes")) and notes.writing(body.get("notes"))   # 在手札里写（1 分钟内动过笔）
+    carding = not studying and not noting and bool(body.get("cards")) and cards.reviewing()        # 在温简（2 分半内答过一张）
     with open_game() as g:
         sid = body.get("session")
         if studying and sec:
             ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(sid), trainer.study_board(g, sid)))
-        elif noting and sec:
-            ev = tutor.enrich(g, g.add_seconds(sec, "review", ""))
+        elif (noting or carding) and sec:
+            ev = tutor.enrich(g, g.add_seconds(sec, "review", body.get("cards_board") if carding and body.get("cards_board") in g.boards else ""))
         else:
             ev = []
-        studying = studying or noting
+        studying = studying or noting or carding
         return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 
@@ -816,6 +817,114 @@ def notes_md(body):
     return _notes_call(notes.read_md, body.get("p") or body.get("path"))
 
 
+# ---------------------------------------------------------------- 📜 玉简（记忆卡片，见 rpg/cards.py）
+def _cards(fn, *a, save=True):
+    with open_game(save=save) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        try:
+            return fn(g, *a)
+        except cards.CardError as e:
+            raise ApiError(str(e))
+
+
+def cards_overview(body):
+    return _cards(cards.overview)
+
+
+def cards_next(body):
+    return _cards(lambda g: cards.next_card(g, body.get("deck") or ""))
+
+
+def cards_answer(body):
+    def run(g):
+        ev = tutor.enrich(g, cards.answer(g, body.get("key"), int(body.get("rating") or 0), body.get("secs") or 0))
+        r = cards.next_card(g, body.get("deck") or "")
+        r["events"] = ev
+        return r
+    return _cards(run)
+
+
+def cards_undo(body):
+    def run(g):
+        key = cards.undo(g)
+        r = cards.next_card(g, body.get("deck") or "")
+        if key and r.get("card", {}).get("key") != key:     # 撤销的那张直接再拿出来
+            r["card"] = cards.card_view(g, key)
+            r["intervals"] = cards.intervals(g, key, r["card"]["deck"])
+            r.pop("done", None)
+        return r
+    return _cards(run)
+
+
+def cards_add(body):
+    return _cards(lambda g: cards.add(g, body))
+
+
+def cards_note(body):
+    return _cards(lambda g: cards.note_get(g, body.get("id")), save=False)
+
+
+def cards_update(body):
+    return _cards(lambda g: cards.update(g, body))
+
+
+def cards_delete(body):
+    return _cards(lambda g: cards.delete(g, body.get("ids") or []))
+
+
+def cards_suspend(body):
+    return _cards(lambda g: cards.suspend(g, body.get("keys") or [], bool(body.get("on", True))))
+
+
+def cards_forget(body):
+    return _cards(lambda g: cards.forget(g, body.get("keys") or []))
+
+
+def cards_move(body):
+    return _cards(lambda g: cards.move(g, body.get("ids") or [], body.get("deck")))
+
+
+def cards_deck(body):
+    return _cards(lambda g: cards.deck_action(g, body))
+
+
+def cards_search(body):
+    return _cards(lambda g: cards.search(g, body))
+
+
+def cards_info(body):
+    return _cards(lambda g: cards.info(g, body.get("key")))
+
+
+def cards_stats(body):
+    return _cards(lambda g: cards.stats(g, body.get("deck") or ""))
+
+
+def cards_import(body):
+    return _cards(lambda g: cards.import_text(g, body))
+
+
+def cards_image(body):
+    return _cards(lambda g: cards.save_image(g.paths, body.get("data")), save=False)
+
+
+def cards_explain(body):
+    """🙋 师傅讲讲：翻面后看不懂，问 AI（可追问）"""
+    with open_game(save=False) as g:
+        try:
+            card = cards.card_view(g, body.get("key"))
+        except cards.CardError as e:
+            raise ApiError(str(e))
+    if not ai.available():
+        raise ApiError("还没填 AI 的 API key：设置里填好才能请师傅讲")
+    try:
+        reply = ai.chat(cards.explain_prompt(card, body.get("question"), body.get("history")), temperature=0.4, max_tokens=900)
+    except ai.AIError as e:
+        raise ApiError(str(e))
+    return {"reply": reply.strip()}
+
+
 def changelog_get(body):
     from . import changelog
     return {"entries": changelog.entries()}
@@ -831,6 +940,12 @@ def version_get(body):
 ROUTES[("GET", "/api/version")] = version_get
 ROUTES[("GET", "/api/changelog")] = changelog_get
 ROUTES[("GET", "/api/app/latest")] = app_latest
+ROUTES[("GET", "/api/cards")] = cards_overview
+for _n, _f in (("next", cards_next), ("answer", cards_answer), ("undo", cards_undo), ("add", cards_add), ("note", cards_note),
+               ("update", cards_update), ("delete", cards_delete), ("suspend", cards_suspend), ("forget", cards_forget),
+               ("move", cards_move), ("deck", cards_deck), ("search", cards_search), ("info", cards_info),
+               ("stats", cards_stats), ("import", cards_import), ("image", cards_image), ("explain", cards_explain)):
+    ROUTES[("POST", "/api/cards/" + _n)] = _f
 ROUTES[("GET", "/api/notes")] = notes_list
 ROUTES[("POST", "/api/notes/get")] = notes_get
 ROUTES[("POST", "/api/notes/save")] = notes_save
