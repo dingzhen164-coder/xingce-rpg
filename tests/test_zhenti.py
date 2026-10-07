@@ -271,6 +271,25 @@ class RawTest(unittest.TestCase):
             self.assertEqual([x['id'] for x in bank._set_questions(g, books[0]['sets'][0]['name'])[0]],
                              ['真题-%d' % (700 + k) for k in range(1, 8)])
 
+    def test_chart_after_source_tag_is_a_block(self):
+        """材料只有一张表：来源括号和图在同一行，图也要整张显示，不能当成行内公式小图"""
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / 'copilot/skills').mkdir(parents=True)
+            p = paths.Paths(out)
+            p.ensure_train_dir()
+            for rel in ('题目图/t.png', '公式图/f.png'):
+                f = p.train / '题库/图片/真题库' / rel
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b'png')
+            g = engine.Game(p, config.Rules(), config.Persona(), config.Lines(),
+                            store.new_state(dt.date(2026, 10, 1)), dt.date(2026, 10, 1))
+            img = '![[训练/题库/图片/真题库/%s]]'
+            got = trainer._bank_blocks(g, '资料分析', '（2026年云南省等3卷）' + img % '题目图/t.png')
+            self.assertEqual([b['t'] for b in got], ['text', 'img'])
+            got = trainer._bank_blocks(g, '资料分析', '同比增长' + img % '公式图/f.png' + '，较上年')
+            self.assertEqual([b['t'] for b in got], ['text'])              # 公式图仍留在句子里
+
     def test_fix_leaked_material_in_old_bank(self):
         good = '“致天下之治者在人才。”如何让专家人才____地贡献才智？\n填入画横线部分最恰当的一项是'
         table = {'2453277': [len(good), zhenti._fp(good)], '1': [len(good), zhenti._fp(good)]}

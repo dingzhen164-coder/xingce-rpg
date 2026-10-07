@@ -1120,7 +1120,8 @@ def _bank_blocks(g, board, text):
         line = text[line_start:m.start()] + text[m.end():len(text) if line_end < 0 else line_end]
         buf += text[pos:m.start()]
         pos = m.end()
-        if line.strip() and rel:          # 行内小图（公式）
+        # 行内小图（公式）。题目图（图表、表格）总是单独成块；同一行只有来源括号“（2026年云南省等3卷）”的也算单独一行
+        if line.strip() and rel and "题目图/" not in name and not re.fullmatch(r"（[^\n]{0,60}）", line.strip()):
             buf += "![[%s]]" % rel
             continue
         flush()
