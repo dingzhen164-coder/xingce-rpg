@@ -260,6 +260,7 @@ function zoomImg(src) {
 }
 // 草稿笔记按题存（web/draw.js）：做题 / 复盘时是屏幕上这道题，别的页面按页面
 window.DRAW_KEY = () => {
+  if (window.CARDS && CARDS.drawKey()) return CARDS.drawKey();      // 温简：每张卡一份草稿
   if (VIEW === "train" && T.session) for (let i = T.msgs.length - 1; i >= 0; i--) if (T.msgs[i].qkey) return T.msgs[i].qkey;
   return "page:" + VIEW;
 };

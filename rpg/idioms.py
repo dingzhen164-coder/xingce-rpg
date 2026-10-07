@@ -396,7 +396,14 @@ def edit(g, word, body):
             deleted(g).append(word)        # 以后收录不再按旧名字收回来
         if new in deleted(g):
             deleted(g).remove(new)
+        links = g.state.setdefault('idiom_cards', {})
+        if word in links and new not in links:
+            links[new] = links.pop(word)
+        elif word in links:
+            from . import cards
+            cards.delete(g, [links.pop(word)])
     write_file(g)
+    sync_card(g, new or word)
     return data(g)[new or word]
 
 
@@ -406,6 +413,7 @@ def delete(g, word):
     if word not in deleted(g):
         deleted(g).append(word)
     write_file(g)
+    sync_card(g, word)
 
 
 def ask_tutor(g, word):
@@ -439,7 +447,61 @@ def ask_tutor(g, word):
         if chars or any(origin.values()):
             e['detail'] = {'chars': chars, 'origin': origin}
     write_file(g)
+    sync_card(g, word)
     return e
+
+
+# ---------------------------------------------------------------- 背成语：师傅答疑过的词条 → 玉简
+CARD_DECK = '逻辑填空::成语实词录'
+
+
+def card_fields(e):
+    """一个词条 → 一枚玉简：正面是词，反面是释义、逐字、出处、辨析、本题其他选项（不放真题）"""
+    w = e['word']
+    det = e.get('detail') or {}
+    back = []
+    means = list(dict.fromkeys(s['meaning'] for s in e['sources'] if s.get('meaning')))
+    if means:
+        back.append('**释义**：' + '；'.join(means))
+    for c in det.get('chars') or []:
+        back.append('**逐字**：%s = %s%s' % (c['char'], c['meaning'], '（同样用法：%s）' % '、'.join(c['like']) if c.get('like') else ''))
+    o = det.get('origin') or {}
+    if any(o.values()):
+        back.append('**出处**：%s%s%s' % (o.get('from') or '', ('“%s”' % o['text']) if o.get('text') else '', ('。' + o['note']) if o.get('note') else ''))
+    for s in e['sources']:
+        if s.get('compare'):
+            back.append('**辨析**：' + s['compare'].replace('\n', ' '))
+        if s.get('others'):
+            back.append('**本题其他选项**：\n' + '\n'.join('- %s%s' % (x['word'], '：' + x['meaning'] if x.get('meaning') else '') for x in s['others']))
+    kind = '成语' if len(w) >= 4 else '实词'
+    return {'deck': CARD_DECK, 'type': '问答', 'tags': ['成语实词录', kind],
+            'front': '**%s**\n\n（%s · 说出意思和用法）' % (w, kind), 'back': '\n\n'.join(back) or '（见成语实词录）',
+            'extra': '由藏经阁「成语实词录」生成：在那里点「师傅答疑」或改词条会同步更新这张卡'}
+
+
+def sync_card(g, word):
+    """师傅答疑过的词条同步成玉简（没答疑过的不收）；词条没了就删掉对应的玉简"""
+    from . import cards
+    links = g.state.setdefault('idiom_cards', {})
+    e = data(g).get(word)
+    if not e or not any(s.get('tutor') for s in e['sources']):
+        if word in links and not e:
+            cards.delete(g, [links.pop(word)])
+        return None
+    try:
+        links[word] = cards.upsert(g, links.get(word), card_fields(e))
+    except Exception:
+        return None
+    return links[word]
+
+
+def sync_cards(g):
+    """把已经答疑过的词条一次补成玉简（升级后第一次打开修炼殿时做一次）"""
+    n = 0
+    for w, e in list(data(g).items()):
+        if any(s.get('tutor') for s in e['sources']) and w not in g.state.get('idiom_cards', {}):
+            n += bool(sync_card(g, w))
+    return n
 
 
 def backfill(g):

@@ -28,7 +28,7 @@
     return `<div class="id-card" id="idw-${esc(e.word)}"><div class="id-head"><span class="id-word">${esc(e.word)}</span><span class="id-letter">${esc(e.letter)}</span>
         ${e.sources.length > 1 ? `<span class="tag">考过 ${e.sources.length} 次</span>` : ""}</div>${detail}${srcs}
       <div class="id-acts"><button class="ghost small" data-idedit="${esc(e.word)}">✏ 修改</button><button class="ghost small" data-iddel="${esc(e.word)}">🗑 删除</button>
-        <button class="small id-tutor" data-idtutor="${esc(e.word)}" title="让师傅把这几个词的区别用一句话讲清（替换上面的辨析）；成语再讲关键字和出处">🧙 师傅答疑</button></div></div>`;
+        <button class="small id-tutor" data-idtutor="${esc(e.word)}" title="让师傅把这几个词的区别用一句话讲清（替换上面的辨析）；成语再讲关键字和出处。答疑过的词会自动做成玉简（修炼殿 · 逻辑填空 › 成语实词录）背">🧙 师傅答疑</button></div></div>`;
   }
 
   function editCard(e) {
@@ -106,7 +106,7 @@
     document.querySelectorAll("[data-idtutor]").forEach((b) => (b.onclick = async () => {
       const w = b.dataset.idtutor;
       b.disabled = true; b.textContent = "🧙 师傅思考中…";
-      try { DATA = await api("/api/idioms/tutor", { word: w }); toast("师傅答疑好了：「" + w + "」的辨析已更新"); rerender(); scrollTo(w); }
+      try { DATA = await api("/api/idioms/tutor", { word: w }); toast("师傅答疑好了：「" + w + "」的辨析已更新，也收进了修炼殿的玉简（逻辑填空 › 成语实词录）"); rerender(); scrollTo(w); }
       catch (e) { showError(e); b.disabled = false; b.textContent = "🧙 师傅答疑"; }
     }));
     // 真题跳转：切到经卷，搜这道题的编号并直接展开

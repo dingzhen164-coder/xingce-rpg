@@ -288,3 +288,41 @@ class CardsMoreTest(CardsApiTest):
             api.mm_get({"board": "../x", "name": "y"})
         api.mm_delete({"board": "资料分析", "name": "速算"})
         self.assertEqual(len(api.mm_list({})["boards"][-1]["maps"]), 1)
+
+
+class IdiomCardsTest(CardsApiTest):
+    """成语实词录里师傅答疑过的词条 → 玉简（逻辑填空::成语实词录）"""
+
+    def entry(self, word, tutor=True):
+        return {"word": word, "letter": "B", "detail": {"chars": [{"char": "刊", "meaning": "删改", "like": ["刊误"]}],
+                                                       "origin": {"from": "《答李翊书》", "text": "", "note": ""}},
+                "sources": [{"key": "k", "id": "真题-1", "board": "逻辑填空", "source": "逻辑填空真题.md", "paper": "2024国考",
+                             "blank": 1, "blanks": 1, "answer": "A", "option_text": word, "meaning": "不能删改的言论",
+                             "others": [{"word": "至理名言", "option": "B", "meaning": "最正确的道理"}],
+                             "compare": "不刊之论强调不可更改", "tutor": tutor, "date": "2026-10-07"}]}
+
+    def test_sync(self):
+        from rpg import idioms
+        with api.open_game() as g:
+            idioms.data(g)["不刊之论"] = self.entry("不刊之论")
+            idioms.data(g)["没答疑"] = self.entry("没答疑", tutor=False)
+        api.cards_overview({})                                              # 第一次打开修炼殿：补做
+        rows = api.cards_search({"deck": "逻辑填空::成语实词录"})["rows"]
+        self.assertEqual([r["front"] for r in rows], ["不刊之论 （成语 · 说出意思和用法）"])
+        n = api.cards_note({"id": rows[0]["id"]})
+        for part in ("**释义**：不能删改的言论", "**逐字**：刊 = 删改（同样用法：刊误）", "**出处**：《答李翊书》",
+                     "**辨析**：不刊之论强调不可更改", "- 至理名言：最正确的道理"):
+            self.assertIn(part, n["back"])
+        self.assertNotIn("真题", n["back"])
+        # 温过之后再答疑：同一枚玉简改内容，进度不丢
+        key = rows[0]["key"]
+        api.cards_answer({"deck": "", "key": key, "rating": 4})
+        with api.open_game() as g:
+            idioms.data(g)["不刊之论"]["sources"][0]["compare"] = "新的辨析"
+            idioms.sync_card(g, "不刊之论")
+        self.assertIn("新的辨析", api.cards_note({"id": rows[0]["id"]})["back"])
+        self.assertEqual(api.cards_info({"key": key})["sched"]["state"], "复习")
+        # 删词条：玉简一起删
+        with api.open_game() as g:
+            idioms.delete(g, "不刊之论")
+        self.assertEqual(api.cards_search({"deck": "逻辑填空"})["total"], 0)

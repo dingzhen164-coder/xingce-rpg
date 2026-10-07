@@ -569,6 +569,13 @@ def tree(g):
 
 def overview(g):
     c = data(g)
+    if not c.get("idiom_sync"):              # 升级后第一次：把已经师傅答疑过的成语实词补成玉简
+        from . import idioms
+        try:
+            idioms.sync_cards(g)
+        except Exception:
+            pass
+        c["idiom_sync"] = True
     notes, _ = load(g.paths)
     return {"decks": tree(g), "today": {"n": c["today"]["n"], "secs": c["today"]["secs"]}, "defaults": opts(c, ""),
             "cards": sum(1 for _ in all_cards(notes)), "notes": len(notes), "can_undo": bool(c["undo"])}
@@ -660,6 +667,28 @@ def add_many(g, deck, items):
     save_notes(g.paths, notes, headers, {_safe_file(deck)} | {n["file"] for n in notes[-added:]} if added else set())
     data(g)["decks"].setdefault(deck, {})
     return {"added": added, "skipped": bad}
+
+
+def upsert(g, nid, fields):
+    """程序生成的玉简（成语实词录）：nid 还在就改内容（温习进度不动），不在了就新建。返回编号"""
+    notes, headers = load(g.paths)
+    deck = _clean_deck(fields["deck"])
+    n = next((x for x in notes if nid and x["id"] == nid), None)
+    new = {"deck": deck, "type": fields.get("type") or "问答", "tags": list(fields.get("tags") or []),
+           "front": str(fields.get("front") or "").strip(), "back": str(fields.get("back") or "").strip(),
+           "extra": str(fields.get("extra") or "").strip()}
+    _check(dict(new, id=""))
+    if n:
+        if all(n.get(k) == v for k, v in new.items()):
+            return n["id"]
+        old_file = n["file"]
+        n.update(new, file=_safe_file(deck))
+        save_notes(g.paths, notes, headers, {old_file, n["file"]})
+        return n["id"]
+    n = dict(new, id=_new_id({x["id"] for x in notes}), file=_safe_file(deck))
+    notes.append(n)
+    save_notes(g.paths, notes, headers, {n["file"]})
+    return n["id"]
 
 
 def update(g, body):

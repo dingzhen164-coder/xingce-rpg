@@ -133,6 +133,7 @@
     return s;
   }
   function closeStage() {
+    if (window.DRAW && DRAW.state.on) DRAW.close();
     const s = document.getElementById("yjStage");
     if (s) s.remove();
     document.documentElement.classList.remove("yj-on");
@@ -188,7 +189,8 @@
     lastActive = Date.now();
     const s = stage();
     const cnt = (c) => `<span class="yj-cnt"><i class="new">${c.new}</i> + <i class="learn">${c.learn}</i> + <i class="due">${c.review}</i></span>`;
-    const tools = `${cnt(r.counts)}<button class="ghost small" id="yjUndo" title="撤销上一张（Ctrl+Z）">↶ 撤销</button>`;
+    if (window.DRAW && DRAW.state.on) DRAW.close();          // 换卡前把这张卡上的草稿存好收起
+    const tools = `${r.done ? "" : '<button class="ghost small yj-pen" id="yjPen" title="画笔：在卡上写写画画（每张卡的草稿单独保存；Esc 收起）">✏ 画笔</button>'}${cnt(r.counts)}<button class="ghost small" id="yjUndo" title="撤销上一张（Ctrl+Z）">↶ 撤销</button>`;
     if (r.done) {
       s.innerHTML = head(`🌙 ${esc(T("yj_review"))} · ${esc(R.deck || "全部" + T("yj_deck"))}`, tools) + `<div class="yj-finish">
         <div class="yj-moon"><svg viewBox="0 0 64 64" width="76" height="76"><path d="M40 6a26 26 0 1 0 18 44A22 22 0 1 1 40 6z" fill="currentColor"/></svg></div><h2>${esc(T("yj_done"))}</h2>
@@ -233,6 +235,11 @@
   function bindUndo() {
     const u = document.getElementById("yjUndo");
     if (u) u.onclick = undo;
+    const p = document.getElementById("yjPen");
+    if (p) {
+      p.onclick = () => { if (!window.DRAW) return; DRAW.state.on ? DRAW.close() : DRAW.open(); p.classList.toggle("on", DRAW.state.on); };
+      try { p.classList.toggle("has", !!localStorage.getItem("xrpg-draw:" + drawKey())); } catch (e) { /* 读不了就不显示 */ }
+    }
   }
   function flip() {
     if (!R || !R.card || R.shown) return;
@@ -749,5 +756,6 @@
   // 心跳：开着温简页面、页面看得见、10 分钟内有过操作（翻面 / 评分 / 问师傅…）→ 计进“修炼 · 复习”（服务器核对 10 分钟内在温简页面上取过卡）
   const active = () => MODE === "review" && !!R && !!R.card && document.visibilityState === "visible" && Date.now() - lastActive < 600000;
   const board = () => (R && R.deck ? R.deck.split("::")[0] : "");
-  window.CARDS = { hubHtml, bindHub, review, open, close: closeStage, isOpen: () => !!MODE, active, board };
+  const drawKey = () => (MODE === "review" && R && R.card ? "yj:" + R.card.key : "");
+  window.CARDS = { drawKey, hubHtml, bindHub, review, open, close: closeStage, isOpen: () => !!MODE, active, board };
 })();

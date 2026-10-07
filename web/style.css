@@ -1383,3 +1383,6 @@ input.yj-gtags { width: 180px; padding: 3px 8px; font-size: 12px; }
 .ln-canvas { flex: 1; min-height: 0; position: relative; background: #fffdf6; }
 .ln-tip { padding: 6px 14px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
 #lnName { cursor: pointer; border-bottom: 1px dashed currentColor; }
+.yj-pen.on { border-color: var(--gold); color: var(--gold); }
+.yj-pen.has { position: relative; }
+.yj-pen.has::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
