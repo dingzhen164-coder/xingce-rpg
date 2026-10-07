@@ -1242,7 +1242,12 @@ html.in-app .yj-top { padding-left: max(16px, env(safe-area-inset-left)); paddin
 .yj-ask { margin-top: 18px; text-align: left; }
 .yj-msg { margin: 8px 0; padding: 8px 12px; border-radius: 10px; font-size: 15px; line-height: 1.75; }
 .yj-msg.me { background: var(--panel2); margin-left: 20%; }
-.yj-msg.npc { background: var(--jade-soft); border-left: 3px solid var(--jade); }
+.yj-msg.ai { background: var(--jade-soft); border-left: 3px solid var(--jade); display: block; }
+.yj-msg.ai p { margin: .3em 0; } .yj-msg.ai ul, .yj-msg.ai ol { padding-left: 1.4em; margin: .3em 0; text-align: left; display: block; }
+.yj-saved { margin-bottom: 8px; border: 1px dashed var(--jade-line); border-radius: 10px; padding: 6px 10px; }
+.yj-saved summary { cursor: pointer; color: var(--jade); font-size: 14px; }
+.yj-saved-one { margin-top: 8px; }
+.yj-daily { font-size: 13px; }
 .yj-ask-row input { flex: 1; }
 .yj-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: center; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: var(--panel); border-top: 1px solid var(--line); }
@@ -1343,3 +1348,38 @@ input.yj-pg { width: 80px; display: inline-block; padding: 4px 8px; }
 .yj-gcard a[data-del] { cursor: pointer; color: var(--faint); padding: 0 6px; }
 input.yj-gtags { width: 180px; padding: 3px 8px; font-size: 12px; }
 #gAll, #gNone { cursor: pointer; }
+
+/* ------------------------------------------------------------ 🌿 灵脉图（web/mindmap.js） */
+.ln-hall { border-top: 3px solid #6aa86a; }
+.ln-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 18px 12px; margin-top: 14px; }
+.ln-slot { display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+.ln-disk { width: 96px; height: 96px; border-radius: 50%; animation: ln-float 6s ease-in-out infinite; animation-delay: calc(var(--d) * -1);
+  background: radial-gradient(circle at 40% 35%, hsl(var(--h) 45% 92%), hsl(var(--h) 35% 78%) 70%, hsl(var(--h) 30% 62%));
+  box-shadow: 0 10px 22px rgba(0,0,0,.18), inset 0 0 0 2px hsl(var(--h) 40% 55% / .5); transition: transform .2s, box-shadow .2s; }
+.ln-slot:hover .ln-disk { transform: scale(1.06); box-shadow: 0 0 0 2px var(--gold), 0 0 26px hsl(var(--h) 70% 60% / .6), 0 12px 24px rgba(0,0,0,.2); }
+.ln-svg { width: 100%; height: 100%; animation: ln-spin 40s linear infinite; }
+.ln-ring { fill: none; stroke: hsl(var(--h) 45% 40% / .35); stroke-width: 1; stroke-dasharray: 3 4; }
+.ln-ring2 { fill: none; stroke: hsl(var(--h) 45% 40% / .2); stroke-width: .8; }
+.ln-vein { fill: none; stroke: hsl(var(--h) 55% 35%); stroke-width: 1.8; stroke-linecap: round; stroke-dasharray: 60; stroke-dashoffset: 60;
+  animation: ln-grow 4.5s ease-in-out infinite; animation-delay: calc(var(--k) * .35s); }
+.ln-dot { fill: hsl(var(--h) 70% 45%); opacity: 0; animation: ln-blink 4.5s ease-in-out infinite; animation-delay: calc(var(--k) * .35s); }
+.ln-core { fill: hsl(var(--h) 60% 38%); stroke: #fff8; stroke-width: 1.5; }
+.ln-disk:not(.lit) { filter: saturate(.35); opacity: .8; }
+.ln-name { margin-top: 10px; font-family: var(--display); font-weight: 700; letter-spacing: 1px; }
+.ln-cap { font-size: 12px; color: var(--muted); }
+@keyframes ln-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes ln-spin { to { transform: rotate(360deg); } }
+@keyframes ln-grow { 0% { stroke-dashoffset: 60; } 40%, 75% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -60; } }
+@keyframes ln-blink { 0%, 30% { opacity: 0; } 45%, 75% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ln-disk, .ln-svg, .ln-vein, .ln-dot { animation: none; stroke-dashoffset: 0; opacity: 1; } }
+.ln-pick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.ln-pick button { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+.ln-pick small { color: var(--muted); }
+.ln-stage { overflow: hidden; }
+.ln-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.ln-tools button { padding: 6px 10px; font-size: 14px; }
+.ln-tools select { width: auto; padding: 5px 8px; font-size: 14px; }
+.ln-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.ln-canvas { flex: 1; min-height: 0; position: relative; background: #fffdf6; }
+.ln-tip { padding: 6px 14px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
+#lnName { cursor: pointer; border-bottom: 1px dashed currentColor; }

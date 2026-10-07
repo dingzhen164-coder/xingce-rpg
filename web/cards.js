@@ -29,6 +29,7 @@
       <div class="yj-hall-head"><div><div class="yj-title">📜 ${esc(T("yj"))}</div>
         <div class="small muted">共 ${OV.cards} ${esc(T("yj_unit"))} · 今日已温 ${OV.today.n} ${esc(T("yj_unit"))}${OV.today.secs >= 60 ? ` · ${Math.round(OV.today.secs / 60)} 分钟` : ""}</div></div>
         <span class="spacer"></span>
+        <button class="ghost yj-daily" id="yjDaily" title="每天学多少新${esc(T("yj_unit"))}、复习多少（全部${esc(T("yj_deck"))}的默认；单个匣子在它右边的 ⚙ 里另设）">⚙ 每天 ${esc(T("yj_new"))} ${OV.defaults.new_per_day} · 复习 ${OV.defaults.rev_per_day}</button>
         <button class="primary yj-go-all" data-yjgo="" ${total[0] + total[1] + total[2] ? "" : "disabled"}>🌙 ${esc(T("yj_review"))}全部</button></div>
       <div class="yj-tree"><div class="yj-row yj-th"><span class="yj-fold"></span><span class="yj-name">${esc(T("yj_deck"))}</span>
         <span class="yj-n new">${esc(T("yj_new"))}</span><span class="yj-n learn">${esc(T("yj_learn"))}</span><span class="yj-n due">${esc(T("yj_due"))}</span><span class="yj-gear"></span></div>
@@ -46,6 +47,8 @@
     root.querySelectorAll("[data-yjgo]").forEach((a) => (a.onclick = () => review(a.dataset.yjgo)));
     root.querySelectorAll("[data-yjmode]").forEach((b) => (b.onclick = () => open(b.dataset.yjmode)));
     root.querySelectorAll("[data-yjgear]").forEach((a) => (a.onclick = (e) => { e.stopPropagation(); deckMenu(a, a.dataset.yjgear); }));
+    const dl = root.querySelector("#yjDaily");
+    if (dl) dl.onclick = () => optionsDialog("*");
     const nd = root.querySelector("#yjNewDeck");
     if (nd) nd.onclick = async () => {
       const name = prompt(`新${T("yj_deck")}的名字（子匣用 :: 隔开，如「资料分析::速算公式」）`);
@@ -98,8 +101,9 @@
     try { o = await api("/api/cards/deck", { action: "get", name }); } catch (e) { return showError(e); }
     const v = o.options;
     const m = $("#modal");
-    m.innerHTML = `<div class="modal-box yj-opts"><h3>⚙ ${esc(T("yj_rule"))} · ${esc(name)}</h3>
-      <p class="small muted">没单独设的沿用上一层${esc(T("yj_deck"))}；子匣的上限也受上层管着（和 Anki 一样）。</p>
+    const all = name === "*";
+    m.innerHTML = `<div class="modal-box yj-opts"><h3>⚙ ${all ? `每日数量 · 全部${esc(T("yj_deck"))}` : `${esc(T("yj_rule"))} · ${esc(name)}`}</h3>
+      <p class="small muted">${all ? `所有${esc(T("yj_deck"))}的默认：每个匣子每天最多出多少新${esc(T("yj_unit"))}、复习多少。某个匣子要不一样，点它右边的 ⚙ 单独设。` : `没单独设的沿用上一层${esc(T("yj_deck"))}和「⚙ 每日数量」；子匣的上限也受上层管着（和 Anki 一样）。`}</p>
       <div class="yj-form">
         <label>每天新${esc(T("yj_unit"))}数<input id="oNew" type="number" min="0" value="${v.new_per_day}"></label>
         <label>每天复习上限<input id="oRev" type="number" min="0" value="${v.rev_per_day}"></label>
@@ -204,7 +208,7 @@
           <a id="yjEdit" title="改这枚${esc(T("yj"))}">✎ 改</a><a id="yjSusp" title="暂停：以后不出，藏简阁里可恢复">⏸ 暂停</a><a id="yjInfo" title="温习记录">ℹ</a></div>
         <div class="yj-face yj-front">${f.front}</div>
         <div class="yj-back" id="yjBackFace" hidden><div class="yj-rule"></div><div class="yj-face">${f.back}</div>
-          <div class="yj-ask"><button class="ghost small" id="yjAskBtn">🙋 师傅讲讲</button><div id="yjAskBox"></div></div></div>
+          <div class="yj-ask"><div id="yjSaved">${savedHtml(c.ai)}</div><button class="ghost small" id="yjAskBtn">🙋 师傅讲讲 <small class="faint">帮你记住这张卡</small></button><div id="yjAskBox"></div></div></div>
       </div></div>
       <div class="yj-bar" id="yjBar"><button class="primary yj-show" id="yjShow">${esc(T("yj_show"))} <small>空格</small></button></div>`;
     bindBack(); bindUndo();
@@ -215,6 +219,16 @@
       try { await api("/api/cards/suspend", { keys: [c.key], on: true }); toast("已暂停这张卡"); show(await api("/api/cards/next", { deck: R.deck })); } catch (e) { showError(e); }
     };
     document.getElementById("yjInfo").onclick = () => infoDialog(c.key);
+  }
+  // 师傅讲过的（存在玉简的“### 师傅讲讲”里）：折叠着，点开再看
+  function savedHtml(ai) {
+    const parts = String(ai || "").split(/^#### /m).map((x) => x.trim()).filter(Boolean);
+    if (!parts.length) return "";
+    const md = (s) => (window.NOTES ? NOTES.mdRender(s, {}) : esc(s));
+    return `<details class="yj-saved"><summary>🙋 师傅讲过 ${parts.length} 次 <span class="faint small">（点开再看）</span></summary>${parts.map((p) => {
+      const [h, ...rest] = p.split("\n");
+      return `<div class="yj-saved-one"><div class="small faint">${esc(h)}</div><div class="yj-msg ai">${md(rest.join("\n"))}</div></div>`;
+    }).join("")}</details>`;
   }
   function bindUndo() {
     const u = document.getElementById("yjUndo");
@@ -255,8 +269,9 @@
     paintAsk(box, true);
     try {
       const r = await api("/api/cards/explain", { key: R.card.key, question: q, history: R.ask.slice(0, -1) });
-      if (!q) R.ask.push({ role: "user", content: "这张卡我没太懂，讲讲？" });
+      if (!q) R.ask.push({ role: "user", content: "帮我记住这张卡" });
       R.ask.push({ role: "assistant", content: r.reply });
+      if (r.saved != null) { R.card.ai = r.saved; const sv = document.getElementById("yjSaved"); if (sv) sv.innerHTML = savedHtml(r.saved); }
     } catch (e) { showError(e); if (q) R.ask.pop(); }
     R.asking = false;
     paintAsk(document.getElementById("yjAskBox"), false);
@@ -264,8 +279,8 @@
   function paintAsk(box, waiting) {
     if (!box) return;
     const md = (s) => (window.NOTES ? NOTES.mdRender(s, {}) : esc(s));
-    box.innerHTML = R.ask.map((m) => `<div class="yj-msg ${m.role === "user" ? "me" : "npc"}">${m.role === "user" ? esc(m.content) : md(m.content)}</div>`).join("")
-      + (waiting ? `<div class="yj-msg npc faint">师傅思索中…</div>` : "")
+    box.innerHTML = R.ask.map((m) => `<div class="yj-msg ${m.role === "user" ? "me" : "ai"}">${m.role === "user" ? esc(m.content) : md(m.content)}</div>`).join("")
+      + (waiting ? `<div class="yj-msg ai faint">师傅思索中…</div>` : "")
       + (R.ask.length && !waiting ? `<div class="row yj-ask-row"><input id="yjAskIn" placeholder="接着问…（回车发送）"><button class="small" id="yjAskGo">问</button></div>` : "");
     const go = () => { const v = document.getElementById("yjAskIn").value.trim(); if (v) ask(v); };
     const b = document.getElementById("yjAskGo");
@@ -731,8 +746,8 @@
     };
   }
 
-  // 心跳：正在温简、页面看得见、2 分钟内有操作 → 计进“修炼 · 复习”（服务器还会核对 2 分半内真的答过卡）
-  const active = () => MODE === "review" && !!R && document.visibilityState === "visible" && Date.now() - lastActive < 120000;
+  // 心跳：开着温简页面、页面看得见、10 分钟内有过操作（翻面 / 评分 / 问师傅…）→ 计进“修炼 · 复习”（服务器核对 10 分钟内在温简页面上取过卡）
+  const active = () => MODE === "review" && !!R && !!R.card && document.visibilityState === "visible" && Date.now() - lastActive < 600000;
   const board = () => (R && R.deck ? R.deck.split("::")[0] : "");
   window.CARDS = { hubHtml, bindHub, review, open, close: closeStage, isOpen: () => !!MODE, active, board };
 })();

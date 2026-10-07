@@ -219,12 +219,16 @@ def export_pdf(paths, nid, images):
 
 
 def export_file(paths, rel):
-    """导出的 PDF 的真实路径（只认 训练/手札/导出/ 里的 .pdf）"""
-    root = paths.train.joinpath(*EXPORT_DIR).resolve()
+    """导出的文件的真实路径：只认 训练/手札/导出/ 里的 .pdf 和 训练/灵脉图/导出/ 里导出的思维导图"""
     p = (paths.vault / str(rel or "")).resolve()
-    if p.suffix.lower() != ".pdf" or root not in p.parents or not p.is_file():
+    if not p.is_file():
         return None
-    return p
+    if p.suffix.lower() == ".pdf" and paths.train.joinpath(*EXPORT_DIR).resolve() in p.parents:
+        return p
+    from . import mindmap
+    if p.suffix.lower().lstrip(".") in mindmap.EXPORT_EXT and mindmap.export_dir(paths).resolve() in p.parents:
+        return p
+    return None
 
 
 def open_local(p):

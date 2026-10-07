@@ -69,7 +69,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import appapk, appearance, cardgen, cards, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, cardgen, cards, mindmap, notes, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -859,7 +859,7 @@ def notes_open(body):
     with open_game(save=False) as g:
         p = notes.export_file(g.paths, body.get("path")) if g.paths.vault else None
     if not p:
-        raise ApiError("找不到导出的 PDF")
+        raise ApiError("找不到导出的文件")
     try:
         notes.open_local(p)
     except Exception as e:
@@ -1016,10 +1016,55 @@ def cards_explain(body):
     if not ai.available():
         raise ApiError("还没填 AI 的 API key：设置里填好才能请师傅讲")
     try:
-        reply = ai.chat(cards.explain_prompt(card, body.get("question"), body.get("history")), temperature=0.4, max_tokens=900)
+        reply = ai.chat(cards.explain_prompt(card, body.get("question"), body.get("history")), temperature=0.5, max_tokens=900)
     except ai.AIError as e:
         raise ApiError(str(e))
-    return {"reply": reply.strip()}
+    saved = _cards(lambda g: cards.save_explain(g, body.get("key"), body.get("question"), reply), save=False)
+    return {"reply": reply.strip(), "saved": saved}
+
+
+# ---------------------------------------------------------------- 🌿 灵脉图（思维导图，见 rpg/mindmap.py）
+def _mm(fn, *a):
+    with open_game(save=False) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        p = g.paths
+    try:
+        return fn(p, *a)
+    except mindmap.MapError as e:
+        raise ApiError(str(e))
+
+
+def mm_list(body):
+    return _mm(mindmap.listing)
+
+
+def mm_get(body):
+    return _mm(mindmap.get, body.get("board"), body.get("name"))
+
+
+def mm_save(body):
+    r = _mm(mindmap.save, body.get("board"), body.get("name"), body.get("data"))
+    r.pop("data", None)
+    return r
+
+
+def mm_create(body):
+    return _mm(mindmap.create, body.get("board"), body.get("name"), body.get("data"))
+
+
+def mm_rename(body):
+    return _mm(mindmap.rename, body.get("board"), body.get("name"), body.get("new"))
+
+
+def mm_delete(body):
+    return _mm(mindmap.delete, body.get("board"), body.get("name"))
+
+
+def mm_export(body):
+    r = _mm(mindmap.export, body.get("board"), body.get("name"), body.get("ext"), body.get("data"))
+    r["url"] = "/notes-file?p=%s&t=%s" % (quote(r["path"]), export_token(r["path"]))
+    return r
 
 
 def changelog_get(body):
@@ -1038,6 +1083,9 @@ ROUTES[("GET", "/api/version")] = version_get
 ROUTES[("GET", "/api/changelog")] = changelog_get
 ROUTES[("GET", "/api/app/latest")] = app_latest
 ROUTES[("GET", "/api/cards")] = cards_overview
+ROUTES[("GET", "/api/mindmap")] = mm_list
+for _n, _f in (("get", mm_get), ("save", mm_save), ("create", mm_create), ("rename", mm_rename), ("delete", mm_delete), ("export", mm_export)):
+    ROUTES[("POST", "/api/mindmap/" + _n)] = _f
 ROUTES[("POST", "/api/settings/ai_profile")] = ai_profile
 for _n, _f in (("next", cards_next), ("answer", cards_answer), ("undo", cards_undo), ("add", cards_add), ("note", cards_note),
                ("update", cards_update), ("delete", cards_delete), ("suspend", cards_suspend), ("forget", cards_forget),
@@ -1065,12 +1113,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 不在终端刷屏
         pass
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", cache=False):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "max-age=604800" if cache else "no-store")
         self.end_headers()
         self.wfile.write(data)
 
@@ -1128,7 +1176,7 @@ class Handler(BaseHTTPRequestHandler):
                 from urllib.parse import quote
                 data = p.read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''%s" % quote(p.name))
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
@@ -1198,7 +1246,7 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(f.name)[0] or "text/plain"
         if ctype.startswith("text/") or ctype in ("application/javascript",):
             ctype += "; charset=utf-8"
-        self._send(200, f.read_bytes(), ctype)
+        self._send(200, f.read_bytes(), ctype, cache=rel.startswith("vendor/"))   # 第三方库（6MB 的思维导图编辑器）让平板缓存，不每次重下
 
     def do_GET(self):
         self._handle("GET")

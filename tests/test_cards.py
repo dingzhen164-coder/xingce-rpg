@@ -235,3 +235,56 @@ class CardGenTest(CardsApiTest):
         self.assertEqual(s["base_url"], "https://dashscope.aliyuncs.com/compatible-mode/v1")
         api.ai_profile({"action": "delete", "name": "千问"})
         self.assertEqual(api.settings_get({})["ai_active"], "")
+
+
+class CardsMoreTest(CardsApiTest):
+    """2.4.0：师傅讲讲只帮记忆并存进玉简、每日数量的总设置、灵脉图（思维导图）"""
+
+    def test_explain_saved_and_prompt(self):
+        from unittest.mock import patch
+        from rpg import ai
+        api.cards_add({"deck": "政治理论", "type": "问答", "front": "逻辑关系包括？", "back": "全同、全异、种属、交叉"})
+        key = api.cards_next({"deck": ""})["card"]["key"]
+        with patch.object(ai, "available", return_value=True), patch.object(ai, "chat", return_value="口诀：同异种交\n### 小标题") as chat:
+            r = api.cards_explain({"key": key})
+        system = chat.call_args.args[0][0]["content"]
+        self.assertIn("不评判", system)
+        self.assertNotIn("卡片内容如果有错", system)
+        self.assertIn("#### ", r["saved"])
+        self.assertIn("＃＃＃ 小标题", r["saved"])                       # 回复里的标题降级，不打乱玉简格式
+        text = (self.vault / "训练/卡片/政治理论.md").read_text(encoding="utf-8")
+        self.assertIn("### 师傅讲讲\n#### ", text)
+        cards._CACHE["key"] = None
+        self.assertIn("口诀：同异种交", api.cards_next({"deck": ""})["card"]["ai"])
+        self.assertTrue(cards.reviewing())                                 # 在温简页面上就算在复习
+
+    def test_global_daily_limits(self):
+        for i in range(5):
+            api.cards_add({"deck": "资料分析", "type": "问答", "front": "问%d" % i, "back": "答"})
+        api.cards_deck({"action": "options", "name": "*", "options": {"new_per_day": 3}})
+        self.assertEqual(api.cards_overview({})["defaults"]["new_per_day"], 3)
+        self.assertEqual(api.cards_next({"deck": "资料分析"})["counts"]["new"], 3)
+        api.cards_deck({"action": "options", "name": "资料分析", "options": {"new_per_day": 4}})   # 单个匣子另设的优先
+        self.assertEqual(api.cards_next({"deck": "资料分析"})["counts"]["new"], 4)
+
+    def test_mindmap(self):
+        lst = api.mm_list({})
+        self.assertEqual(lst["boards"][0], {"board": "政治理论", "maps": []})
+        d = api.mm_get({"board": "资料分析", "name": "资料分析"})            # 第一次打开自动建一幅
+        self.assertEqual(d["data"]["root"]["data"]["text"], "资料分析")
+        root = {"data": {"text": "资料分析"}, "children": [{"data": {"text": "增长"}, "children": [{"data": {"text": "隔年增长"}}]}]}
+        self.assertEqual(api.mm_save({"board": "资料分析", "name": "资料分析", "data": {"root": root, "layout": "mindMap"}})["nodes"], 3)
+        r = api.mm_create({"board": "资料分析", "name": "资料分析"})
+        self.assertEqual(r["name"], "资料分析（2）")                         # 重名加序号
+        api.mm_rename({"board": "资料分析", "name": "资料分析（2）", "new": "速算"})
+        self.assertEqual([m["name"] for m in api.mm_list({})["boards"][-1]["maps"]], ["资料分析", "速算"])
+        e = api.mm_export({"board": "资料分析", "name": "资料分析", "ext": "md",
+                           "data": "data:text/markdown;base64," + __import__("base64").b64encode("# 资料分析".encode()).decode()})
+        self.assertEqual(e["path"], "训练/灵脉图/导出/资料分析.md")
+        self.assertIn("&t=", e["url"])
+        with self.assertRaises(api.ApiError):
+            api.mm_export({"board": "资料分析", "name": "x", "ext": "exe", "data": "data:,1"})
+        with self.assertRaises(api.ApiError):
+            api.mm_get({"board": "../x", "name": "y"})
+        api.mm_delete({"board": "资料分析", "name": "速算"})
+        self.assertEqual(len(api.mm_list({})["boards"][-1]["maps"]), 1)

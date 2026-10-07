@@ -158,7 +158,8 @@ def parse_file(text, fallback_deck=""):
             typ = "填空" if CLOZE.search(body) else "问答"
         notes.append({"id": h.group(1).strip(), "deck": meta.get("简匣", "") or fallback_deck, "type": typ,
                       "tags": [t for t in re.split(r"[\s,，、]+", meta.get("标签", "")) if t],
-                      "front": _section(body, "正"), "back": _section(body, "反"), "extra": _section(body, "附注")})
+                      "front": _section(body, "正"), "back": _section(body, "反"), "extra": _section(body, "附注"),
+                      "ai": _section(body, "师傅讲讲")})
     return header, notes
 
 
@@ -169,6 +170,8 @@ def note_md(n):
     out += "### 正\n%s\n### 反\n%s\n" % (n["front"].strip(), n.get("back", "").strip())
     if n.get("extra", "").strip():
         out += "### 附注\n%s\n" % n["extra"].strip()
+    if n.get("ai", "").strip():
+        out += "### 师傅讲讲\n%s\n" % n["ai"].strip()
     return out + "\n"
 
 
@@ -264,6 +267,7 @@ def deck_names(c, notes):
 def opts(c, deck):
     """简匣规矩：自己没设的沿用上层，都没有用默认"""
     out = dict(DEFAULT_OPTS)
+    out.update({k: v for k, v in (c.get("defaults") or {}).items() if k in DEFAULT_OPTS})   # 修炼殿「⚙ 每日数量」：全部简匣的默认
     parts = deck.split("::")
     for i in range(1, len(parts) + 1):
         out.update({k: v for k, v in (c["decks"].get("::".join(parts[:i])) or {}).items() if k in DEFAULT_OPTS})
@@ -522,8 +526,8 @@ def undo(g):
 LAST_ANSWER = {"t": 0}
 
 
-def reviewing(window=150):
-    """最近有没有在温简（心跳计时用：2 分半内答过一张）"""
+def reviewing(window=600):
+    """最近有没有在温简（心跳计时用：10 分钟内在温简页面上取过卡、答过卡、问过师傅）"""
     return time.time() - LAST_ANSWER["t"] <= window
 
 
@@ -566,7 +570,7 @@ def tree(g):
 def overview(g):
     c = data(g)
     notes, _ = load(g.paths)
-    return {"decks": tree(g), "today": {"n": c["today"]["n"], "secs": c["today"]["secs"]},
+    return {"decks": tree(g), "today": {"n": c["today"]["n"], "secs": c["today"]["secs"]}, "defaults": opts(c, ""),
             "cards": sum(1 for _ in all_cards(notes)), "notes": len(notes), "can_undo": bool(c["undo"])}
 
 
@@ -579,10 +583,11 @@ def card_view(g, key):
     s = _sched(data(g), key)
     return {"key": key, "id": n["id"], "ord": o, "deck": n["deck"], "type": n["type"], "tags": n["tags"],
             "front": n["front"], "back": n["back"], "extra": n.get("extra", ""), "images": imgs,
-            "state": s.get("st", 0), "leech": bool(s.get("leech"))}
+            "state": s.get("st", 0), "leech": bool(s.get("leech")), "ai": n.get("ai", "")}
 
 
 def next_card(g, deck):
+    LAST_ANSWER["t"] = time.time()          # 在温简页面上就算在复习（心跳计时用）
     order, counts, later = queue(g, deck)
     out = {"counts": counts, "deck": deck}
     if not order:
@@ -727,6 +732,20 @@ def move(g, ids, deck):
 
 
 # ---------------------------------------------------------------- 简匣
+def _parse_opts(src):
+    o = {}
+    for k in ("new_per_day", "rev_per_day", "leech", "max_ivl"):
+        if k in src and str(src[k]).strip() != "":
+            o[k] = max(0, min(9999 if k != "max_ivl" else 36500, int(float(src[k]))))
+    if "retention" in src and str(src["retention"]).strip() != "":
+        o["retention"] = min(0.99, max(0.7, float(src["retention"])))
+    for k in ("learn_steps", "relearn_steps"):
+        if k in src:
+            vals = [float(x) for x in re.split(r"[\s,，]+", str(src[k]).strip()) if x]
+            o[k] = [v if v != int(v) else int(v) for v in vals if 0 < v <= 1440][:8]
+    return o
+
+
 def deck_action(g, body):
     c = data(g)
     act = body.get("action")
@@ -734,20 +753,16 @@ def deck_action(g, body):
         name = _clean_deck(body.get("name"))
         c["decks"].setdefault(name, {})
         return {"name": name}
+    if act in ("options", "get") and body.get("name") == "*":          # 全部简匣的默认规矩
+        if act == "get":
+            o = dict(DEFAULT_OPTS)
+            o.update(c.get("defaults") or {})
+            return {"name": "*", "options": o, "own": c.get("defaults") or {}}
+        c["defaults"] = _parse_opts(body.get("options") or {})
+        return {"name": "*", "options": opts(c, "")}
     if act == "options":
         name = _clean_deck(body.get("name"))
-        o = {}
-        src = body.get("options") or {}
-        for k in ("new_per_day", "rev_per_day", "leech", "max_ivl"):
-            if k in src and str(src[k]).strip() != "":
-                o[k] = max(0, min(9999 if k != "max_ivl" else 36500, int(float(src[k]))))
-        if "retention" in src and str(src["retention"]).strip() != "":
-            o["retention"] = min(0.99, max(0.7, float(src["retention"])))
-        for k in ("learn_steps", "relearn_steps"):
-            if k in src:
-                vals = [float(x) for x in re.split(r"[\s,，]+", str(src[k]).strip()) if x]
-                o[k] = [v if v != int(v) else int(v) for v in vals if 0 < v <= 1440][:8]
-        c["decks"][name] = o
+        c["decks"][name] = _parse_opts(body.get("options") or {})
         return {"name": name, "options": opts(c, name)}
     if act == "get":
         name = _clean_deck(body.get("name"))
@@ -959,18 +974,37 @@ def save_image(paths, data_url):
     return {"path": "训练/卡片/图片/" + name, "md": "![[训练/卡片/图片/%s]]" % name}
 
 
-# ---------------------------------------------------------------- 🙋 师傅讲讲
+# ---------------------------------------------------------------- 🙋 师傅讲讲：只帮着记，不评判卡片
+EXPLAIN_SYSTEM = ("你是帮学员记忆卡片的师傅。卡片是学员自己整理的、要记住的内容，以卡片为准："
+                  "不评判卡片对不对、不纠正、不说“你写错了”、不另外补充卡片以外的新知识点、不改写卡片的分类和结论。"
+                  "你只做一件事：帮学员把这张卡记牢。\n"
+                  "1. 先用一两句话把卡片内容理顺（不增删内容）；\n"
+                  "2. 再给 1~2 种最合适的记忆办法：口诀（取首字 / 谐音 / 顺口溜）、联想画面、对比记忆、生活中的例子、记忆宫殿等；\n"
+                  "3. 简短，Markdown 格式，不超过 250 字。学员追问时也只围绕怎么记住卡片内容回答。")
+
+
 def explain_prompt(card, question, history):
     def plain(s):
         return CLOZE.sub(lambda m: m.group(2), s or "")
-    ctx = ("这是学员自己做的一枚记忆卡片（玉简），简匣「%s」。\n【正面】\n%s\n【反面】\n%s%s"
-           % (card["deck"], plain(card["front"]), plain(card["back"]) or "（填空卡，答案就是正面挖空的部分）",
+    ctx = ("要记住的卡片（简匣「%s」）：\n【正面】\n%s\n【反面】\n%s%s"
+           % (card["deck"], plain(card["front"]), plain(card["back"]) or "（填空卡，要记的就是正面挖空的部分）",
               ("\n【附注】\n" + card["extra"]) if card.get("extra") else ""))
-    msgs = [{"role": "system", "content": "你是学员备考公务员行测的师傅，说话简洁、讲透原理。学员在复习记忆卡片时看不懂，请你讲解。"
-                                          "先用两三句话讲清这张卡的意思和为什么，再给一个帮助记忆的办法（口诀、联想或例子）；"
-                                          "卡片内容如果有错，直接指出并给出正确说法。不要超过 300 字。"},
-            {"role": "user", "content": ctx + "\n\n" + (question or "这张卡我没太懂，讲讲？")}]
+    msgs = [{"role": "system", "content": EXPLAIN_SYSTEM},
+            {"role": "user", "content": ctx + "\n\n" + (question or "帮我记住这张卡。")}]
     for h in (history or [])[-6:]:
         if h.get("role") in ("user", "assistant") and h.get("content"):
             msgs.insert(-1, {"role": h["role"], "content": str(h["content"])[:2000]})
     return msgs
+
+
+def save_explain(g, key, question, reply):
+    """师傅讲过的存进这枚玉简的“### 师傅讲讲”（Obsidian 里也能看），以后翻面时可以展开再看"""
+    notes, headers = load(g.paths)
+    n, _ = _find(notes, key)
+    q = re.sub(r"\s+", " ", question or "帮我记住这张卡").strip()[:60]
+    body = re.sub(r"^(#+)\s", lambda m: "＃" * len(m.group(1)) + " ", reply.strip(), flags=re.M)   # 回复里的标题别打乱玉简格式
+    entry = "#### %s · %s\n%s" % (dt.datetime.now().strftime("%m-%d %H:%M"), q, body)
+    n["ai"] = (n.get("ai", "").strip() + "\n\n" + entry).strip()
+    save_notes(g.paths, notes, headers, {n["file"]})
+    LAST_ANSWER["t"] = time.time()
+    return n["ai"]

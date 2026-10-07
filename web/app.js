@@ -74,6 +74,7 @@ function realmUp(e) {
 function go(view) {
   if (VIEW === "notes" && view !== "notes" && window.NOTES) NOTES.flush();
   if (window.CARDS && CARDS.isOpen()) CARDS.close();
+  if (window.MINDMAP && MINDMAP.isOpen()) MINDMAP.close();
   VIEW = view;
   if (window.DRAW) setTimeout(() => DRAW.refresh(), 0);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
@@ -87,6 +88,7 @@ window.xcBack = () => {
   if (document.documentElement.classList.contains("drawing") && window.DRAW) { DRAW.close(); return true; }
   if (window.NOTES && NOTES.isFull()) { NOTES.exitFull(); return true; }
   if (window.CARDS && CARDS.isOpen()) { CARDS.close(); return true; }
+  if (window.MINDMAP && MINDMAP.isOpen()) { MINDMAP.close(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
   if (VIEW === "home") return false;
@@ -1025,7 +1027,7 @@ async function hubHtml() {
 
 // 修炼：上面是玉简（照 Anki 的记忆卡片，web/cards.js），下面斩心魔（模考错题）
 async function xiulianHtml() {
-  const [yj, wr] = await Promise.all([window.CARDS ? CARDS.hubHtml() : '', api('/api/wrong')]);
+  const [yj, ln, wr] = await Promise.all([window.CARDS ? CARDS.hubHtml() : '', window.MINDMAP ? MINDMAP.hubHtml() : '', api('/api/wrong')]);
   const tasks = DASH?.plan?.tasks || [];
   const left = tasks.filter(t => !t.done).length;
   const rec = `<details class="card rec-card"><summary><b>📜 师尊荐课</b> <span class="small muted">程序按进度排的建议（温简、心魔回炉、真题试炼），做不做由你 · 还剩 ${left} 项</span></summary>
@@ -1034,7 +1036,7 @@ async function xiulianHtml() {
   const kill = `<div class="card kill-card"><div class="row"><h3 style="margin:0">👹 ${esc(W('kill'))}</h3><span class="small muted">模考板块复盘里做错的题，一只只斩掉</span></div>
     <div class="kill-grid">${boards.map(b => `<button data-xlwrong="${esc(b.board)}" title="${b.redo ? `回炉 ${b.redo}` : ''}${b.new ? ` 未交手 ${b.new}` : ''}">${esc(b.board)}
       <small>${b.redo ? `回炉 ${b.redo}` : b.new ? `未交手 ${b.new}` : '已斩尽'}</small></button>`).join('') || '<p class="small muted">还没有模考错题：模考后到宗门大比导入成绩，错题会出现在这里。</p>'}</div></div>`;
-  return rec + yj + kill;
+  return rec + yj + ln + kill;
 }
 
 let KP_BOARD = '';               // 知识点试炼里选中的板块
@@ -1106,6 +1108,7 @@ function bindHub() {
     startTask({ task: { type: 'alchemy', board: b.dataset.xlpill, target: b.dataset.xlpill, title: `⚗ ${W('alchemy')} · ${b.dataset.xlpill}` } }));
   bindTaskClicks($('#view'));
   if (window.CARDS) CARDS.bindHub($('#view'));
+  if (window.MINDMAP) MINDMAP.bindHub($('#view'));
   bindSkeleton();   // 大项练习按钮、编撰功法
   if ($('#bankCount')) bindBank();
 }
