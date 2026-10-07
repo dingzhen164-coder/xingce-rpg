@@ -46,6 +46,7 @@ function tutorFace() {
   return u ? `<div class="face"><img src="${esc(u)}" alt=""></div>` : `<div class="face">${esc(DASH?.theme?.face || "🌸")}</div>`;
 }
 function npcToast(msg) {
+  if (window.FOCUS && FOCUS.isOn()) return;          // ◎ 专注时导师不打扰
   if (!msg) return;
   toast(`<div class="npc">${tutorFace()}<div><div class="who">${esc(DASH?.persona?.tutor || "导师")}</div>${md(msg)}</div></div>`, "", 9000);
 }
@@ -91,6 +92,7 @@ window.xcBack = () => {
   if (window.MINDMAP && MINDMAP.isOpen()) { MINDMAP.close(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
+  if (window.FOCUS && FOCUS.isOn()) { FOCUS.exit(); return true; }
   if (VIEW === "home") return false;
   if (document.documentElement.classList.contains("in-chat") && !confirm("离开这次功课，回洞府？")) return true;
   go("home");
@@ -387,7 +389,8 @@ const views = {
         ${bar(R.frac)}
       </div>
       <div class="hero-score"><div class="small muted">${esc(W("score"))}</div><div class="big">${R.score}<span>分</span></div>
-        <div class="small muted">目标 ${R.target} 分</div></div>
+        <div class="small muted">目标 ${R.target} 分</div>
+        <button class="ghost small ps-open" id="psHero" title="今日修炼战报：画成一张海报，可以存图、分享">🖼 修炼战报</button></div>
     </div>
     ${timeCard(d)}
     <div class="grid g5" style="margin-top:14px">
@@ -679,6 +682,7 @@ function timeCard(d) {
   const ticks = units > 1 ? Array.from({ length: units - 1 }, (_, i) => `<span style="left:${((i + 1) * base / total * 100).toFixed(2)}%"></span>`).join("") : "";
   return `<div class="card sancai" style="margin-top:14px">
     <div class="sancai-head"><h3>☯ 三才时辰 <small>听课 · 做题 · 复习</small></h3><span class="spacer"></span>
+      <button class="ghost small ps-open" id="psOpen" title="把这段时间的修炼成果画成一张海报，可以存图、分享">🖼 战报</button>
       <div class="sancai-tabs">${[["today", "今日"], ["week", "近七日"], ["all", "累计"]].map(([k, n]) => `<a data-tspan="${k}" class="${k === TIME_SPAN ? "on" : ""}">${n}</a>`).join("")}</div></div>
     <div class="orbs">${orbs}</div>
     <div class="ratio">
@@ -687,6 +691,7 @@ function timeCard(d) {
     </div></div>`;
 }
 function bindTimeCard() {
+  const ps = $("#psOpen"); if (ps) ps.onclick = () => POSTER.open(TIME_SPAN === "week" ? "week" : "day");
   document.querySelectorAll("[data-tspan]").forEach((a) => (a.onclick = () => {
     TIME_SPAN = a.dataset.tspan;
     try { localStorage.setItem("timeSpan", TIME_SPAN); } catch {}
@@ -872,6 +877,7 @@ function bindHome() {
   bindSelfstudy();
   bindTimeCard();
   bindBoardTime();
+  const ph = $("#psHero"); if (ph) ph.onclick = () => POSTER.open("day");
   $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
   $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
   const gp = $("#goPill"); if (gp) gp.onclick = () => go("pill");
@@ -925,7 +931,8 @@ function applyChatLayout(p = chatPrefs()) {
   const root = document.documentElement;
   const hdr = document.querySelector("header");
   const ban = $("#banner");
-  const top = Math.max(hdr ? hdr.getBoundingClientRect().bottom : 60, ban && ban.offsetHeight ? ban.getBoundingClientRect().bottom : 0) + 8;
+  const top = root.classList.contains("focus") ? 52      // ◎ 专注：顶栏藏起来了，只给顶上的小胶囊留位置
+    : Math.max(hdr ? hdr.getBoundingClientRect().bottom : 60, ban && ban.offsetHeight ? ban.getBoundingClientRect().bottom : 0) + 8;
   const avail = Math.max(240, innerHeight - top);
   root.style.setProperty("--chat-w", Math.max(40, Math.min(100, p.w)) + "vw");
   root.style.setProperty("--chat-top", Math.round(innerHeight - avail * Math.max(40, Math.min(100, p.h)) / 100) + "px");

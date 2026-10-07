@@ -1386,3 +1386,58 @@ input.yj-gtags { width: 180px; padding: 3px 8px; font-size: 12px; }
 .yj-pen.on { border-color: var(--gold); color: var(--gold); }
 .yj-pen.has { position: relative; }
 .yj-pen.has::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
+
+/* ------------------------------------------------------------ 🖼 修炼战报（web/poster.js） */
+.ps-open { white-space: nowrap; }
+.hero-score .ps-open { margin-top: 8px; }
+.modal-box.ps-box { width: min(980px, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.ps-preview { position: relative; display: flex; justify-content: center; }
+.ps-preview canvas { width: auto; height: min(74vh, 720px); max-width: 100%; aspect-ratio: 3 / 4; border-radius: 10px; box-shadow: var(--shadow); background: var(--panel2); }
+.ps-wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-family: var(--display); letter-spacing: .3em; }
+.ps-wait[hidden] { display: none; }
+.ps-side h3 { margin: 0 0 10px; font-family: var(--display); letter-spacing: .15em; }
+.ps-label { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+.ps-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ps-seg a { padding: 6px 18px; cursor: pointer; color: var(--muted); }
+.ps-seg a.on { background: var(--accent); color: #fff; }
+.ps-styles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.ps-styles a { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--muted); }
+.ps-styles i { width: 40px; height: 52px; border-radius: 8px; background: linear-gradient(var(--a), var(--b)); border: 2px solid transparent; box-shadow: inset 0 0 0 3px var(--a), inset 0 0 0 4px var(--c); }
+.ps-styles a.on i { border-color: var(--gold); }
+.ps-styles a.on { color: var(--text); }
+.ps-quote { gap: 6px; }
+.ps-quote input { flex: 1; min-width: 0; }
+.ps-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+@media (max-width: 760px) {
+  .modal-box.ps-box { grid-template-columns: 1fr; }
+  .ps-preview canvas { height: auto; width: 100%; max-height: 62vh; }
+}
+
+/* ------------------------------------------------------------ ◎ 专注模式（web/focus.js） */
+.focus-btn.on { color: var(--accent); border-color: var(--accent); }
+html.focus .topbar, html.focus #banner, html.focus #quoteLayer { display: none !important; }
+html.focus main { padding-top: 52px; }
+html.focus .yj-stage, html.focus.nt-full .nt-book { top: 46px; }   /* 全屏的温简、灵脉图 / 全屏手札：顶上给小胶囊让位 */
+html.focus body { background-attachment: fixed; }
+.fc-pill { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px 4px 14px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line);
+  box-shadow: var(--shadow); font-size: 14px; color: var(--muted); backdrop-filter: blur(6px); overflow: hidden; user-select: none; }
+.fc-pill::before { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: calc(var(--p, 0) * 100%); background: var(--accent); transition: width .5s linear; }
+.fc-pill.rest::before { background: var(--gold); }
+.fc-dot { color: var(--accent); animation: fcBreath 4s ease-in-out infinite; }
+.fc-pill.rest .fc-dot { color: var(--gold); }
+.fc-pill.paused .fc-dot { animation: none; opacity: .4; }
+.fc-time { font-variant-numeric: tabular-nums; color: var(--text); font-size: 16px; min-width: 52px; text-align: center; }
+.fc-rounds { font-size: 12px; color: var(--faint); }
+.fc-rounds:empty { display: none; }
+.fc-pill button { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-size: 13px; background: transparent; border: 1px solid transparent; color: var(--muted); }
+.fc-pill button:hover { border-color: var(--line); color: var(--text); }
+@keyframes fcBreath { 0%, 100% { opacity: .45; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.1); } }
+.fc-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+.fc-modes a { display: flex; flex-direction: column; gap: 2px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; background: var(--panel2); }
+.fc-modes a b { font-family: var(--display); font-size: 17px; }
+.fc-modes a small { color: var(--faint); font-size: 12px; min-height: 1em; }
+.fc-modes a.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.modal-box.fc-ask { text-align: center; }
+.modal-box.fc-ask h3 { font-family: var(--display); color: var(--gold); letter-spacing: .15em; }
+html.no-cmix .fc-pill { background: var(--panel); }

@@ -219,7 +219,7 @@ def export_pdf(paths, nid, images):
 
 
 def export_file(paths, rel):
-    """导出的文件的真实路径：只认 训练/手札/导出/ 里的 .pdf 和 训练/灵脉图/导出/ 里导出的思维导图"""
+    """导出的文件的真实路径：只认 训练/手札/导出/ 里的 .pdf、训练/灵脉图/导出/ 里导出的思维导图、训练/战报/ 里的海报"""
     p = (paths.vault / str(rel or "")).resolve()
     if not p.is_file():
         return None
@@ -227,6 +227,9 @@ def export_file(paths, rel):
         return p
     from . import mindmap
     if p.suffix.lower().lstrip(".") in mindmap.EXPORT_EXT and mindmap.export_dir(paths).resolve() in p.parents:
+        return p
+    from . import poster
+    if p.suffix.lower() == ".png" and poster.export_dir(paths).resolve() in p.parents:
         return p
     return None
 

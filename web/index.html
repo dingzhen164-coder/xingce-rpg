@@ -2,7 +2,7 @@
 <!--
   行测修仙传 / 行测魔法学院 前端页面骨架。所有内容由 app.js 渲染到 #view 里；样式在 style.css。
   导航文字、标题、配色由 app.js 按当前风格（修仙 / 玄幻）替换。
-  页面结构：背景层 + 语录层（ambience.js） + 顶栏（标志 / 导航 / 今日时长 / ♪ 背景音乐） + 主视图 + 右下角提示层 + 升级弹窗。
+  页面结构：背景层 + 语录层（ambience.js） + 顶栏（标志 / 导航 / 今日时长 / ♪ 背景音乐 / ◎ 专注 / ✏ 草稿） + 主视图 + 右下角提示层 + 升级弹窗。
 -->
 <html lang="zh-CN" data-theme="light">
 <head>
@@ -45,6 +45,7 @@
   <div class="today-pill" id="todayPill" title="今天的有效修炼时间（只有做功课时才计时）">🕯 今日修炼</div>
   <button class="bgm-btn" id="bgmBtn" title="背景音乐：关（点一下打开）">♪</button>
   <button class="bgm-btn" id="fsBtn" style="display:none" title="全屏（藏起浏览器的地址栏）">⛶</button>
+  <button class="bgm-btn focus-btn" id="focusBtn" title="专注模式：藏起顶栏和提醒，只留眼前的功课；可配番茄钟">◎</button>
   <button class="bgm-btn draw-btn" id="drawBtn" title="草稿：定住页面写写画画（Esc 关闭）">✏</button>
 </header>
 <div id="banner"></div>
@@ -62,6 +63,8 @@
 <script src="notes.js"></script>
 <script src="cards.js"></script>
 <script src="mindmap.js"></script>
+<script src="poster.js"></script>
+<script src="focus.js"></script>
 </body>
 </html>
 

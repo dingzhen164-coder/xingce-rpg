@@ -18,6 +18,7 @@
 | 境界、渡劫、灵根、丹药、闭关、顿悟、走火入魔、道心、周常、储物袋 | `rpg/engine.py`（文件顶部有总览） |
 | 接口 | `rpg/api.py`（顶部有接口清单） |
 | 页面、样式 | `web/app.js`、`web/style.css` |
+| 🖼 修炼战报（海报）、◎ 专注模式 | 数字 `rpg/poster.py`，画图 `web/poster.js`（canvas）；专注 `web/focus.js`（纯前端，`html.focus` 藏顶栏等） |
 | 读模考复盘 / skill | `rpg/vault.py`（只读） |
 | 听道（网课时间）：计入每日功行 | `engine.add_lecture / lecture_minutes / study_minutes`（`minutes()` = 修炼 + 听道）；首页卡片 `web/app.js lectureCard` |
 | 背景 / 语录 / BGM | 后端 `rpg/appearance.py`（存档 state["appearance"]）；前端 `web/ambience.js`（自带背景是 SVG 现画；BGM 只播放 训练/外观/音乐/ 里的文件） |
