@@ -25,6 +25,8 @@
   let NEWS = 0;              // 研读看到第几条
   let ONLY_FORGOT = false, ONLY_WRONG = false;
   let REDO = new Set();      // 精卷里点了「重做这题」的题
+  let LEFT = store.get("left", "toc");   // 研读页左栏：toc 目录 / ask 问师傅
+  let ASKING = false;
   let lastAct = 0;
   let ROOT = null;
   const act = () => (lastAct = Date.now());
@@ -205,7 +207,8 @@
       <div class="tj-ititle"><b>${esc(CUR.kind === "month" ? `${d.title} · 月半时政` : d.title)}</b><small class="muted">${esc(d.overview || "")}</small></div>
       <span class="spacer"></span>
       ${CUR.kind === "topic" ? `<select id="tjCat" title="归到哪个专题">${(LIST?.categories || [d.category]).map((c) => `<option ${c === d.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
-      ${d.pdf ? '<button class="ghost small" id="tjPdf" title="看原来的 PDF">📄 原文</button>' : ""}
+      ${d.pdf ? `<button class="ghost small" id="tjNote" title="把这一期的讲义原文开成一本手札，直接用笔勾画、写批注（自动保存）">✏ 勾画笔记</button>
+        <button class="ghost small" id="tjPdf" title="看原来的 PDF">📄 原文</button>` : ""}
       <button class="ghost small" id="tjDel" title="从天机简报里删掉这一期（学习进度一起删）">🗑</button>
       <div class="tj-itabs">${tabs.map(([k, n, c]) => `<a data-mode="${k}" class="${MODE === k ? "on" : ""}">${n}<small>${c}</small></a>`).join("")}</div></div>`;
   }
@@ -224,8 +227,9 @@
         <span>${x.stars ? `<em class="tj-star">${"★".repeat(x.stars)}</em>` : ""}${esc(x.title)}</span></a>`;
     }).join("");
     const qs = n.qs.map((k) => d.questions[k]).filter(Boolean);
-    return `<div class="tj-read">
-      <nav class="card tj-toc">${toc}</nav>
+    const leftTabs = `<div class="tj-ltabs"><a data-left="toc" class="${LEFT === "toc" ? "on" : ""}">📑 目录</a><a data-left="ask" class="${LEFT === "ask" ? "on" : ""}">🧙 问师傅</a></div>`;
+    return `<div class="tj-read ${LEFT === "ask" ? "asking" : ""}">
+      <aside class="card tj-toc">${leftTabs}${LEFT === "ask" ? askHtml(n) : `<div class="tj-toc-list">${toc}</div>`}</aside>
       <article class="card tj-news">
         <div class="tj-news-head">${n.stars ? `<span class="tj-star big">${"★".repeat(n.stars)}</span>` : ""}${n.tag && n.tag !== n.group ? `<span class="tag">${esc(n.tag)}</span>` : ""}
           ${n.group ? `<span class="tag">${esc(n.group)}</span>` : ""}<span class="faint small">第 ${NEWS + 1} / ${d.news.length} 条</span></div>
@@ -239,6 +243,53 @@
           <span class="spacer"></span>
           <button class="ghost" id="tjPrev" ${NEWS ? "" : "disabled"}>← 上一条</button><button class="ghost" id="tjNext" ${NEWS < d.news.length - 1 ? "" : "disabled"}>下一条 →</button></div>
       </article></div>`;
+  }
+
+  // 🧙 问师傅：针对正在读的这一条。「总结怎么记」重点讲红字；也可以打字问不懂的地方（可追问），问过的都留着
+  function askHtml(n) {
+    const saved = ((CUR.progress.ask || {})[String(NEWS)]) || [];
+    const md = (s) => (window.NOTES ? NOTES.mdRender(s, {}) : esc(s).replace(/\n/g, "<br>"));
+    return `<div class="tj-ask">
+      <div class="tj-ask-for">问的是：<b>${esc(n.title)}</b></div>
+      <button class="primary small tj-ask-mem" id="tjAskMem" ${ASKING ? "disabled" : ""}>🧠 总结这一条怎么记（红字）</button>
+      <div class="tj-ask-msgs" id="tjAskMsgs">${saved.map((x) => `<div class="tj-am me">${esc(x.q)}<small>${esc(x.t || "")}</small></div><div class="tj-am ai">${md(x.a)}</div>`).join("")
+        || '<div class="muted small tj-ask-empty">点上面的按钮，师傅把这一条理一遍、教你记红字；看不懂的地方也可以直接在下面问。</div>'}
+        ${ASKING ? '<div class="tj-am ai faint">师傅思索中…</div>' : ""}</div>
+      <div class="tj-ask-in"><textarea id="tjAskIn" rows="2" placeholder="哪里不懂？比如：“四个面向”是哪四个？（回车发送，Shift+回车换行）"></textarea>
+        <button class="small" id="tjAskGo" ${ASKING ? "disabled" : ""}>问</button></div></div>`;
+  }
+  async function ask(question) {
+    if (ASKING) return;
+    const saved = ((CUR.progress.ask || {})[String(NEWS)]) || [];
+    const history = [];
+    saved.slice(-3).forEach((x) => { history.push({ role: "user", content: x.q }, { role: "assistant", content: x.a }); });
+    ASKING = true; act();
+    const idx = NEWS;
+    keepAsk();
+    try {
+      const r = await api("/api/tianji/ask", { kind: CUR.kind, id: CUR.id, news: idx, question, history: question ? history : [] });
+      CUR.progress.ask = CUR.progress.ask || {};
+      CUR.progress.ask[String(idx)] = r.saved;
+    } catch (e) { showError(e); }
+    ASKING = false;
+    keepAsk(true);
+  }
+  function keepAsk(bottom) {        // 只重画左栏，正文不动
+    const box = ROOT && ROOT.querySelector(".tj-toc");
+    if (!box || MODE !== "read" || LEFT !== "ask") return;
+    const n = CUR.data.news[NEWS];
+    box.innerHTML = box.querySelector(".tj-ltabs").outerHTML + askHtml(n);
+    bindLeft();
+    const m = document.getElementById("tjAskMsgs"); if (m) m.scrollTop = bottom ? m.scrollHeight : m.scrollHeight;
+  }
+  function bindLeft() {
+    ROOT.querySelectorAll("[data-left]").forEach((a) => (a.onclick = () => { LEFT = a.dataset.left; store.set("left", LEFT); keepScroll(renderIssue); }));
+    const mem = document.getElementById("tjAskMem"); if (mem) mem.onclick = () => ask("");
+    const goBtn = document.getElementById("tjAskGo"), inp = document.getElementById("tjAskIn");
+    const send = () => { const q = inp.value.trim(); if (q) ask(q); };
+    if (goBtn) goBtn.onclick = send;
+    if (inp) inp.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+    ROOT.querySelectorAll(".tj-am.ai img").forEach((im) => (im.onclick = () => window.zoomImg && zoomImg(im.src)));
   }
 
   function clozeHtml() {
@@ -348,6 +399,14 @@
       try { await api("/api/tianji/delete", { kind: CUR.kind, id: CUR.id }); close(); } catch (e) { showError(e); }
     };
     // 研读
+    if (MODE === "read") { bindLeft(); const m = document.getElementById("tjAskMsgs"); if (m) m.scrollTop = m.scrollHeight; }
+    const note = $1("#tjNote");
+    if (note) note.onclick = async () => {
+      try {
+        await api("/api/notes/pdfopen", { p: CUR.data.pdf, title: `天机简报 · ${CUR.data.title}` });
+        NOTES.openPdfLater(CUR.data.pdf); go("notes");
+      } catch (e) { showError(e); }
+    };
     $$("[data-news]").forEach((a) => (a.onclick = () => { NEWS = +a.dataset.news; renderIssue(); window.scrollTo(0, 0); }));
     const rd = $1("#tjRead");
     if (rd) rd.onclick = async () => {

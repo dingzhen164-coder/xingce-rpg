@@ -590,3 +590,46 @@ def forgot_cards(g, kind, iid):
     r = cards.add_many(g, "政治理论::天机简报", items)
     pr["carded"] = sorted(made)
     return r
+
+
+# ---------------------------------------------------------------- 🧙 问师傅（研读页左栏）：总结本条怎么记（尤其红字）/ 不懂的地方提问
+ASK_SYSTEM = ("你是帮学员备考公务员政治理论（时政）的师傅。下面给你一条时政学习材料（讲义原文），"
+              "以及消化清单要挖空考的字句（学员看到的“红字”）。回答以材料为准，不编造材料里没有的时间、数字、提法；"
+              "需要补充背景常识时，单独标明“背景补充”，并尽量简短。\n"
+              "用 Markdown，口语化、条理清楚，不超过 450 字。")
+ASK_MEMORY = ("请帮我记住这一条：\n"
+              "1. 用 3~5 条要点把这一条的核心内容理清（谁、什么时候、什么会 / 文件、提出了什么）；\n"
+              "2. 红字逐个（或分组）给记忆办法：口诀 / 首字连读、谐音、对比易混提法、数字记忆、联想画面等；\n"
+              "3. 指出最容易出题的 2~3 个点（选项常怎么偷换）；\n"
+              "4. 最后给 3 道一句话自测题（只出题，答案放在最后一行）。")
+
+
+def _news_context(data, i):
+    n = data["news"][i]
+    keys = [p["a"] for c in data["cloze"] if c.get("news") == i for p in c["parts"] if p.get("a")]
+    head = "【%s · %s】%s" % (data["title"], n.get("tag") or n.get("group") or "", n["title"])
+    qs = [data["questions"][k] for k in n.get("qs", []) if k < len(data["questions"])]
+    if data.get("kind") == "topic" and qs:
+        head += "\n【对应母题题干】" + qs[0]["stem"]
+    return "%s\n【讲义原文】\n%s\n【红字（消化清单要考的空）】%s" % (
+        head, "\n".join(n["paras"])[:6000], "、".join(keys) if keys else "（这一条没有挖空）")
+
+
+def ask_prompt(data, i, question, history):
+    if not 0 <= int(i) < len(data["news"]):
+        raise TianjiError("没有这一条")
+    msgs = [{"role": "system", "content": ASK_SYSTEM},
+            {"role": "user", "content": _news_context(data, int(i)) + "\n\n" + (question or ASK_MEMORY)}]
+    for h in (history or [])[-6:]:
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            msgs.insert(-1, {"role": h["role"], "content": str(h["content"])[:2500]})
+    return msgs
+
+
+def save_ask(g, kind, iid, i, question, reply):
+    """问过的存进进度（每条新闻最多留 12 问），下次打开还能看"""
+    pr = progress_of(g, kind, iid)
+    lst = pr.setdefault("ask", {}).setdefault(str(int(i)), [])
+    lst.append({"q": question or "总结这一条怎么记", "a": reply, "t": dt.datetime.now().strftime("%m-%d %H:%M")})
+    del lst[:-12]
+    return lst

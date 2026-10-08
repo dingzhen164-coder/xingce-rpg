@@ -864,7 +864,7 @@ def notes_pdfs(body):
 
 
 def notes_pdfopen(body):
-    return _notes_call(notes.pdf_open, body.get("p") or body.get("path"))
+    return _notes_call(notes.pdf_open, body.get("p") or body.get("path"), body.get("title") or "")
 
 
 def notes_pdfexport(body):
@@ -1163,6 +1163,27 @@ def tj_cards(body):
     return _tj(tianji.forgot_cards, body.get("kind"), body.get("id"))
 
 
+def tj_ask(body):
+    """🧙 问师傅：question 空 = 总结这一条怎么记（尤其红字）；否则就这一条提问。可以追问（history）"""
+    with open_game(save=False) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        try:
+            data = tianji.load(g.paths, body.get("kind"), body.get("id"))
+            msgs = tianji.ask_prompt(data, int(body.get("news") or 0), str(body.get("question") or "").strip(), body.get("history"))
+        except (tianji.TianjiError, ValueError) as e:
+            raise ApiError(str(e))
+    if not ai.available():
+        raise ApiError("还没填 AI 的 API key：设置里填好才能问师傅")
+    tianji.touch()
+    try:
+        reply = ai.chat(msgs, temperature=0.5, max_tokens=1200).strip()
+    except ai.AIError as e:
+        raise ApiError(str(e))
+    saved = _tj(lambda g: tianji.save_ask(g, body.get("kind"), body.get("id"), int(body.get("news") or 0), str(body.get("question") or "").strip(), reply))
+    return {"reply": reply, "saved": saved}
+
+
 def tj_pdf(body):
     with open_game(save=False) as g:
         rel = str(body.get("path") or "")
@@ -1191,7 +1212,7 @@ for _n, _f in (("get", mm_get), ("save", mm_save), ("create", mm_create), ("rena
 ROUTES[("POST", "/api/settings/ai_profile")] = ai_profile
 ROUTES[("POST", "/api/poster/stats")] = poster_stats
 ROUTES[("GET", "/api/tianji")] = tj_list
-for _n, _f in (("import", tj_import), ("get", tj_get), ("mark", tj_mark), ("meta", tj_meta), ("delete", tj_delete), ("cards", tj_cards), ("pdf", tj_pdf)):
+for _n, _f in (("import", tj_import), ("get", tj_get), ("mark", tj_mark), ("meta", tj_meta), ("delete", tj_delete), ("cards", tj_cards), ("pdf", tj_pdf), ("ask", tj_ask)):
     ROUTES[("POST", "/api/tianji/" + _n)] = _f
 ROUTES[("POST", "/api/poster/save")] = poster_save
 for _n, _f in (("next", cards_next), ("answer", cards_answer), ("undo", cards_undo), ("add", cards_add), ("note", cards_note),

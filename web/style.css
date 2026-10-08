@@ -1645,3 +1645,26 @@ html.no-cmix .tj-b.no, html.no-cmix .tj-forgot span { background: rgba(200, 60, 
 @media (prefers-reduced-motion: reduce) { .jscroll, .jscroll-paper { animation: none; } }
 .deck-subs { margin-bottom: 14px; }
 .tome-label.long { font-size: 14px; line-height: 1.15; }
+/* 天机简报研读页左栏：目录 / 问师傅 切换 */
+.tj-read.asking { grid-template-columns: 340px minmax(0, 1fr); }
+.tj-ltabs { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 8px; flex: none; }
+.tj-toc .tj-ltabs a { flex: 1; justify-content: center; padding: 6px 4px; border-radius: 0; font-size: 13px; box-shadow: none; }
+.tj-toc .tj-ltabs a.on { background: var(--accent); color: #fff; }
+.tj-read.asking .tj-toc { display: flex; flex-direction: column; height: max(380px, calc(100vh - 240px)); overflow: hidden; }
+.tj-ask { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
+.tj-ask-for { font-size: 12px; color: var(--muted); }
+.tj-ask-mem { align-self: stretch; }
+.tj-ask-msgs { flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.tj-am { border-radius: 10px; padding: 8px 10px; font-size: 14px; line-height: 1.7; }
+.tj-am.me { align-self: flex-end; max-width: 90%; background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+.tj-am.me small { display: block; font-size: 10px; color: var(--faint); }
+.tj-am.ai { background: var(--panel2); }
+.tj-am.ai p { margin: 4px 0; }
+.tj-ask-empty { padding: 8px 2px; }
+.tj-ask-in { display: flex; gap: 6px; align-items: flex-end; flex: none; }
+.tj-ask-in textarea { flex: 1; min-width: 0; resize: none; font: inherit; font-size: 14px; }
+@media (max-width: 820px) {
+  .tj-read.asking { grid-template-columns: 1fr; }
+  .tj-read.asking .tj-toc { height: 62vh; max-height: none; overflow: hidden; }
+}
+html.no-cmix .tj-am.me { background: var(--panel2); }

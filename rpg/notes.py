@@ -377,7 +377,7 @@ def pdf_file(paths, rel):
     return p
 
 
-def pdf_open(paths, rel):
+def pdf_open(paths, rel, title=""):
     """打开库里的 PDF：已经有批注本就用它，没有就按 PDF 的页数、页面比例新建一本。返回 {id}"""
     p = pdf_file(paths, rel)
     if not p:
@@ -398,7 +398,7 @@ def pdf_open(paths, rel):
         r = pg.rect
         pages.append({"strokes": [], "h": round(PAGE_W * r.height / r.width, 1) if r.width else PAGE_H})
     nid = dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000)
-    d = {"id": nid, "title": p.stem[:60], "paper": "pdf", "pdf": rel, "pages": pages or [{"strokes": [], "h": PAGE_H}],
+    d = {"id": nid, "title": (str(title or "").strip() or p.stem)[:60], "paper": "pdf", "pdf": rel, "pages": pages or [{"strokes": [], "h": PAGE_H}],
          "text": "", "compiled": "", "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     f = _file(paths, nid)
     f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")

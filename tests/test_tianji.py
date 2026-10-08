@@ -3,6 +3,7 @@ import base64
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from rpg import api, cards, paths, tianji
 
@@ -136,6 +137,22 @@ class TianjiTest(unittest.TestCase):
         self.assertEqual(hb["minutes"], 1)
         api.tj_meta({"kind": "topic", "id": ls["topic"][0]["id"], "category": "经济"})
         self.assertEqual(api.tj_list({})["topic"][0]["category"], "经济")
+        # 🧙 问师傅：总结怎么记（带红字）/ 追问，问过的存进进度
+        seen = []
+        def fake_chat(msgs, **kw):
+            seen.append(msgs)
+            return "口诀：珠江北部湾"
+        with patch.object(api.ai, "available", return_value=True), patch.object(api.ai, "chat", side_effect=fake_chat):
+            r = api.tj_ask(dict(k, news=0))
+            self.assertEqual(r["saved"][-1]["a"], "口诀：珠江北部湾")
+            self.assertIn("珠江、北部湾", seen[0][1]["content"])          # 红字带给师傅
+            self.assertIn("请帮我记住这一条", seen[0][1]["content"])
+            r = api.tj_ask(dict(k, news=0, question="西江是什么？", history=[{"role": "user", "content": "总结"}, {"role": "assistant", "content": "口诀"}]))
+            self.assertEqual(len(r["saved"]), 2)
+            self.assertEqual(len(seen[1]), 4)
+            with self.assertRaises(api.ApiError):
+                api.tj_ask(dict(k, news=9))
+        self.assertEqual(len(api.tj_get(k)["progress"]["ask"]["0"]), 2)
         api.tj_delete(k)
         self.assertEqual(api.tj_list({})["month"], [])
         with self.assertRaises(api.ApiError):
