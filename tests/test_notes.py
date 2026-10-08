@@ -186,3 +186,7 @@ class PdfNotesTest(unittest.TestCase):
         out = fitz.open(str(self.paths.vault / r["path"]))
         self.assertIn("hello", out[0].get_text())                # 原文字还在（不是整页图片）
         self.assertIsNotNone(notes.export_file(self.paths, r["path"]))
+        # 藏经阁「功法 · 教材」：库里所有 PDF，不含手札导出
+        lst = [x["path"] for x in notes.pdf_list(self.paths)]
+        self.assertIn(self.rel, lst)
+        self.assertNotIn(r["path"], lst)

@@ -458,3 +458,36 @@ def export_pdf_annot(paths, nid, overlays):
     tmp.write_bytes(doc.tobytes(deflate=True, garbage=3))
     tmp.replace(f)
     return {"path": f.relative_to(paths.vault).as_posix(), "name": f.name, "pages": doc.page_count, "marked": n, "size": f.stat().st_size}
+
+
+def pdf_list(paths, limit=3000):
+    """库里所有的 PDF（藏经阁「功法 · 教材」）：[{path, name, dir, top}]。
+    不含隐藏文件夹、训练/ 里程序自己生成的（手札导出、战报、程序文件夹），训练/天机简报/原文/ 保留"""
+    root = paths.vault
+    out = []
+    keep = ("训练", "天机简报", "原文")
+
+    def blocked(parts):       # 训练/ 下只进 训练/天机简报/原文/
+        return parts[0] == "训练" and tuple(parts[:3]) != keep[:min(3, len(parts))]
+
+    def walk(d, depth):
+        if depth > 10 or len(out) >= limit:
+            return
+        try:
+            items = sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name))
+        except OSError:
+            return
+        for p in items:
+            if p.name.startswith(".") or p.name in SKIP_DIRS:
+                continue
+            parts = p.relative_to(root).parts
+            if p.is_dir():
+                if not blocked(parts):
+                    walk(p, depth + 1)
+            elif p.suffix.lower() == ".pdf" and not (parts[0] == "训练" and tuple(parts[:3]) != keep):
+                r = "/".join(parts)
+                out.append({"path": r, "name": p.stem, "dir": "/".join(parts[:-1]), "top": parts[0] if len(parts) > 1 else ""})
+                if len(out) >= limit:
+                    return
+    walk(root, 0)
+    return out

@@ -137,11 +137,12 @@
     const s = document.getElementById("yjStage");
     if (s) s.remove();
     document.documentElement.classList.remove("yj-on");
-    MODE = ""; R = null;
+    MODE = ""; R = null; FL = null;
     if (typeof VIEW !== "undefined" && VIEW === "train") renderTrain();
   }
   function head(title, extra = "") {
-    return `<div class="yj-top"><button class="ghost" id="yjBack">← 回修炼殿</button><b class="yj-top-title">${title}</b><span class="spacer"></span>${extra}</div>`;
+    const back = typeof VIEW !== "undefined" && VIEW === "skeleton" ? `← 回${NAV("skeleton")}` : "← 回修炼殿";
+    return `<div class="yj-top"><button class="ghost" id="yjBack">${back}</button><b class="yj-top-title">${title}</b><span class="spacer"></span>${extra}</div>`;
   }
   function bindBack() { const b = document.getElementById("yjBack"); if (b) b.onclick = closeStage; }
   function open(mode) {
@@ -304,6 +305,73 @@
     if (R.shown && /^[1-4]$/.test(e.key)) { e.preventDefault(); rate(+e.key); }
   });
   ["pointerdown", "keydown", "wheel"].forEach((ev) => addEventListener(ev, () => { if (MODE === "review") lastActive = Date.now(); }, { passive: true }));
+
+  // ---------------------------------------------------------------- 翻阅（藏经阁「玉简 · 知识点」）：一匣玉简一枚一枚翻着看，画面和温简一样，不打分、不动温习进度
+  let FL = null;                 // {deck, keys, i, shown, card}
+  async function flipDeck(deck) {
+    MODE = "flip";
+    FL = { deck, keys: [], i: 0, shown: false };
+    const title = `📗 ${esc(T("yj"))} · ${esc((deck || "全部").replace(/::/g, " › "))}`;
+    stage().innerHTML = head(title) + `<div class="yj-wait">翻检玉简…</div>`;
+    bindBack();
+    try {
+      for (let page = 0; page < 40; page++) {
+        const r = await api("/api/cards/search", { deck, page });
+        FL.keys.push(...r.rows.map((x) => x.key));
+        if (FL.keys.length >= r.total || !r.rows.length) break;
+      }
+      await flipShow();
+    } catch (e) { showError(e); closeStage(); }
+  }
+  async function flipShow() {
+    if (MODE !== "flip" || !FL) return;
+    const s = stage();
+    const title = `📗 ${esc(T("yj"))} · ${esc((FL.deck || "全部").replace(/::/g, " › "))}`;
+    const go = `<button class="ghost small" id="flRev" title="按记忆曲线温这一匣（会记进度）">🌙 ${esc(T("yj_review"))}这一匣</button>`;
+    if (!FL.keys.length) {
+      s.innerHTML = head(title, go) + `<div class="yj-finish"><h2>这一匣还是空的</h2><p>到修炼殿「${esc(T("yj_add"))}」或「师傅制卡」放进玉简。</p></div>`;
+      bindBack(); document.getElementById("flRev").onclick = () => review(FL.deck); return;
+    }
+    FL.i = Math.max(0, Math.min(FL.i, FL.keys.length - 1));
+    let c;
+    try { c = await api("/api/cards/info", { key: FL.keys[FL.i] }); } catch (e) { showError(e); return; }
+    FL.card = c; FL.shown = false;
+    const f = faces(c);
+    const kind = ["new", "learn", "due", "learn"][c.state] || "new";
+    s.innerHTML = head(title, `<span class="yj-cnt">${FL.i + 1} / ${FL.keys.length}</span>` + go) + `
+      <div class="yj-desk"><div class="yj-slip ${kind}">
+        <div class="yj-slip-meta"><span>${esc(c.deck)}</span><span class="tag">${esc(c.sched?.state || "")}</span>${c.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}<span class="spacer"></span>
+          <a id="flEdit" title="改这枚${esc(T("yj"))}">✎ 改</a></div>
+        <div class="yj-face yj-front">${f.front}</div>
+        <div class="yj-back" id="flBack" hidden><div class="yj-rule"></div><div class="yj-face">${f.back}</div>${c.ai ? `<div class="yj-ask">${savedHtml(c.ai)}</div>` : ""}</div>
+      </div></div>
+      <div class="yj-bar"><button class="ghost" id="flPrev" ${FL.i ? "" : "disabled"}>← 上一枚</button>
+        <button class="primary yj-show" id="flShow">${esc(T("yj_show"))} <small>空格</small></button>
+        <button class="ghost" id="flNext" ${FL.i < FL.keys.length - 1 ? "" : "disabled"}>下一枚 →</button></div>`;
+    bindBack();
+    s.querySelectorAll(".yj-face img").forEach((im) => (im.onclick = () => window.zoomImg && zoomImg(im.src)));
+    document.getElementById("flRev").onclick = () => review(FL.deck);
+    document.getElementById("flShow").onclick = flipReveal;
+    document.getElementById("flPrev").onclick = () => { FL.i--; flipShow(); };
+    document.getElementById("flNext").onclick = () => { FL.i++; flipShow(); };
+    document.getElementById("flEdit").onclick = () => editDialog(c.id, () => flipShow());
+  }
+  function flipReveal() {
+    if (!FL || FL.shown) return;
+    FL.shown = true;
+    document.getElementById("flBack").hidden = false;
+    const b = document.getElementById("flShow");
+    b.innerHTML = `下一枚 <small>空格</small>`;
+    document.getElementById("flNext").hidden = true;
+    b.onclick = () => { if (FL.i < FL.keys.length - 1) { FL.i++; flipShow(); } };
+  }
+  document.addEventListener("keydown", (e) => {
+    if (MODE !== "flip" || !FL || !FL.card) return;
+    if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") || !$("#modal").classList.contains("hidden")) return;
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!FL.shown) flipReveal(); else if (FL.i < FL.keys.length - 1) { FL.i++; flipShow(); } }
+    else if (e.key === "ArrowRight" && FL.i < FL.keys.length - 1) { FL.i++; flipShow(); }
+    else if (e.key === "ArrowLeft" && FL.i > 0) { FL.i--; flipShow(); }
+  });
 
   // ---------------------------------------------------------------- 刻简
   const ADD = { deck: LS.get("xrpg-yj-deck", ""), type: LS.get("xrpg-yj-type", "问答"), tags: "" };
@@ -757,5 +825,5 @@
   const active = () => MODE === "review" && !!R && !!R.card && document.visibilityState === "visible" && Date.now() - lastActive < 600000;
   const board = () => (R && R.deck ? R.deck.split("::")[0] : "");
   const drawKey = () => (MODE === "review" && R && R.card ? "yj:" + R.card.key : "");
-  window.CARDS = { drawKey, hubHtml, bindHub, review, open, close: closeStage, isOpen: () => !!MODE, active, board };
+  window.CARDS = { drawKey, hubHtml, bindHub, review, open, flipDeck, close: closeStage, isOpen: () => !!MODE, active, board };
 })();

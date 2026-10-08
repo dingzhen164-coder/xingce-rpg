@@ -859,6 +859,10 @@ def notes_pdf(body):
     return r
 
 
+def notes_pdfs(body):
+    return {"files": _notes_call(notes.pdf_list)}
+
+
 def notes_pdfopen(body):
     return _notes_call(notes.pdf_open, body.get("p") or body.get("path"))
 
@@ -1206,6 +1210,7 @@ ROUTES[("POST", "/api/notes/md")] = notes_md
 ROUTES[("POST", "/api/notes/pdf")] = notes_pdf
 ROUTES[("POST", "/api/notes/open")] = notes_open
 ROUTES[("POST", "/api/notes/pdfopen")] = notes_pdfopen
+ROUTES[("GET", "/api/notes/pdfs")] = notes_pdfs
 ROUTES[("POST", "/api/notes/pdfexport")] = notes_pdfexport
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply

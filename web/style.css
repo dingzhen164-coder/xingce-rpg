@@ -1617,3 +1617,31 @@ html.no-cmix .tj-b.no, html.no-cmix .tj-forgot span { background: rgba(200, 60, 
 .nt-page .nt-pdfimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; user-select: none; -webkit-user-drag: none; background: #fff; }
 .nt-pdftag { font-size: 12px; color: var(--muted); padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; white-space: nowrap; }
 .nt-file.pdf { color: var(--red); }
+
+/* ------------------------------------------------------------ 藏经阁 3.1.1：玉简 · 知识点（复用 .slip）、经卷 · 题库（卷轴）、功法 · 教材（复用 .tome） */
+.deck-subs { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; max-width: 190px; }
+.deck-subs a { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--jade-line, var(--line)); color: var(--muted); cursor: pointer; }
+.deck-subs a span { color: var(--faint); }
+.deck-subs a:hover { color: var(--text); border-color: var(--gold); }
+.tome-group { font-family: var(--display); letter-spacing: .12em; margin: 22px 0 0; }
+.tome-group small { color: var(--faint); font-size: 12px; letter-spacing: 0; }
+.tome-name { max-width: 150px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 经卷：上下两根卷轴、中间米黄绢本，悬浮着，纸卷微微舒展；鼠标放上去整卷展开、发光 */
+.jscroll { position: relative; width: 104px; height: 196px; cursor: pointer; display: flex; flex-direction: column; align-items: center;
+  animation: tome-float 7s ease-in-out infinite; animation-delay: calc(var(--d) * -1); filter: drop-shadow(0 14px 16px rgba(0,0,0,.28)); }
+.jscroll-rod { position: relative; z-index: 2; width: 112px; height: 12px; border-radius: 6px; flex: none;
+  background: linear-gradient(#7a4a22, #4a2a10 60%, #2e1a08); box-shadow: inset 0 1px 0 rgba(255,220,160,.35); }
+.jscroll-rod::before, .jscroll-rod::after { content: ""; position: absolute; top: -2px; width: 10px; height: 16px; border-radius: 4px; background: linear-gradient(#e8c66a, #a8791c); }
+.jscroll-rod::before { left: -7px; } .jscroll-rod::after { right: -7px; }
+.jscroll-paper { position: relative; width: 94px; flex: 1; margin: -2px 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 12px 0 10px;
+  background: linear-gradient(90deg, #e9dcc0, #f8f0dc 18%, #fbf5e6 50%, #f8f0dc 82%, #e9dcc0); border-left: 5px solid #9b6b3a; border-right: 5px solid #9b6b3a;
+  box-shadow: inset 0 0 0 2px rgba(155,107,58,.25); transform-origin: top; animation: jscroll-breathe 5s ease-in-out infinite; animation-delay: calc(var(--d) * -1); }
+.jscroll-paper::before { content: ""; position: absolute; left: 6px; right: 6px; top: 6px; bottom: 6px; border: 1px solid rgba(155,107,58,.35); pointer-events: none; }
+@keyframes jscroll-breathe { 0%, 100% { transform: scaleY(.94); } 50% { transform: scaleY(1); } }
+.jscroll-label { font-family: var(--display); font-size: 17px; line-height: 1.25; color: #3a2410; text-align: center; height: 112px; display: flex; flex-direction: column; justify-content: center; }
+.jscroll-count { font-size: 11px; color: #8a1c14; border: 1px solid rgba(196,22,28,.5); border-radius: 3px; padding: 0 5px; transform: rotate(-4deg); background: rgba(255,255,255,.5); }
+.jscroll:hover { filter: drop-shadow(0 0 18px color-mix(in srgb, var(--gold) 70%, transparent)) drop-shadow(0 18px 18px rgba(0,0,0,.3)); }
+.jscroll:hover .jscroll-paper { animation: none; transform: scaleY(1.06); transition: transform .4s ease; }
+@media (prefers-reduced-motion: reduce) { .jscroll, .jscroll-paper { animation: none; } }
+.deck-subs { margin-bottom: 14px; }
+.tome-label.long { font-size: 14px; line-height: 1.15; }

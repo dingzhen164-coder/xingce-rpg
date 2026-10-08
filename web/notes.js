@@ -39,7 +39,9 @@
     fit();
     paintMain();
     bindSide();
+    if (PENDING) { const p = PENDING; PENDING = null; openPdf(p); }     // 从藏经阁「功法 · 教材」点过来的 PDF
   }
+  let PENDING = null;
   function fit() {
     const el = document.getElementById("notesRoot");
     if (el) el.style.height = Math.max(420, innerHeight - el.getBoundingClientRect().top - 12) + "px";
@@ -656,5 +658,5 @@
 
   // 正在记笔记：开着本子、页面看得见、1 分钟内写过字 → 返回本子编号（心跳带上，服务器再核对最近真的存过笔迹）
   const writingId = () => (VIEW === "notes" && NB && document.visibilityState === "visible" && (inking || Date.now() - lastWrite <= 60000) ? NB.id : "");
-  window.NOTES = { writingId, lastId: () => (NB ? NB.id : ""), save: () => flush(), render, flush: () => { setFull(false); return flush(); }, mdRender, isFull, exitFull: () => setFull(false) };
+  window.NOTES = { openPdfLater: (p) => { PENDING = p; }, writingId, lastId: () => (NB ? NB.id : ""), save: () => flush(), render, flush: () => { setFull(false); return flush(); }, mdRender, isFull, exitFull: () => setFull(false) };
 })();
