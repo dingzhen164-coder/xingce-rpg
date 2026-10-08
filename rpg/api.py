@@ -69,7 +69,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import appapk, appearance, cardgen, cards, mindmap, notes, poster, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
+from . import appapk, appearance, cardgen, cards, mindmap, notes, poster, tianji, idioms, importer, lan, library, marks, mock, report, question_bank, ai, config, engine, paths as paths_mod, store, themes, trainer, tutor, vault
 from .paths import WEB_DIR, Paths, find_vault, load_settings, looks_like_vault, save_settings
 
 
@@ -467,15 +467,18 @@ def heartbeat(body):
     studying = trainer.is_studying(body.get("session"))
     noting = not studying and bool(body.get("notes")) and notes.writing(body.get("notes"))   # 在手札里写（1 分钟内动过笔）
     carding = not studying and not noting and bool(body.get("cards")) and cards.reviewing()        # 在温简（2 分半内答过一张）
+    tj = body.get("tianji") if not (studying or noting or carding) and tianji.studying() else None  # 在天机简报里学（5 分钟内翻过、填过、答过）
     with open_game() as g:
         sid = body.get("session")
         if studying and sec:
             ev = tutor.enrich(g, g.add_seconds(sec, trainer.study_kind(sid), trainer.study_board(g, sid)))
         elif (noting or carding) and sec:
             ev = tutor.enrich(g, g.add_seconds(sec, "review", body.get("cards_board") if carding and body.get("cards_board") in g.boards else ""))
+        elif tj and sec:      # 精卷算做题，研读 / 消化算复习，都记在政治理论
+            ev = tutor.enrich(g, g.add_seconds(sec, "practice" if tj == "quiz" else "review", "政治理论" if "政治理论" in g.boards else ""))
         else:
             ev = []
-        studying = studying or noting or carding
+        studying = studying or noting or carding or bool(tj)
         return {"events": ev, "minutes": int(g.minutes(g.t)), "studying": studying, "other_device": g.store.heartbeat(),
                 "rest": g.resting(), "retreat_on": bool(g.state.get("retreat"))}
 
@@ -1090,6 +1093,67 @@ def poster_save(body):
     return r
 
 
+# ---------------------------------------------------------------- 🔮 天机简报（见 rpg/tianji.py、web/tianji.js）
+def _tj(fn, *a, save=True):
+    with open_game(save=save) as g:
+        if not g.paths.vault:
+            raise ApiError("还没找到行测库")
+        try:
+            return fn(g, *a)
+        except tianji.TianjiError as e:
+            raise ApiError(str(e))
+
+
+def tj_list(body):
+    return _tj(tianji.listing, save=False)
+
+
+def tj_import(body):
+    """网页把 PDF 读成 dataURL / base64 传上来 → 存临时文件 → 解析入库"""
+    import base64
+    import tempfile
+    from pathlib import Path
+    raw = str(body.get("data") or "")
+    raw = raw.split(",", 1)[1] if raw.startswith("data:") else raw
+    try:
+        pdf = base64.b64decode(raw)
+    except Exception:
+        raise ApiError("PDF 数据不对")
+    if not pdf.startswith(b"%PDF"):
+        raise ApiError("这不是 PDF 文件")
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "upload.pdf"
+        f.write_bytes(pdf)
+        return _tj(lambda g: tianji.save_import(g.paths, f), save=False)
+
+
+def tj_get(body):
+    return _tj(tianji.get, body.get("kind"), body.get("id"))
+
+
+def tj_mark(body):
+    r = _tj(tianji.mark, body.get("kind"), body.get("id"), body)
+    return r
+
+
+def tj_meta(body):
+    return _tj(tianji.set_meta, body.get("kind"), body.get("id"), body, save=False)
+
+
+def tj_delete(body):
+    return _tj(tianji.delete, body.get("kind"), body.get("id"))
+
+
+def tj_cards(body):
+    return _tj(tianji.forgot_cards, body.get("kind"), body.get("id"))
+
+
+def tj_pdf(body):
+    with open_game(save=False) as g:
+        rel = str(body.get("path") or "")
+    return {"url": "/notes-file?p=%s&t=%s" % (quote(rel), export_token(rel))}
+
+
 def changelog_get(body):
     from . import changelog
     return {"entries": changelog.entries()}
@@ -1111,6 +1175,9 @@ for _n, _f in (("get", mm_get), ("save", mm_save), ("create", mm_create), ("rena
     ROUTES[("POST", "/api/mindmap/" + _n)] = _f
 ROUTES[("POST", "/api/settings/ai_profile")] = ai_profile
 ROUTES[("POST", "/api/poster/stats")] = poster_stats
+ROUTES[("GET", "/api/tianji")] = tj_list
+for _n, _f in (("import", tj_import), ("get", tj_get), ("mark", tj_mark), ("meta", tj_meta), ("delete", tj_delete), ("cards", tj_cards), ("pdf", tj_pdf)):
+    ROUTES[("POST", "/api/tianji/" + _n)] = _f
 ROUTES[("POST", "/api/poster/save")] = poster_save
 for _n, _f in (("next", cards_next), ("answer", cards_answer), ("undo", cards_undo), ("add", cards_add), ("note", cards_note),
                ("update", cards_update), ("delete", cards_delete), ("suspend", cards_suspend), ("forget", cards_forget),

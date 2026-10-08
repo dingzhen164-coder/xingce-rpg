@@ -74,6 +74,7 @@ function realmUp(e) {
 // ------------------------------------------------------------ 导航 / 风格
 function go(view) {
   if (VIEW === "notes" && view !== "notes" && window.NOTES) NOTES.flush();
+  if (view === "tianji" && VIEW === "tianji" && window.TIANJI && TIANJI.isOpen()) TIANJI.close();   // 在一期里再点顶栏：回天机简报首页
   if (window.CARDS && CARDS.isOpen()) CARDS.close();
   if (window.MINDMAP && MINDMAP.isOpen()) MINDMAP.close();
   VIEW = view;
@@ -90,6 +91,8 @@ window.xcBack = () => {
   if (window.NOTES && NOTES.isFull()) { NOTES.exitFull(); return true; }
   if (window.CARDS && CARDS.isOpen()) { CARDS.close(); return true; }
   if (window.MINDMAP && MINDMAP.isOpen()) { MINDMAP.close(); return true; }
+  const m0 = $("#modal");
+  if (VIEW === "tianji" && window.TIANJI && TIANJI.isOpen() && (!m0 || m0.classList.contains("hidden"))) { TIANJI.close(); return true; }
   const m = $("#modal");
   if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); return true; }
   if (window.FOCUS && FOCUS.isOn()) { FOCUS.exit(); return true; }
@@ -146,17 +149,11 @@ async function render() {
     if (VIEW === "home") { await refresh(); v.innerHTML = views.home(); bindHome(); }
     else if (VIEW === "train") { if (!DASH) await refresh(); v.innerHTML = await views.train(); bindTrain(); }
     else if (VIEW === "contest") { if (!DASH) await refresh(); await CONTEST.render(v); }
+    else if (VIEW === "tianji") { if (!DASH) await refresh(); await TIANJI.render(v); }
     else if (VIEW === "notes") { if (!DASH) await refresh(); await NOTES.render(v); }
     else if (VIEW === "skeleton") { if (!DASH) await refresh(); v.innerHTML = await views.skeleton(); bindSkeleton(); }
     else if (VIEW === "bank") { HALL = 'shizhan'; return go('train'); }   // 试炼塔并进了修炼殿
-    else if (VIEW === "wrong") {
-      await refresh(); v.innerHTML = await views.wrong();
-      const k = $("#killGo");
-      if (k) k.onclick = () => (DASH?.plan?.tasks || []).some((t) => t.id === "wrong:daily")
-        ? startTask({ task_id: "wrong:daily" })
-        : startTask({ task: { type: "wrong", board: "", target: "", title: `👹 ${W("kill")}` } });
-    }
-    else if (VIEW === "pill") { await refresh(); v.innerHTML = views.pill(); bindPill(); }
+    else if (VIEW === "wrong" || VIEW === "pill") { VIEW = "log"; return go("log"); }   // 心魔录、丹房在 3.0 去掉了
     else if (VIEW === "log") { await refresh(); v.innerHTML = views.log(); bindLog(); }
     else if (VIEW === "settings") { await refresh(); await AMB.load(); v.innerHTML = await views.settings(); bindSettings(); }
   } catch (e) { showError(e); }
@@ -338,18 +335,8 @@ function bindPins() {
 }
 function boardOptions(list) { return list.map((b) => `<option>${esc(b)}</option>`).join(""); }
 
-// ------------------------------------------------------------ 页面
-const views = {
-  home() {
-    const d = DASH; if (!d) return "";
-    const R = d.realm, p = d.persona, I = d.ideal, F = d.forecast;
-    const avatar = p.avatar ? `<img src="${esc(p.avatar)}" alt="头像">` : `<div class="def">${esc((p.id || "修").slice(0, 1))}</div>`;
-    const diff = I.diff_days;
-    const ideal = diff > 0.5 ? `<div class="v bad">落后 ${diff} 天</div><div class="d">${I.catch ? `每天多修 ${I.catch.per_day} 分钟约 ${I.catch.days} 天追平，或去${esc(W("pill_room"))}加练` : ""}</div>`
-      : diff < -0.5 ? `<div class="v good">领先 ${-diff} 天</div><div class="d">保持住</div>` : `<div class="v">恰在线上</div><div class="d">按计划修行</div>`;
-    const barLabel = R.bottleneck
-      ? `<span style="color:var(--gold)">⚡ ${esc(W("bottleneck"))}：积压${esc(W("xp"))} ${R.overflow}，${esc(W("tribulation"))}成功后一次涌入</span>`
-      : `${esc(W("xp"))} ${R.into} / ${R.need}${R.next ? ` → ${esc(R.next)}` : ""}`;
+// ------------------------------------------------------------ 修仙录里的修炼进度：今日功课、修炼进度、灵根、心魔榜、宗门周常、储物袋、宗门大比战绩
+function progressParts(d) {
     const tasks = d.plan.tasks;
     const doneN = tasks.filter((t) => t.done).length;
     const totalMin = tasks.reduce((a, t) => a + t.minutes, 0);
@@ -364,18 +351,33 @@ const views = {
         <span class="muted small">${acc}</span></div>${bar(s.progress, "thin " + color)}
         <div class="faint small">${s.items ? `${s.mastered}/${s.items} ${esc(W("item"))}圆满 · ${pct(s.progress)}%` : ""} ${s.root?.on ? rootBadge(s.root) : ""}</div></div>`;
     }).join("");
-    const trib = d.trib ? `<div class="card trib-card"><h3>⚡ ${esc(W("tribulation"))} · 冲击${esc(d.trib.realm)} <small>${d.trib.thunders} 道天雷 · ${esc(d.trib.pill)} ×${d.trib.pills}</small></h3>
-        <div class="conds">${d.trib.conds.map((c) => `<div class="cond ${c.ok ? "ok" : "no"}"><b>${c.ok ? "✓" : "✗"} ${esc(c.name)}</b><span class="small">${esc(c.text)}${c.need && !c.ok ? `（${esc(c.need)}）` : ""}</span></div>`).join("")}</div>
-        ${d.trib.ready ? `<div class="row" style="margin-top:10px"><button class="primary big" id="tribBtn">⚡ 开始${esc(W("tribulation"))}</button><span class="small muted">开始后不能跳过；失败会道基受损，冷却几天并需${esc(W("heal"))}</span></div>` : ""}</div>` : "";
-    const retreat = d.retreat ? `<div class="card retreat row"><b>🧘 ${esc(W("retreat"))}中：${esc(d.retreat.board)}</b> <span id="retreatLeft" class="muted"></span>
-        <span class="spacer"></span><button class="small" id="retreatEnd">${esc(W("retreat_end"))}</button></div>` : "";
     const roots = d.roots.map((r) => `<div class="root ${r.on ? "on t" + r.tier : ""}"><div class="row"><b>${esc(r.name)}</b><span class="spacer"></span><span class="small">${esc(r.grade_name)}</span></div>
         <div class="small muted">${r.acc != null ? `正确率 ${pct(r.acc)}%` : "暂无数据"}${r.on && r.bonus ? ` · ${esc(W("xp"))} +${pct(r.bonus)}%` : ""}${!r.on ? ` · 觉醒：${r.route === "功法" ? `${esc(W("skeleton"))}全部圆满` : "两季正确率达线"}` : ""}</div></div>`).join("");
     const demon = d.demon.slice(0, 6).map((r, i) => `<div class="row small"><span class="rank">${i + 1}</span><span>${esc(r.board)}</span><span class="spacer"></span><b style="color:${i < 2 ? "var(--red)" : "var(--muted)"}">${pct(r.acc)}%</b></div>`).join("") || '<div class="muted small">还没有模考数据</div>';
     const weekly = d.weekly.map((q) => `<div class="small"><div class="row"><span>${q.done ? "✅" : "⬜"} ${esc(q.name)}</span><span class="spacer"></span><span class="muted">${q.progress}/${q.target}</span></div>${bar(q.progress / q.target, "thin " + (q.done ? "green" : ""))}</div>`).join("");
     const bag = d.bag.length ? d.bag.map((b) => `<div class="small row"><b>${esc(b.name)}</b><span class="muted">×${b.count}</span><span class="spacer"></span><span class="faint">${esc(b.desc)}</span></div>`).join("") : `<div class="muted small">空空如也。${esc(W("boss"))}达到${esc(W("tribulation"))}线得突破信物，${esc(W("weekly"))}全勤得护身之物。</div>`;
-    const boss = d.boss.length ? d.boss.slice().reverse().map((b) => `${esc(b.name)} <b>${b.score}</b> <span class="faint small">${b.d}</span>`).join(" · ") : `<span class="muted">还没有战绩。模考出分后到“${esc(NAV("log"))}”页记录。</span>`;
+    const boss = d.boss.length ? d.boss.slice().reverse().map((b) => `${esc(b.name)} <b>${b.score}</b> <span class="faint small">${b.d}</span>`).join(" · ") : `<span class="muted">还没有战绩。模考出分后在上面「记录${esc(W("boss"))}」里记。</span>`;
     const ascend = d.ascend.length ? `<div class="ascend">🌈 ${esc(W("ascend"))}：${d.ascend.map((b) => `${esc(b.name)} ${b.score} 分`).join("；")}</div>` : "";
+  return { tasks, doneN, totalMin, tree, roots, demon, weekly, bag, boss, ascend };
+}
+
+// ------------------------------------------------------------ 页面
+const views = {
+  home() {
+    const d = DASH; if (!d) return "";
+    const R = d.realm, p = d.persona, I = d.ideal, F = d.forecast;
+    const avatar = p.avatar ? `<img src="${esc(p.avatar)}" alt="头像">` : `<div class="def">${esc((p.id || "修").slice(0, 1))}</div>`;
+    const diff = I.diff_days;
+    const ideal = diff > 0.5 ? `<div class="v bad">落后 ${diff} 天</div><div class="d">${I.catch ? `每天多修 ${I.catch.per_day} 分钟约 ${I.catch.days} 天追平，或多做几道题` : ""}</div>`
+      : diff < -0.5 ? `<div class="v good">领先 ${-diff} 天</div><div class="d">保持住</div>` : `<div class="v">恰在线上</div><div class="d">按计划修行</div>`;
+    const barLabel = R.bottleneck
+      ? `<span style="color:var(--gold)">⚡ ${esc(W("bottleneck"))}：积压${esc(W("xp"))} ${R.overflow}，${esc(W("tribulation"))}成功后一次涌入</span>`
+      : `${esc(W("xp"))} ${R.into} / ${R.need}${R.next ? ` → ${esc(R.next)}` : ""}`;
+    const trib = d.trib ? `<div class="card trib-card"><h3>⚡ ${esc(W("tribulation"))} · 冲击${esc(d.trib.realm)} <small>${d.trib.thunders} 道天雷 · ${esc(d.trib.pill)} ×${d.trib.pills}</small></h3>
+        <div class="conds">${d.trib.conds.map((c) => `<div class="cond ${c.ok ? "ok" : "no"}"><b>${c.ok ? "✓" : "✗"} ${esc(c.name)}</b><span class="small">${esc(c.text)}${c.need && !c.ok ? `（${esc(c.need)}）` : ""}</span></div>`).join("")}</div>
+        ${d.trib.ready ? `<div class="row" style="margin-top:10px"><button class="primary big" id="tribBtn">⚡ 开始${esc(W("tribulation"))}</button><span class="small muted">开始后不能跳过；失败会道基受损，冷却几天并需${esc(W("heal"))}</span></div>` : ""}</div>` : "";
+    const retreat = d.retreat ? `<div class="card retreat row"><b>🧘 ${esc(W("retreat"))}中：${esc(d.retreat.board)}</b> <span id="retreatLeft" class="muted"></span>
+        <span class="spacer"></span><button class="small" id="retreatEnd">${esc(W("retreat_end"))}</button></div>` : "";
     return `
     <div class="card npc greet">${tutorFace()}<div><div class="who">${esc(p.tutor)}</div><div id="greet">${md(d.greeting)}${d.greet_pending ? '<div class="thinking small">正在打量你</div>' : ""}</div></div></div>
     ${retreat}
@@ -405,22 +407,7 @@ const views = {
     ${lectureCard(d)}
     ${practiceCard(d)}
     ${selfstudyCard(d)}
-    <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${doneN}/${tasks.length} · 约 ${totalMin} 分钟</small></h3>
-        <div id="tasks">${tasks.map(taskRow).join("") || `<div class="muted">今天没有功课。去“${esc(NAV("skeleton"))}”编撰${esc(W("skeleton"))}。</div>`}</div>
-        <div class="row" style="margin-top:8px"><button class="ghost small" id="regen">重新生成${esc(W("tasks"))}</button>
-        <button class="small" id="chatBtn">💬 ${esc(W("chat_btn"))}</button>
-        ${diff >= 1 ? `<button class="small" id="goPill">⚗ 去${esc(W("pill_room"))}加练</button>` : ""}</div></div>
-      <div class="card"><h3>⚔ 修炼进度 <small>${esc(W("skeleton"))}圆满度 · 实战正确率 · ${esc(W("root"))}</small></h3><div class="tree">${tree}</div></div>
-    </div>
-    <div class="grid g3" style="margin-top:14px">
-      <div class="card"><h3>🌱 ${esc(W("root"))}</h3><div class="roots">${roots}</div></div>
-      <div class="card"><h3>👹 ${esc(W("demon_rank"))} <small>正确率越低，${esc(W("wrong"))}越凶</small></h3>${demon}
-        <h3 style="margin-top:14px">🏯 ${esc(W("weekly"))}</h3>${weekly}</div>
-      <div class="card"><h3>🎒 ${esc(W("bag"))}</h3>${bag}
-        <h3 style="margin-top:14px">⚔ ${esc(W("boss"))}</h3><div>${boss}</div>${ascend}
-        <h3 style="margin-top:14px">📖 最近</h3>${recentList(d.recent.slice(0, 5))}</div>
-    </div>`;
+    `;
   },
 
   async train() {
@@ -475,74 +462,37 @@ const views = {
     }).join('')}</div>`;
   },
 
-  async wrong() {
-    const w = await api("/api/wrong");
-    const rows = w.boards.filter((b) => b.total).map((b) => `<tr><td>${esc(b.board)}</td><td>${b.total}</td><td>${b.new}</td><td style="color:var(--red)">${b.redo}</td><td style="color:var(--green)">${b.done}</td></tr>`).join("");
-    const redo = w.redo.map((r) => { const [n, s, q] = r.key.split("|"); return `<tr><td>第${n}季 ${esc(s)} 第${q}题</td><td>${r.due || ""}</td><td>${r.streak || 0}</td><td>${r.tries}</td></tr>`; }).join("");
-    const demon = (DASH?.demon || []).map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.board)}</td><td>${esc(r.name)}</td><td><b style="color:${i < 3 ? "var(--red)" : "inherit"}">${pct(r.acc)}%</b></td><td>${esc(r.grade_name)}</td></tr>`).join("");
-    const daily = (DASH?.plan?.tasks || []).find((t) => t.id === "wrong:daily");
-    const left = w.boards.reduce((n, b) => n + b.new + b.redo, 0);
-    const kill = `<div class="card kill-card"><div class="row"><h3 style="margin:0">⚔ ${esc(W("kill"))}</h3>
-        <span class="small muted">和${esc(W("tasks"))}里的「${esc(W("kill"))}」是同一项，在哪斩都算进度</span></div>
-      ${daily ? `${bar(Math.min(1, daily.hits.length / daily.quota), "red")}
-        <div class="small">今日 <b>${Math.min(daily.hits.length, daily.quota)}/${daily.quota}</b> 只${daily.redo ? `（含${esc(W("redo"))} ${daily.redo}）` : ""}${daily.done ? " · ✅ 今日功课已完成，多斩不限" : ""}</div>`
-        : `<div class="small muted">今日功课里没有排${esc(W("kill"))}，想斩也可以直接开斩。</div>`}
-      <div class="row"><button class="primary" id="killGo" ${left || daily ? "" : "disabled"}>👹 ${daily && !daily.done ? "斩下一只" : "再斩一只"}</button>
-        <span class="small muted">未交手 ${w.boards.reduce((n, b) => n + b.new, 0)} · 待${esc(W("redo"))} ${w.boards.reduce((n, b) => n + b.redo, 0)}</span></div></div>`;
-    return kill + `<div class="card"><h3>👹 ${esc(W("demon_rank"))} <small>按最近几季模考正确率从低到高：排在前面的就是你最大的${esc(W("wrong"))}</small></h3>
-      <table><tr><th>#</th><th>板块</th><th>${esc(W("root"))}</th><th>正确率</th><th>品阶</th></tr>${demon || '<tr><td colspan="5" class="muted">还没有模考数据</td></tr>'}</table></div>
-      <div class="card"><h3>📕 ${esc(W("wrong"))}一览 <small>来自模考板块复盘里做错 ❌ / 没做 ⚪ 的题</small></h3>
-      <table><tr><th>板块</th><th>${esc(W("wrong"))}</th><th>未交手</th><th>${esc(W("redo"))}</th><th>已斩</th></tr>${rows || '<tr><td colspan="5" class="muted">还没有数据</td></tr>'}</table></div>
-      <div class="card"><h3>💀 ${esc(W("redo"))} <small>没斩掉的，到期出现在${esc(W("tasks"))}里</small></h3>
-      <table><tr><th>题目</th><th>再战日</th><th>连续斩</th><th>交手次数</th></tr>${redo || '<tr><td colspan="4" class="muted">全部斩尽</td></tr>'}</table></div>`;
-  },
-
-  pill() {
-    const d = DASH;
-    const allBoards = boardOptions(d.tree.map((t) => t.board).concat(d.side.map((s) => s.board)));
-    const pills = d.pills.length ? d.pills.map((p) => `<div class="small row"><span>${esc(p.grade)}${esc(p.name)}</span><span class="muted">${esc(p.board)} · 成功率 ${pct(p.rate)}%</span><span class="spacer"></span><span class="faint">${p.d}</span></div>`).join("") : '<div class="muted small">还没炼过</div>';
-    const behind = d.ideal.diff_days >= 1;
-    return `<div class="grid g2">
-      <div class="card"><h3>⚗ ${esc(W("alchemy"))} <small>${behind ? `落后 ${d.ideal.diff_days} 天，正是加练的时候` : "功课之外的加练"}</small></h3>
-        <p class="muted small">选一个板块开一炉：${esc(W("recite"))}与${esc(W("kill"))}混合。成功率 ≥80% 上品、≥50% 中品，否则下品；成丹后这一炉的${esc(W("xp"))}再加 10% / 20% / 30%（数值在规则.md 里改）。</p>
-        <div class="row"><select id="pillBoard">${boardOptions(d.pill_boards)}</select><button class="primary" id="pillBtn" ${d.pill_boards.length ? "" : "disabled"}>开炉</button></div>
-        <h3 style="margin-top:14px">最近的${esc(W("pill"))}</h3>${pills}</div>
-      <div class="card"><h3>🧘 ${esc(W("retreat"))} <small>专注一个板块，期间该板块${esc(W("xp"))}加成</small></h3>
-        ${d.retreat ? `<p><b>正在${esc(W("retreat"))}：${esc(d.retreat.board)}</b> <span id="retreatLeft" class="muted"></span></p><button id="retreatEnd">${esc(W("retreat_end"))}</button>`
-          : `<div class="row"><select id="rtBoard">${allBoards}</select><select id="rtMin"><option value="60">60 分钟</option><option value="90">90 分钟</option><option value="120">120 分钟</option><option value="30">30 分钟</option></select>
-          <button class="primary" id="rtBtn">开始${esc(W("retreat"))}</button></div><p class="small muted">${esc(W("retreat"))}期间照常做这个板块的功课或${esc(W("alchemy"))}；时间到自动${esc(W("retreat_end"))}，导师会点评收获。</p>`}
-        <h3 style="margin-top:14px">🎒 ${esc(W("bag"))}</h3>${d.bag.length ? d.bag.map((b) => `<div class="small"><b>${esc(b.name)}</b> ×${b.count} <span class="faint">${esc(b.desc)}</span></div>`).join("") : '<div class="muted small">空</div>'}</div>
-    </div>`;
-  },
-
   log() {
     const d = DASH;
-    const boards = d.tree.map((t) => t.board).concat(d.side.map((s) => s.board));
-    const opts = boardOptions(boards);
-    return `<div class="card hongchen"><h3>📥 好题收进题库经卷 <small>纸质资料、其他 App 上碰到的好题收进来；做题记录在${esc(NAV("home"))}的「${esc(W("practice_title"))}」里记</small></h3>
-      <div class="hc-grid">
-        <div>
-          <div class="row"><select id="aqBoard" style="flex:1">${opts}</select><input id="aqTopic" placeholder="知识点，如 削弱-他因" style="flex:1.4"><input id="aqSrc" placeholder="出处（可空）" style="flex:1.2"></div>
-          <textarea id="aqStem" rows="4" placeholder="题干" style="margin-top:6px;width:100%"></textarea>
-          ${"ABCD".split("").map((k) => `<div class="row aq-opt"><b>${k}</b><input id="aq${k}" placeholder="选项 ${k}" style="flex:1"></div>`).join("")}
-          <div class="row" style="margin-top:6px"><label class="small">答案 <select id="aqAns"><option value="">待补</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label></div>
-          <textarea id="aqAna" rows="4" placeholder="解析（可空，以后让师傅解惑补上）" style="margin-top:6px;width:100%"></textarea>
-          <div class="row" style="margin-top:6px"><button class="primary" id="aqBtn">收进题库</button><span class="small muted">追加到 训练/题库/&lt;板块&gt;真题.md，编号 自练-日期-序号；之后试炼、知识点试炼、经卷搜索都能用</span></div>
-        </div>
-      </div></div>
-    <div class="grid g2">
-      <div class="card"><h3>⚔ 记录${esc(W("boss"))}（模考成绩）</h3>
-        <div class="row"><input id="bossName" placeholder="名称，如 第37季" style="flex:2"><input id="bossScore" placeholder="分数" style="flex:1"></div>
-        <div class="row" style="margin-top:8px"><button class="primary" id="bossBtn">记录</button><span class="small muted">最近两次的较低分若高于当前${esc(W("score"))}，${esc(W("xp"))}直接补上；达到下一道${esc(W("tribulation"))}线得突破丹</span></div></div>
-      <div class="card"><h3>📜 ${esc(W("leave"))} <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
-        <p class="muted">生病、家里有事、加班……用一份${esc(W("leave"))}：今天${esc(W("streak"))}不断，也不计入${esc(W("ideal"))}。</p>
-        <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天已告假" : "使用" + esc(W("leave"))}</button></div>
-      <div class="card ascend-card"><h3>🌈 ${esc(W("ascend"))}（国考）</h3>
-        ${d.ascend.length ? d.ascend.map((b) => `<div><b>${esc(b.name)}</b> ${b.score} 分 <span class="faint small">${b.d}</span></div>`).join("") : '<p class="muted small">国考出分后在这里留下记录。</p>'}
-        <div class="row" style="margin-top:8px"><input id="asName" placeholder="如 2026 国考" style="flex:2"><input id="asScore" placeholder="行测分数" style="flex:1">
-        <select id="asResult"><option>进面</option><option>上岸</option><option>未进面</option></select><button class="primary" id="asBtn">记录</button></div></div>
+    const P = progressParts(d);
+    return `<div class="card ascend-card"><h3>🌈 ${esc(W("ascend"))}（国考） <small>真正的那一场：出分后在这里留下记录</small></h3>
+        <div class="ascend-row">
+          <div class="ascend-list">${d.ascend.length ? d.ascend.map((b) => `<div><b>${esc(b.name)}</b> ${b.score} 分 <span class="faint small">${b.d}</span></div>`).join("") : '<p class="muted small">还没有飞升记录。</p>'}</div>
+          <div class="row"><input id="asName" placeholder="如 2026 国考" style="flex:2"><input id="asScore" placeholder="行测分数" style="flex:1">
+          <select id="asResult" style="width:auto"><option>进面</option><option>上岸</option><option>未进面</option></select><button class="primary" id="asBtn">记录</button></div></div></div>
+    <div class="log-cols">
+      <div class="log-col">
+        <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${P.doneN}/${P.tasks.length} · 约 ${P.totalMin} 分钟</small></h3>
+          <div id="tasks">${P.tasks.map(taskRow).join("") || `<div class="muted">今天没有功课。去“${esc(NAV("skeleton"))}”编撰${esc(W("skeleton"))}。</div>`}</div>
+          <div class="row" style="margin-top:8px"><button class="ghost small" id="regen">重新生成${esc(W("tasks"))}</button>
+          <button class="small" id="chatBtn">💬 ${esc(W("chat_btn"))}</button></div></div>
+        <div class="card"><h3>⚔ 记录${esc(W("boss"))}（模考成绩）</h3>
+          <div class="row"><input id="bossName" placeholder="名称，如 第37季" style="flex:2"><input id="bossScore" placeholder="分数" style="flex:1"><button class="primary" id="bossBtn">记录</button></div>
+          <div class="small muted" style="margin-top:6px">最近两次的较低分若高于当前${esc(W("score"))}，${esc(W("xp"))}直接补上；达到下一道${esc(W("tribulation"))}线得突破丹</div></div>
+        <div class="card"><h3>📜 ${esc(W("leave"))} <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
+          <p class="muted small">生病、家里有事、加班……用一份${esc(W("leave"))}：今天${esc(W("streak"))}不断，也不计入${esc(W("ideal"))}。</p>
+          <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天已告假" : "使用" + esc(W("leave"))}</button></div>
+      </div>
+      <div class="card"><h3>⚔ 修炼进度 <small>${esc(W("skeleton"))}圆满度 · 实战正确率 · ${esc(W("root"))}</small></h3><div class="tree">${P.tree}</div></div>
     </div>
-    <div class="card"><h3>📖 修行日志</h3>${recentList(d.recent)}</div>`;
+    <div class="grid g3" style="margin-top:14px">
+      <div class="card"><h3>🌱 ${esc(W("root"))}</h3><div class="roots">${P.roots}</div></div>
+      <div class="card"><h3>👹 ${esc(W("demon_rank"))} <small>正确率越低，${esc(W("wrong"))}越凶</small></h3>${P.demon}
+        <h3 style="margin-top:14px">🏯 ${esc(W("weekly"))}</h3>${P.weekly}</div>
+      <div class="card"><h3>🎒 ${esc(W("bag"))}</h3>${P.bag}
+        <h3 style="margin-top:14px">⚔ ${esc(W("boss"))}战绩</h3><div>${P.boss}</div>${P.ascend}</div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>📖 修行日志</h3>${recentList(d.recent)}</div>`;
   },
 
   async settings() {
@@ -871,16 +821,12 @@ function bindLecture() {
   }));
 }
 function bindHome() {
-  bindTaskClicks($("#view"));
   bindLecture();
   bindPractice();
   bindSelfstudy();
   bindTimeCard();
   bindBoardTime();
   const ph = $("#psHero"); if (ph) ph.onclick = () => POSTER.open("day");
-  $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
-  $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
-  const gp = $("#goPill"); if (gp) gp.onclick = () => go("pill");
   const tb = $("#tribBtn"); if (tb) tb.onclick = () => startTask({ task: { type: "tribulation", board: "", target: String(DASH.trib.gate), title: `⚡ ${W("tribulation")} · ${DASH.trib.realm}` } });
   bindRetreatTimer();
   if (DASH?.greet_pending) {
@@ -1432,28 +1378,13 @@ function bindSkeleton() {
   document.querySelectorAll("[data-free]").forEach((a) => (a.onclick = () =>
     startTask({ task: { type: a.dataset.train || "recite", board: a.dataset.board, target: a.dataset.free, title: `${W(a.dataset.train || "recite")} · ${a.dataset.board}「${a.dataset.name}」` } })));
 }
-function bindPill() {
-  const pb = $("#pillBtn");
-  if (pb) pb.onclick = () => { const b = $("#pillBoard").value; startTask({ task: { type: "alchemy", board: b, target: b, title: `⚗ ${W("alchemy")} · ${b}` } }); };
-  const rb = $("#rtBtn");
-  if (rb) rb.onclick = async () => {
-    try { const r = await api("/api/retreat/start", { board: $("#rtBoard").value, minutes: $("#rtMin").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
-  };
-  bindRetreatTimer();
-}
 function bindLog() {
   $("#bossBtn").onclick = async () => {
     try { const r = await api("/api/boss", { name: $("#bossName").value, score: $("#bossScore").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
   };
-  $("#aqBtn").onclick = async () => {
-    try {
-      const r = await api("/api/bank/add", { board: $("#aqBoard").value, topic: $("#aqTopic").value, source: $("#aqSrc").value, stem: $("#aqStem").value,
-        options: Object.fromEntries("ABCD".split("").map((k) => [k, $("#aq" + k).value])), answer: $("#aqAns").value, analysis: $("#aqAna").value });
-      toast(`已收进 训练/题库/${r.file}，编号 ${r.id}${r.pending ? "（答案待补，补上后才会出题）" : ""}`);
-      ["aqStem", "aqA", "aqB", "aqC", "aqD", "aqAna"].forEach((id) => { $("#" + id).value = ""; });
-      $("#aqAns").value = "";
-    } catch (e) { showError(e); }
-  };
+  bindTaskClicks($("#view"));
+  $("#regen").onclick = async () => { try { await api("/api/plan/regenerate", {}); render(); } catch (e) { showError(e); } };
+  $("#chatBtn").onclick = () => startTask({ task: { type: "chat", board: "", target: "", title: `💬 ${W("tutor_room")}` } });
   $("#leaveBtn").onclick = async () => { try { const r = await api("/api/leave", {}); handleEvents(r.events); render(); } catch (e) { showError(e); } };
   $("#asBtn").onclick = async () => {
     try { const r = await api("/api/boss", { kind: "飞升", name: $("#asName").value || "国考", score: $("#asScore").value, result: $("#asResult").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
@@ -1529,9 +1460,16 @@ function studyingNow() {
 // 在 🪶 手札里写字也算复习：按秒累计“1 分钟内写过字”的时间，心跳时连同本子编号一起报（服务器核对这本最近真的存过笔迹）
 let noteSec = 0;
 let cardSec = 0;   // 温简也算复习：按秒累计正在温简的时间（web/cards.js 的 active：在温、看得见、2 分钟内有操作）
-setInterval(() => { if (window.NOTES && NOTES.writingId()) noteSec += 1; if (window.CARDS && CARDS.active()) cardSec += 1; }, 1000);
+let tjSec = 0;     // 🔮 天机简报：开着一期、2 分钟内动过（web/tianji.js 的 active）
+let tjMode = "";
+setInterval(() => {
+  if (window.NOTES && NOTES.writingId()) noteSec += 1;
+  if (window.CARDS && CARDS.active()) cardSec += 1;
+  const tj = window.TIANJI ? TIANJI.active() : "";
+  if (tj) { tjSec += 1; tjMode = tj; }
+}, 1000);
 function updateStudyDot() {
-  const on = studyingNow() || !!(window.NOTES && NOTES.writingId()) || !!(window.CARDS && CARDS.active());
+  const on = studyingNow() || !!(window.NOTES && NOTES.writingId()) || !!(window.CARDS && CARDS.active()) || !!(window.TIANJI && TIANJI.active());
   $("#todayPill").classList.toggle("on", on);
   $("#todayPill").title = on ? "正在计时：修炼中" : "未计时：只有做功课时才算修炼时间";
 }
@@ -1540,15 +1478,16 @@ setInterval(async () => {
   updateStudyDot();
   const on = studyingNow();
   beatCount += 1;
-  if (!on && !noteSec && !cardSec && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
+  if (!on && !noteSec && !cardSec && !tjSec && beatCount % 2) return;          // 不修炼时每分钟只刷新一次状态（多设备提醒、调息、闭关）
   try {
     const nid = !on && window.NOTES ? NOTES.writingId() || (noteSec ? NOTES.lastId() : "") : "";
     const carding = !on && !nid && cardSec > 0;
-    const sec = on ? BEAT : Math.min(BEAT, nid ? noteSec : cardSec);
-    noteSec = 0; cardSec = 0;
+    const tj = !on && !nid && !carding && tjSec > 0 ? tjMode : "";
+    const sec = on ? BEAT : Math.min(BEAT, nid ? noteSec : carding ? cardSec : tjSec);
+    noteSec = 0; cardSec = 0; tjSec = 0;
     if (nid && sec) await NOTES.save();          // 先把刚写的存上，服务器才认得“最近写过”
     const r = await api("/api/heartbeat", { seconds: sec, session: on ? T.session : null, notes: nid || null,
-      cards: carding || null, cards_board: carding ? CARDS.board() : null });
+      cards: carding || null, cards_board: carding ? CARDS.board() : null, tianji: tj || null });
     if (DASH) { DASH.minutes.today = r.minutes; DASH.other_device = r.other_device; DASH.rest = r.rest; updatePill(); banner(); }
     handleEvents(r.events);
     if (DASH?.retreat && !r.retreat_on && VIEW === "home") render();
