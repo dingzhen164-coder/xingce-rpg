@@ -3,9 +3,13 @@
    - 每页是“纸”上的逻辑坐标（宽 1000、高 1414），屏幕多大都对得上；两层画布：底下纸（横线 / 方格 / 空白），上面笔迹。
    - 平板上用过手写笔之后，手指只滚动、不写字（防手掌误触）；电脑上鼠标直接写。
    - 写完自动保存到库里 训练/手札/手写/（坚果云同步）；导出 PDF 把每页（纸 + 笔迹）画成图片交给电脑，拼成 A4 PDF 存到 训练/手札/导出/。
-   - 调阅：左边列出库里所有 .md，点开在阅读栏里看（标题、列表、表格、引用、图片都排好）；可以和本子左右并排，边看边记。 */
+   - 调阅：左边列出库里所有 .md，点开在阅读栏里看（标题、列表、表格、引用、图片都排好）；可以和本子左右并排，边看边记。
+   - 调阅 PDF：库里的 .pdf 也列出来（📕），点开是一本“PDF 批注本”：每页底图是 PDF 那一页（/notes-pdfpage 现渲染），
+     上面照常用笔、荧光笔、橡皮勾画，自动保存；「📄 导出批注 PDF」把笔迹叠到原 PDF 上存到 训练/手札/导出/。
+     PDF 页数多：只有滚到附近的页才给画布分配内存（IntersectionObserver），滚远了就释放。 */
 (function () {
   const PW = 1000, PH = 1414;
+  const ph = (i) => (NB && NB.pdf ? (NB.pages[i] && NB.pages[i].h) || PH : PH);     // 这一页的高度（PDF 每页比例不同）
   const COLORS = ["#222222", "#1e63d6", "#e53935", "#2e9d57"];
   const WIDTHS = [2, 3.5, 6];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -44,7 +48,7 @@
 
   function side() {
     const books = BOOKS.map((b) => `<button class="nt-item ${NB && NB.id === b.id ? "on" : ""}" data-nb="${esc(b.id)}">
-        <span class="nt-del" data-del="${esc(b.id)}" title="删除这本手札">🗑</span><b>${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页</small></button>`).join("");
+        <span class="nt-del" data-del="${esc(b.id)}" title="${b.pdf ? "删除这本批注（原 PDF 不动）" : "删除这本手札"}">🗑</span><b>${b.pdf ? "📕 " : ""}${esc(b.title)}</b><small>${esc(b.updated.slice(5, 16))} · ${b.pages} 页</small></button>`).join("");
     if (SIDE_MIN) return `<aside class="nt-side min"><button class="nt-sidebtn" id="ntSideOpen" title="展开左栏">»</button>
         <button class="nt-sidebtn ${TAB === "books" ? "on" : ""}" data-ntab="books" title="手札">📓</button>
         <button class="nt-sidebtn ${TAB === "library" ? "on" : ""}" data-ntab="library" title="调阅">📚</button></aside>`;
@@ -73,7 +77,9 @@
       html += '<div class="nt-sub">';
       for (const f of mine) {
         if (f.dir !== dir) { dir = f.dir; html += `<div class="nt-dir">${esc(dir.slice(top.length + 1))}</div>`; }
-        html += `<button class="nt-file ${READ && READ.path === f.path ? "on" : ""}" data-md="${esc(f.path)}">${esc(f.name)}</button>`;
+        html += f.kind === "pdf"
+          ? `<button class="nt-file pdf ${NB && NB.pdf === f.path ? "on" : ""}" data-pdf="${esc(f.path)}" title="PDF：点开可以用笔勾画">📕 ${esc(f.name)}</button>`
+          : `<button class="nt-file ${READ && READ.path === f.path ? "on" : ""}" data-md="${esc(f.path)}">${esc(f.name)}</button>`;
       }
       html += "</div>";
     }
@@ -106,6 +112,7 @@
     document.querySelectorAll("[data-nb]").forEach((b) => (b.onclick = () => openBook(b.dataset.nb)));
     document.querySelectorAll("[data-del]").forEach((x) => (x.onclick = (e) => { e.stopPropagation(); delBook(x.dataset.del); }));
     document.querySelectorAll("[data-md]").forEach((b) => (b.onclick = () => openMd(b.dataset.md)));
+    document.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => openPdf(b.dataset.pdf)));
     const q = document.getElementById("ntQ");
     if (q) q.oninput = () => { FQ = q.value; document.getElementById("ntFiles").innerHTML = filesHtml(); bindSide(); };
   }
@@ -149,11 +156,21 @@
   }
   async function delBook(id) {
     const b = BOOKS.find((x) => x.id === id);
-    if (!confirm(`删除手札「${b ? b.title : id}」？手写的笔迹会删掉（已经导出的 PDF 留着）。`)) return;
+    if (!confirm(b && b.pdf ? `删除「${b.title}」上的批注？只删笔迹，库里的原 PDF 不动。` : `删除手札「${b ? b.title : id}」？手写的笔迹会删掉（已经导出的 PDF 留着）。`)) return;
     try {
       await api("/api/notes/delete", { id });
       if (NB && NB.id === id) { setFull(false); NB = null; dirty = false; }
       BOOKS = (await api("/api/notes")).notebooks; repaintSide(); paintMain();
+    } catch (e) { showError(e); }
+  }
+  async function openPdf(path) {
+    if (NB && NB.pdf === path) return;
+    if (!(await flush())) return;
+    try {
+      const r = await api("/api/notes/pdfopen", { p: path });
+      BOOKS = (await api("/api/notes")).notebooks;
+      NB = await api("/api/notes/get", { id: r.id }); undo = []; redo = [];
+      repaintSide(); paintMain();
     } catch (e) { showError(e); }
   }
   async function openBook(id) {
@@ -165,8 +182,8 @@
     const sel = (v, t) => `<option value="${v}" ${NB.paper === v ? "selected" : ""}>${t}</option>`;
     return `<div class="nt-book">
       <div class="nt-bar">
-        <input class="nt-title" id="ntTitle" value="${esc(NB.title)}" maxlength="60" title="本子名字（导出的 PDF 也用这个名字）">
-        <select id="ntPaper" title="纸">${sel("lines", "横线纸")}${sel("grid", "方格纸")}${sel("blank", "白纸")}</select>
+        <input class="nt-title" id="ntTitle" value="${esc(NB.title)}" maxlength="60" title="${NB.pdf ? "批注本的名字（导出的 PDF 也用这个名字）" : "本子名字（导出的 PDF 也用这个名字）"}">
+        ${NB.pdf ? `<span class="nt-pdftag" title="${esc(NB.pdf)}">📕 PDF · ${NB.pages.length} 页</span>` : `<select id="ntPaper" title="纸">${sel("lines", "横线纸")}${sel("grid", "方格纸")}${sel("blank", "白纸")}</select>`}
         <span class="nt-tools">
           ${COLORS.map((c) => `<button class="nt-dot ${tool.t === "pen" && tool.c === c ? "on" : ""}" data-col="${c}" style="--c:${c}" title="笔"></button>`).join("")}
           ${WIDTHS.map((w, i) => `<button class="nt-w ${tool.t !== "er" && tool.w === w ? "on" : ""}" data-w="${w}" title="${["细", "中", "粗"][i]}"><i style="height:${w}px"></i></button>`).join("")}
@@ -177,12 +194,13 @@
           ${touchDev() ? `<button data-act="finger" class="${FINGER === "draw" ? "on" : ""}" title="手指写字（关掉 = 手指只翻页，笔写字）">☝</button>` : ""}
         </span>
         <span class="spacer"></span>
-        <button class="primary nt-compile" id="ntPdf" title="整本（连横线 / 方格纸）存成 A4 PDF：训练/手札/导出/本子名.pdf">📄 导出 PDF</button>
+        <button class="primary nt-compile" id="ntPdf" title="${NB.pdf ? "把勾画叠到原 PDF 上：训练/手札/导出/名字（批注）.pdf" : "整本（连横线 / 方格纸）存成 A4 PDF：训练/手札/导出/本子名.pdf"}">${NB.pdf ? "📄 导出批注 PDF" : "📄 导出 PDF"}</button>
         <button class="ghost small nt-fullbtn" id="ntFull" title="全屏写（再点一次退出）">${fullIcon(isFull())}</button>
         <button class="ghost small" id="ntClose" title="收起本子（已自动保存）">✕</button>
       </div>
+      ${NB.pdf_missing ? `<div class="warn">原来的 PDF（${esc(NB.pdf)}）不见了，可能挪走或改了名；笔迹还在，底图显示不出来。</div>` : ""}
       <div class="nt-pages" id="ntPages">${NB.pages.map((_, i) => pageHtml(i)).join("")}
-        <button class="ghost nt-addpage" id="ntAdd">＋ 加一页</button></div>
+        ${NB.pdf ? "" : '<button class="ghost nt-addpage" id="ntAdd">＋ 加一页</button>'}</div>
       </div>`;
   }
   // 全屏图标用画的（有的平板字体里没有 ⛶ 这类符号，会显示成空框）
@@ -191,15 +209,19 @@
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
   }
   function pageHtml(i) {
-    return `<div class="nt-page" data-pg="${i}"><canvas class="nt-bg"></canvas><canvas class="nt-ink" data-pg="${i}"></canvas><canvas class="nt-live" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
+    const bg = NB.pdf
+      ? `<img class="nt-pdfimg" loading="lazy" draggable="false" alt="" src="/notes-pdfpage?p=${encodeURIComponent(NB.pdf)}&n=${i}&v=${NB.pdf_v || 0}">`
+      : '<canvas class="nt-bg"></canvas>';
+    return `<div class="nt-page" data-pg="${i}" style="aspect-ratio:${PW} / ${ph(i)}">${bg}<canvas class="nt-ink" data-pg="${i}"></canvas><canvas class="nt-live" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
   }
   function bindBook() {
+    NEAR.clear();
     sizePages();
     document.querySelectorAll(".nt-ink").forEach(bindInk);
     const $$ = (id) => document.getElementById(id);
     $$("ntTitle").oninput = () => { NB.title = $$("ntTitle").value; queueSave(); };
-    $$("ntPaper").onchange = () => { NB.paper = $$("ntPaper").value; sizePages(); queueSave(); };
-    $$("ntAdd").onclick = () => {
+    if ($$("ntPaper")) $$("ntPaper").onchange = () => { NB.paper = $$("ntPaper").value; sizePages(); queueSave(); };
+    if ($$("ntAdd")) $$("ntAdd").onclick = () => {
       NB.pages.push({ strokes: [] });
       const add = $$("ntAdd");
       add.insertAdjacentHTML("beforebegin", pageHtml(NB.pages.length - 1));
@@ -233,15 +255,39 @@
 
   // ---------------------------------------------------------------- 画
   const sizePagesIf = () => { if (NB) sizePages(); };
+  // 画布只给滚到附近的页分配（PDF 动辄几十页，每页三层画布全开会占掉上 G 内存）；滚远了就缩成 1×1 释放
+  const NEAR = new Set();
+  let IO = null;
+  function sizeOne(pg) {
+    const w = pg.clientWidth, i = Number(pg.dataset.pg);
+    if (!w) return;
+    const h = Math.round(w * ph(i) / PW), dpr = window.devicePixelRatio || 1;
+    pg.style.height = h + "px";
+    const on = NEAR.has(i);
+    pg.querySelectorAll("canvas").forEach((c) => {
+      const cw = on ? Math.round(w * dpr) : 1, chh = on ? Math.round(h * dpr) : 1;
+      if (c.width !== cw || c.height !== chh) { c.width = cw; c.height = chh; }
+      c.style.width = w + "px"; c.style.height = h + "px";
+    });
+    if (!on) return;
+    const bg = pg.querySelector(".nt-bg");
+    if (bg) drawPaper(bg);
+    repaint(i);
+  }
   function sizePages() {
+    const box = document.getElementById("ntPages");
+    if (IO) IO.disconnect();
+    IO = "IntersectionObserver" in window && box ? new IntersectionObserver((ents) => {
+      for (const en of ents) {
+        const i = Number(en.target.dataset.pg), was = NEAR.has(i);
+        if (en.isIntersecting) NEAR.add(i); else NEAR.delete(i);
+        if (was !== NEAR.has(i)) sizeOne(en.target);
+      }
+    }, { root: box, rootMargin: "1500px 0px" }) : null;
     document.querySelectorAll(".nt-page").forEach((pg) => {
-      const w = pg.clientWidth;
-      if (!w) return;
-      const h = Math.round(w * PH / PW), dpr = window.devicePixelRatio || 1;
-      pg.style.height = h + "px";
-      pg.querySelectorAll("canvas").forEach((c) => { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.width = w + "px"; c.style.height = h + "px"; });
-      drawPaper(pg.querySelector(".nt-bg"));
-      repaint(Number(pg.dataset.pg));
+      if (!IO) NEAR.add(Number(pg.dataset.pg));
+      sizeOne(pg);
+      if (IO) IO.observe(pg);
     });
   }
   function drawPaper(c) {
@@ -287,7 +333,7 @@
   function repaint(i) {
     const x = inkCtx(i);
     if (!x) return;
-    x.clearRect(0, 0, PW, PH);
+    x.clearRect(0, 0, PW, ph(i));
     for (const s of NB.pages[i].strokes) strokeOn(x, s);
   }
   let liveRaf = 0, livePage = -1, liveStroke = null;
@@ -298,7 +344,7 @@
     if (s.t === "er") { const x = inkCtx(livePage); if (x) strokeOn(x, s); return; }   // 橡皮直接擦在墨迹层上（重复擦同一处结果不变）
     const x = inkCtx(livePage, "nt-live");
     if (!x) return;
-    x.clearRect(0, 0, PW, PH);
+    x.clearRect(0, 0, PW, ph(livePage));
     strokeOn(x, s);
   }
   function live(i, s) {
@@ -308,7 +354,7 @@
   function commitLive(i, s) {
     if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = 0; }
     const lx = inkCtx(i, "nt-live");
-    if (lx) lx.clearRect(0, 0, PW, PH);
+    if (lx) lx.clearRect(0, 0, PW, ph(i));
     const x = inkCtx(i);
     if (x) strokeOn(x, s);                                       // 只把这一笔加到墨迹层上
     liveStroke = null;
@@ -318,7 +364,7 @@
   function bindInk(c) {
     const i = Number(c.dataset.pg);
     let cur = null, pid = null, drag = null;
-    const pt = (e) => { const r = c.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * PW / r.width * 10) / 10, Math.round((e.clientY - r.top) * PH / r.height * 10) / 10]; };
+    const pt = (e) => { const r = c.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * PW / r.width * 10) / 10, Math.round((e.clientY - r.top) * ph(i) / r.height * 10) / 10]; };
     const box = () => document.getElementById("ntPages");
     c.onpointerdown = (e) => {
       if (e.pointerType === "pen" && FINGER === "draw" && LS.get("xrpg-nt-finger", "") === "") {   // 第一次用笔：手指改成只翻页
@@ -470,19 +516,39 @@
     }
     return out;
   }
+  // PDF 批注本：每页只画笔迹（透明 PNG），没写的页传 null，电脑把它们叠到原 PDF 上
+  function overlayImages() {
+    const K = 1.6;
+    return NB.pages.map((pg, i) => {
+      if (!pg.strokes.some((s) => s.t !== "er")) return null;
+      const c = document.createElement("canvas");
+      c.width = PW * K; c.height = Math.round(ph(i) * K);
+      const x = c.getContext("2d");
+      x.setTransform(K, 0, 0, K, 0, 0);
+      for (const s of pg.strokes) strokeOn(x, s);
+      return c.toDataURL("image/png");
+    });
+  }
   async function exportPdf() {
     if (busy) return;
     if (!(await flush())) return;
-    const b = document.getElementById("ntPdf");
+    const b = document.getElementById("ntPdf"), label = b.textContent;
     busy = true; b.disabled = true; b.textContent = "📄 导出中…";
     try {
-      const imgs = pageImages();
-      if (!imgs.length) throw new Error("这本手札还没写字，没有可以导出的页");
-      const r = await api("/api/notes/pdf", { id: NB.id, images: imgs });
+      let r;
+      if (NB.pdf) {
+        const ov = overlayImages();
+        if (!ov.some(Boolean)) throw new Error("还没在这个 PDF 上写画，没有可以导出的批注");
+        r = await api("/api/notes/pdfexport", { id: NB.id, overlays: ov });
+      } else {
+        const imgs = pageImages();
+        if (!imgs.length) throw new Error("这本手札还没写字，没有可以导出的页");
+        r = await api("/api/notes/pdf", { id: NB.id, images: imgs });
+      }
       const local = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
       const el = document.createElement("div");
       el.className = "toast nt-pdf-toast";
-      el.innerHTML = `📄 导出好了：${r.pages} 页 · ${(r.size / 1024 / 1024).toFixed(1)} MB<div class="small muted">${esc(r.path)}</div>
+      el.innerHTML = `📄 导出好了：${r.pages} 页${r.marked != null ? `（${r.marked} 页有批注）` : ""} · ${(r.size / 1024 / 1024).toFixed(1)} MB<div class="small muted">${esc(r.path)}</div>
         <div class="row">${local ? '<button class="small primary" data-o="open">打开</button>' : `<a class="small" href="${esc(r.url)}" download="${esc(r.name)}" target="_blank" rel="noopener">⬇ 下载到这台设备</a>`}
           <span class="spacer"></span><button class="small ghost" data-o="x">关</button></div>`;
       document.getElementById("toasts").appendChild(el);
@@ -492,7 +558,7 @@
       if (o) o.onclick = async () => { try { await api("/api/notes/open", { path: r.path }); } catch (e) { showError(e); } };
     } catch (e) { showError(e); }
     busy = false;
-    const b2 = document.getElementById("ntPdf"); if (b2) { b2.disabled = false; b2.textContent = "📄 导出 PDF"; }
+    const b2 = document.getElementById("ntPdf"); if (b2) { b2.disabled = false; b2.textContent = label; }
   }
 
   // ---------------------------------------------------------------- 阅读栏

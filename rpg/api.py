@@ -8,7 +8,8 @@ HTTP 接口：把 engine / trainer / store 暴露给网页（web/app.js）。只
     GET  /api/dashboard            面板 + 今日任务 + 角色信息 + 提醒
     POST /api/tutor/greet          AI 导师今天的开场问候（每天生成一次并缓存）
     GET  /api/changelog            版本更新记录（rpg/data/changelog.md）
-    GET  /api/notes …              灵台手札：本子列表；POST get {id} / save / delete / compile（师傅编纂）；GET tree（库里的 md）；POST md {p}（读一篇）
+    GET  /api/notes …              灵台手札：本子列表；POST get {id} / save / delete / compile（师傅编纂）；GET tree（库里的 md、pdf）；POST md {p}（读一篇）
+                                   POST pdfopen {p}（调阅 PDF → 批注本）/ pdfexport {id, overlays}；GET /notes-pdfpage?p=&n=（PDF 一页的底图）
     GET  /api/app/latest           平板 App 的最新版本（电脑替平板去 GitHub 下安装包）；/app/xingce-xiuxian.apk 拿安装包
     POST /api/theme                {"theme": "修仙"|"玄幻"}  切换风格
     POST /api/retreat/start        {"board", "minutes"}  闭关；POST /api/retreat/end 提前出关
@@ -858,6 +859,16 @@ def notes_pdf(body):
     return r
 
 
+def notes_pdfopen(body):
+    return _notes_call(notes.pdf_open, body.get("p") or body.get("path"))
+
+
+def notes_pdfexport(body):
+    r = _notes_call(notes.export_pdf_annot, body.get("id"), body.get("overlays") or [])
+    r["url"] = "/notes-file?p=%s&t=%s" % (quote(r["path"]), export_token(r["path"]))
+    return r
+
+
 def notes_open(body):
     with open_game(save=False) as g:
         p = notes.export_file(g.paths, body.get("path")) if g.paths.vault else None
@@ -1194,6 +1205,8 @@ ROUTES[("GET", "/api/notes/tree")] = notes_tree
 ROUTES[("POST", "/api/notes/md")] = notes_md
 ROUTES[("POST", "/api/notes/pdf")] = notes_pdf
 ROUTES[("POST", "/api/notes/open")] = notes_open
+ROUTES[("POST", "/api/notes/pdfopen")] = notes_pdfopen
+ROUTES[("POST", "/api/notes/pdfexport")] = notes_pdfexport
 ROUTES[("GET", "/api/update/check")] = update_check
 ROUTES[("POST", "/api/update/apply")] = update_apply
 ROUTES[("GET", "/api/lan")] = lan_get
@@ -1316,6 +1329,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method != "GET":
             return self._send(404, {"error": "not found"})
+        if url.path == "/notes-pdfpage":            # 调阅 PDF 的一页底图（rpg/notes.py pdf_page）
+            q = parse_qs(url.query)
+            try:
+                data = notes.pdf_page(Paths(find_vault()), unquote(q.get("p", [""])[0]), int(q.get("n", ["0"])[0]))
+            except (notes.NotesError, ValueError) as e:
+                return self._send(404, {"error": str(e)})
+            return self._send(200, data, "image/jpeg", cache=True)
         if url.path == "/vault-file":
             rel = unquote(parse_qs(url.query).get("p", [""])[0])
             vp = Paths(find_vault())

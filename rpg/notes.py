@@ -8,6 +8,9 @@
   配了识图模型（设置里的 vision_model）就直接让它认字 + 排版；没有就用系统自带 OCR（Windows / Mac）认字，再让 AI 排版。
   排好的 Markdown 存到 训练/手札/<标题>.md。
 - 调阅：列出库里的 .md（不含 .obsidian、存档这类），读一篇时把 ![[图片]] 换成能在网页上显示的库内路径。
+- 调阅 PDF：库里的 .pdf 也列出来。点开就是一本“PDF 批注本”（同样存在 训练/手札/手写/<id>.json，多了 "pdf": 库内路径、
+  "paper": "pdf"，每页多一个 "h" = 这一页按宽 1000 算的高度）；每页的底图由 /notes-pdfpage?p=&n= 现渲染（pymupdf），
+  上面照常用笔、荧光笔、橡皮勾画，自动保存。导出时把每页笔迹（透明 PNG）叠到原 PDF 上，原文字保持清晰。
 """
 import base64
 import datetime as dt
@@ -20,6 +23,7 @@ from . import ai, vault
 
 PAGE_W, PAGE_H = 1000, 1414
 PAPERS = ("lines", "grid", "blank")
+PDF_MAX_PAGES = 600
 SKIP_DIRS = {".obsidian", ".trash", ".git", "存档", "node_modules", ".stfolder"}
 
 
@@ -51,7 +55,7 @@ def listing(paths):
         except (OSError, ValueError):
             continue
         out.append({"id": d.get("id") or f.stem, "title": d.get("title") or f.stem, "updated": d.get("updated", ""),
-                    "pages": len(d.get("pages") or []), "compiled": d.get("compiled", "")})
+                    "pages": len(d.get("pages") or []), "compiled": d.get("compiled", ""), "pdf": d.get("pdf", "")})
     return sorted(out, key=lambda x: x["updated"], reverse=True)
 
 
@@ -59,7 +63,12 @@ def get(paths, nid):
     f = _file(paths, nid)
     if not f.is_file():
         raise NotesError("这本手札不见了（可能在另一台电脑上删了）")
-    return json.loads(f.read_text(encoding="utf-8"))
+    d = json.loads(f.read_text(encoding="utf-8"))
+    if d.get("pdf"):                       # 底图的版本号（PDF 换过就刷新缓存）
+        p = pdf_file(paths, d["pdf"])
+        d["pdf_v"] = int(p.stat().st_mtime) if p else 0
+        d["pdf_missing"] = not p
+    return d
 
 
 def _clean_pages(pages):
@@ -96,6 +105,13 @@ def save(paths, body):
          "text": str(body["text"])[:20000] if "text" in body else old.get("text", ""),
          "compiled": old.get("compiled", ""),
          "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    if old.get("pdf"):                     # PDF 批注本：页数、每页高度跟着 PDF 走，网页改不了
+        d["pdf"], d["paper"] = old["pdf"], "pdf"
+        olds = old.get("pages") or []
+        pages = d["pages"][:len(olds)] + [{"strokes": []} for _ in range(len(olds) - len(d["pages"]))]
+        for pg, o in zip(pages, olds):
+            pg["h"] = o.get("h", PAGE_H)
+        d["pages"] = pages
     if d["pages"] != old.get("pages") or d["text"] != old.get("text", ""):
         if old:                                   # 新建空本子不算写字
             LAST_WRITE[nid] = time.time()
@@ -263,7 +279,7 @@ def is_board_dir(name):
 
 
 def md_tree(paths, limit=4000):
-    """各板块文件夹里的 .md：[{path, name, dir, top}]（top = 板块文件夹），按文件夹、文件名排"""
+    """各板块文件夹里的 .md 和 .pdf：[{path, name, dir, top, kind: md|pdf}]（top = 板块文件夹），按文件夹、文件名排"""
     root = paths.vault
     out = []
 
@@ -281,9 +297,10 @@ def md_tree(paths, limit=4000):
                 if depth == 0 and not is_board_dir(p.name) or "skill" in p.name.lower():
                     continue
                 walk(p, depth + 1)
-            elif p.suffix.lower() == ".md" and depth > 0:
+            elif p.suffix.lower() in (".md", ".pdf") and depth > 0:
                 rel = p.relative_to(root).as_posix()
-                out.append({"path": rel, "name": p.stem, "dir": rel.rsplit("/", 1)[0], "top": rel.split("/", 1)[0]})
+                out.append({"path": rel, "name": p.stem, "dir": rel.rsplit("/", 1)[0], "top": rel.split("/", 1)[0],
+                            "kind": p.suffix.lower()[1:]})
                 if len(out) >= limit:
                     return
     walk(root, 0)
@@ -334,3 +351,110 @@ def read_md(paths, rel):
     text = p.read_text(encoding="utf-8-sig", errors="replace")
     images = resolve_images(paths, text, p.parent)
     return {"path": Path(rel).as_posix(), "name": p.stem, "text": text, "images": images}
+
+
+# ---------------------------------------------------------------- 调阅 PDF：批注本、每页底图、导出带批注的 PDF
+def _fitz():
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            raise NotesError("看 PDF 需要 pymupdf 组件（exe / App 里自带；用 Python 运行的请在 PowerShell 运行 pip install pymupdf）")
+    return fitz
+
+
+def pdf_file(paths, rel):
+    """库里的一个 .pdf（不许跑出库、不进隐藏文件夹）"""
+    try:
+        p = (paths.vault / str(rel or "")).resolve()
+        parts = p.relative_to(paths.vault.resolve()).parts
+    except (ValueError, OSError):
+        return None
+    if p.suffix.lower() != ".pdf" or not p.is_file() or any(x.startswith(".") for x in parts):
+        return None
+    return p
+
+
+def pdf_open(paths, rel):
+    """打开库里的 PDF：已经有批注本就用它，没有就按 PDF 的页数、页面比例新建一本。返回 {id}"""
+    p = pdf_file(paths, rel)
+    if not p:
+        raise NotesError("找不到这个 PDF")
+    rel = p.relative_to(paths.vault.resolve()).as_posix()
+    for b in listing(paths):
+        if b.get("pdf") == rel:
+            return {"id": b["id"]}
+    fitz = _fitz()
+    try:
+        doc = fitz.open(str(p))
+    except Exception as e:
+        raise NotesError("打不开这个 PDF：%s" % e)
+    if doc.page_count > PDF_MAX_PAGES:
+        raise NotesError("这个 PDF 有 %d 页，太长了（最多 %d 页）" % (doc.page_count, PDF_MAX_PAGES))
+    pages = []
+    for pg in doc:
+        r = pg.rect
+        pages.append({"strokes": [], "h": round(PAGE_W * r.height / r.width, 1) if r.width else PAGE_H})
+    nid = dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000)
+    d = {"id": nid, "title": p.stem[:60], "paper": "pdf", "pdf": rel, "pages": pages or [{"strokes": [], "h": PAGE_H}],
+         "text": "", "compiled": "", "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    f = _file(paths, nid)
+    f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    return {"id": nid}
+
+
+_PAGE_CACHE = {}          # (路径, 修改时间, 页) → JPEG，留最近 60 页
+
+
+def pdf_page(paths, rel, n, width=1400):
+    """PDF 第 n 页（从 0 起）渲染成 JPEG（宽约 1400 像素）"""
+    p = pdf_file(paths, rel)
+    if not p:
+        raise NotesError("找不到这个 PDF")
+    key = (str(p), p.stat().st_mtime, int(n))
+    if key in _PAGE_CACHE:
+        return _PAGE_CACHE[key]
+    fitz = _fitz()
+    doc = fitz.open(str(p))
+    if not 0 <= int(n) < doc.page_count:
+        raise NotesError("没有这一页")
+    page = doc[int(n)]
+    zoom = width / page.rect.width if page.rect.width else 2
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    try:
+        data = pix.tobytes("jpeg", jpg_quality=85)
+    except TypeError:                      # 老版本 pymupdf 没有这个参数
+        data = pix.tobytes("jpeg")
+    if len(_PAGE_CACHE) >= 60:
+        _PAGE_CACHE.pop(next(iter(_PAGE_CACHE)))
+    _PAGE_CACHE[key] = data
+    return data
+
+
+def export_pdf_annot(paths, nid, overlays):
+    """PDF 批注本导出：网页把每页的笔迹画成透明 PNG（没写的页传 null）→ 叠到原 PDF 对应页上，
+    存到 训练/手札/导出/<标题>（批注）.pdf（同名覆盖）"""
+    d = get(paths, nid)
+    p = pdf_file(paths, d.get("pdf"))
+    if not p:
+        raise NotesError("原来的 PDF 不见了（可能挪走或改名了）")
+    fitz = _fitz()
+    doc = fitz.open(str(p))
+    n = 0
+    for i, ov in enumerate((overlays or [])[:doc.page_count]):
+        if not ov:
+            continue
+        doc[i].insert_image(doc[i].rect, stream=_png(ov), overlay=True)
+        n += 1
+    if not n:
+        raise NotesError("还没在这个 PDF 上写画，没有可以导出的批注")
+    out = paths.train.joinpath(*EXPORT_DIR)
+    out.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r'[\\/:*?"<>|#^\[\]]+', " ", d["title"]).strip()[:50] or nid
+    f = out / (name + "（批注）.pdf")
+    tmp = f.with_suffix(".tmp")
+    tmp.write_bytes(doc.tobytes(deflate=True, garbage=3))
+    tmp.replace(f)
+    return {"path": f.relative_to(paths.vault).as_posix(), "name": f.name, "pages": doc.page_count, "marked": n, "size": f.stat().st_size}

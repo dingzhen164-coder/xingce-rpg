@@ -126,3 +126,63 @@ class NotesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+try:
+    import pymupdf as fitz
+except ImportError:
+    try:
+        import fitz
+    except ImportError:
+        fitz = None
+
+
+@unittest.skipIf(fitz is None, "没有 pymupdf")
+class PdfNotesTest(unittest.TestCase):
+    """调阅 PDF：列出、开成批注本（页数 / 页高跟着 PDF）、底图、存笔迹不改页、导出叠到原 PDF 上"""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.paths = paths.Paths(Path(self.tmp.name))
+        self.paths.ensure_train_dir()
+        d = self.paths.vault / "政治理论" / "讲义"
+        d.mkdir(parents=True)
+        doc = fitz.open()
+        doc.new_page(width=595, height=842)          # A4 竖
+        doc.new_page(width=842, height=595)          # 横的一页
+        doc[0].insert_text((72, 72), "hello")
+        doc.save(str(d / "时政.pdf"))
+        self.rel = "政治理论/讲义/时政.pdf"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_pdf_book(self):
+        tree = notes.md_tree(self.paths)
+        self.assertIn({"path": self.rel, "name": "时政", "dir": "政治理论/讲义", "top": "政治理论", "kind": "pdf"}, tree)
+        nid = notes.pdf_open(self.paths, self.rel)["id"]
+        self.assertEqual(notes.pdf_open(self.paths, self.rel)["id"], nid)        # 再开还是这一本
+        d = notes.get(self.paths, nid)
+        self.assertEqual((d["paper"], d["pdf"], len(d["pages"])), ("pdf", self.rel, 2))
+        self.assertAlmostEqual(d["pages"][0]["h"], 1415.1, places=0)
+        self.assertAlmostEqual(d["pages"][1]["h"], 706.6, places=0)
+        self.assertFalse(d["pdf_missing"])
+        # 网页存笔迹：多传一页、改纸都不算，页高保留
+        notes.save(self.paths, {"id": nid, "paper": "grid", "pages": [{"strokes": [STROKE]}, {"strokes": []}, {"strokes": []}]})
+        d = notes.get(self.paths, nid)
+        self.assertEqual((d["paper"], len(d["pages"]), d["pages"][0]["strokes"][0]["t"]), ("pdf", 2, "pen"))
+        self.assertAlmostEqual(d["pages"][1]["h"], 706.6, places=0)
+        self.assertTrue(notes.pdf_page(self.paths, self.rel, 1).startswith(b"\xff\xd8"))   # JPEG
+        with self.assertRaises(notes.NotesError):
+            notes.pdf_page(self.paths, self.rel, 5)
+        with self.assertRaises(notes.NotesError):
+            notes.pdf_open(self.paths, "../外面.pdf")
+        with self.assertRaises(notes.NotesError):
+            notes.export_pdf_annot(self.paths, nid, [None, None])
+        png = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 28), 1)
+        png.clear_with(0)
+        ov = "data:image/png;base64," + base64.b64encode(png.tobytes("png")).decode()
+        r = notes.export_pdf_annot(self.paths, nid, [ov, None])
+        self.assertEqual((r["pages"], r["marked"], r["name"]), (2, 1, "时政（批注）.pdf"))
+        out = fitz.open(str(self.paths.vault / r["path"]))
+        self.assertIn("hello", out[0].get_text())                # 原文字还在（不是整页图片）
+        self.assertIsNotNone(notes.export_file(self.paths, r["path"]))
