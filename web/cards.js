@@ -35,9 +35,23 @@
         <span class="yj-n new">${esc(T("yj_new"))}</span><span class="yj-n learn">${esc(T("yj_learn"))}</span><span class="yj-n due">${esc(T("yj_due"))}</span><span class="yj-gear"></span></div>
         ${rows}</div>
       ${OV.cards ? "" : `<p class="small muted yj-empty">还没有${esc(T("yj"))}。点「✍ ${esc(T("yj_add"))}」自己刻，或者「📥 导入」Anki 导出的文本；用 xingce-card skill 从 PDF / 笔记做的也会出现在这里。</p>`}
-      <div class="yj-tools"><button data-yjmode="add">✍ ${esc(T("yj_add"))}</button><button data-yjmode="gen" title="把 PDF / Markdown 笔记交给师傅，自动出${esc(T("yj"))}草稿，你审过再刻入">🧙 师傅制卡</button><button data-yjmode="browse">🏛 ${esc(T("yj_browse"))}</button>
+      <div class="small faint yj-moved">✍ ${esc(T("yj_add"))}、🧙 师傅制卡、🏛 ${esc(T("yj_browse"))}、📊 ${esc(T("yj_stats"))}、📥 导入、＋ 新${esc(T("yj_deck"))} 在「${esc(NAV("skeleton"))} › ${esc(T("yj"))} · 知识点」里</div></div>`;
+  }
+  // 刻简 / 师傅制卡 / 灵识图 / 导入 / 新简匣：放在藏经阁「玉简 · 知识点」（藏简阁就是那里的一枚枚玉简）
+  function toolsHtml() {
+    return `<div class="card yj-tools yj-tools-lib"><button data-yjmode="add">✍ ${esc(T("yj_add"))}</button><button data-yjmode="gen" title="把 PDF / Markdown 笔记交给师傅，自动出${esc(T("yj"))}草稿，你审过再刻入">🧙 师傅制卡</button>
         <button data-yjmode="stats">📊 ${esc(T("yj_stats"))}</button><button data-yjmode="import">📥 导入</button>
-        <button class="ghost" id="yjNewDeck">＋ 新${esc(T("yj_deck"))}</button></div></div>`;
+        <button class="ghost" id="yjNewDeck">＋ 新${esc(T("yj_deck"))}</button></div>`;
+  }
+  const rerender = () => (typeof VIEW !== "undefined" && VIEW === "skeleton" ? window.render() : renderTrain());
+  function bindTools(root = document) {
+    root.querySelectorAll("[data-yjmode]").forEach((b) => (b.onclick = () => open(b.dataset.yjmode)));
+    const nd = root.querySelector("#yjNewDeck");
+    if (nd) nd.onclick = async () => {
+      const name = prompt(`新${T("yj_deck")}的名字（子匣用 :: 隔开，如「资料分析::速算公式」）`);
+      if (!name) return;
+      try { await api("/api/cards/deck", { action: "create", name }); OV = null; rerender(); } catch (e) { showError(e); }
+    };
   }
   function bindHub(root = document) {
     root.querySelectorAll("[data-yjfold]").forEach((a) => (a.onclick = () => {
@@ -139,6 +153,7 @@
     document.documentElement.classList.remove("yj-on");
     MODE = ""; R = null; FL = null;
     if (typeof VIEW !== "undefined" && VIEW === "train") renderTrain();
+    else if (typeof VIEW !== "undefined" && VIEW === "skeleton") window.render();      // 藏经阁：刻了 / 导入了，数字跟着变
   }
   function head(title, extra = "") {
     const back = typeof VIEW !== "undefined" && VIEW === "skeleton" ? `← 回${NAV("skeleton")}` : "← 回修炼殿";
@@ -148,7 +163,7 @@
   function open(mode) {
     MODE = mode;
     if (mode === "add") return addScreen();
-    if (mode === "browse") return browseScreen();
+    if (mode === "browse") { BR.flip = false; return browseScreen(); }
     if (mode === "stats") return statsScreen();
     if (mode === "import") return importScreen();
     if (mode === "gen") return genScreen();
@@ -310,7 +325,7 @@
 
   // ---------------------------------------------------------------- 翻阅（藏经阁「玉简 · 知识点」）：一匣玉简一枚一枚翻着看，画面和温简一样，不打分、不动温习进度
   let FL = null;                 // {deck, keys, i, shown, card}
-  async function flipDeck(deck) {
+  async function flipDeck(deck, startKey) {
     MODE = "flip";
     FL = { deck, keys: [], i: 0, shown: false };
     const title = `📗 ${esc(T("yj"))} · ${esc((deck || "全部").replace(/::/g, " › "))}`;
@@ -322,6 +337,7 @@
         FL.keys.push(...r.rows.map((x) => x.key));
         if (FL.keys.length >= r.total || !r.rows.length) break;
       }
+      if (startKey) FL.i = Math.max(0, FL.keys.indexOf(startKey));
       await flipShow();
     } catch (e) { showError(e); closeStage(); }
   }
@@ -329,10 +345,10 @@
     if (MODE !== "flip" || !FL) return;
     const s = stage();
     const title = `📗 ${esc(T("yj"))} · ${esc((FL.deck || "全部").replace(/::/g, " › "))}`;
-    const go = `<button class="ghost small" id="flRev" title="按记忆曲线温这一匣（会记进度）">🌙 ${esc(T("yj_review"))}这一匣</button>`;
+    const go = `<button class="ghost small" id="flToc" title="回这一匣的目录">☰ 目录</button><button class="ghost small" id="flRev" title="按记忆曲线温这一匣（会记进度）">🌙 ${esc(T("yj_review"))}这一匣</button>`;
     if (!FL.keys.length) {
       s.innerHTML = head(title, go) + `<div class="yj-finish"><h2>这一匣还是空的</h2><p>到修炼殿「${esc(T("yj_add"))}」或「师傅制卡」放进玉简。</p></div>`;
-      bindBack(); document.getElementById("flRev").onclick = () => review(FL.deck); return;
+      bindBack(); document.getElementById("flRev").onclick = () => review(FL.deck); document.getElementById("flToc").onclick = () => browseDeck(FL.deck); return;
     }
     FL.i = Math.max(0, Math.min(FL.i, FL.keys.length - 1));
     let c;
@@ -353,6 +369,7 @@
     bindBack();
     s.querySelectorAll(".yj-face img").forEach((im) => (im.onclick = () => window.zoomImg && zoomImg(im.src)));
     document.getElementById("flRev").onclick = () => review(FL.deck);
+    document.getElementById("flToc").onclick = () => browseDeck(FL.deck);
     document.getElementById("flShow").onclick = flipReveal;
     document.getElementById("flPrev").onclick = () => { FL.i--; flipShow(); };
     document.getElementById("flNext").onclick = () => { FL.i++; flipShow(); };
@@ -572,16 +589,25 @@
 
   // ---------------------------------------------------------------- 藏简阁
   const BR = { deck: "", q: "", filter: "", page: 0, sel: new Set(), cur: null };
+  // 藏经阁点一枚玉简：先看这一匣的目录（藏简阁），点哪张就从哪张翻起
+  function browseDeck(deck) {
+    MODE = "browse";
+    Object.assign(BR, { deck: deck || "", q: "", filter: "", page: 0 });
+    BR.flip = true;
+    return browseScreen();
+  }
   async function browseScreen() {
     await ensureOV().catch(showError);
     const s = stage();
-    s.innerHTML = head(`🏛 ${esc(T("yj_browse"))}`) + `<div class="yj-browse">
+    s.innerHTML = head(`🏛 ${esc(T("yj_browse"))}${BR.deck ? ` · ${esc(BR.deck.replace(/::/g, " › "))}` : ""}`,
+      BR.flip ? `<button class="ghost small" id="bFlipAll" title="从第一张开始一枚枚翻看">📖 从头翻看</button>` : "") + `<div class="yj-browse">
       <div class="yj-bfilter"><select id="bDeck"><option value="">全部${esc(T("yj_deck"))}</option>${deckOptions(BR.deck)}</select>
         <input id="bQ" placeholder="搜正面、反面、标签…" value="${esc(BR.q)}">
         <div class="yj-chips">${[["", "全部"], ["new", T("yj_new")], ["due", "今日到期"], ["susp", "暂停"], ["leech", T("yj_leech")]].map(([k, v]) => `<a class="${BR.filter === k ? "on" : ""}" data-bf="${k}">${esc(v)}</a>`).join("")}</div></div>
       <div class="yj-bbatch" id="bBatch"></div>
       <div class="yj-btable" id="bTable">读取中…</div></div>`;
     bindBack();
+    const fa = document.getElementById("bFlipAll"); if (fa) fa.onclick = () => flipDeck(BR.deck);
     document.getElementById("bDeck").onchange = () => { BR.deck = document.getElementById("bDeck").value; BR.page = 0; loadRows(); };
     let qt = null;
     document.getElementById("bQ").oninput = () => { clearTimeout(qt); qt = setTimeout(() => { BR.q = val("bQ"); BR.page = 0; loadRows(); }, 250); };
@@ -606,7 +632,8 @@
     if (n) n.onclick = () => { BR.page++; loadRows(); };
     box.querySelectorAll("tr[data-key]").forEach((tr) => (tr.onclick = (e) => {
       if (e.target.matches("input")) return;
-      editDialog(tr.dataset.id, loadRows);
+      if (BR.flip) flipDeck(BR.deck, tr.dataset.key);      // 藏经阁进来的：点哪张从哪张翻
+      else editDialog(tr.dataset.id, loadRows);
     }));
     box.querySelectorAll("[data-sel]").forEach((cb) => (cb.onchange = () => { cb.checked ? BR.sel.add(cb.dataset.sel) : BR.sel.delete(cb.dataset.sel); batchBar(); }));
     document.getElementById("bAll").onchange = (e) => { box.querySelectorAll("[data-sel]").forEach((cb) => { cb.checked = e.target.checked; cb.checked ? BR.sel.add(cb.dataset.sel) : BR.sel.delete(cb.dataset.sel); }); batchBar(); };
@@ -842,5 +869,5 @@
   const active = () => MODE === "review" && !!R && !!R.card && document.visibilityState === "visible" && Date.now() - lastActive < 600000;
   const board = () => (R && R.deck ? R.deck.split("::")[0] : "");
   const drawKey = () => (MODE === "review" && R && R.card ? "yj:" + R.card.key : "");
-  window.CARDS = { drawKey, hubHtml, bindHub, review, open, flipDeck, close: closeStage, isOpen: () => !!MODE, active, board };
+  window.CARDS = { drawKey, hubHtml, bindHub, toolsHtml, bindTools, browseDeck, review, open, flipDeck, close: closeStage, isOpen: () => !!MODE, active, board };
 })();

@@ -1681,3 +1681,19 @@ html[data-theme="dark"] .yj-face span[style*="color"] { filter: brightness(1.45)
 .nt-jump { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); padding: 2px 8px; border: 1px solid var(--line); border-radius: 8px; white-space: nowrap; }
 .nt-jump input { width: 4.2em; padding: 2px 4px; text-align: center; font-size: 13px; -moz-appearance: textfield; }
 .nt-jump input::-webkit-outer-spin-button, .nt-jump input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* 3.2.2：手动输入的表单收成可展开（默认收起），进度条照常显示 */
+.form-fold { margin-top: 8px; }
+.form-fold > summary { cursor: pointer; font-size: 14px; color: var(--accent); padding: 6px 2px; list-style: none; user-select: none; }
+.form-fold > summary::-webkit-details-marker { display: none; }
+.form-fold > summary::before { content: "▸ "; color: var(--faint); }
+.form-fold[open] > summary::before { content: "▾ "; }
+details.card-fold { padding-top: 14px; padding-bottom: 14px; }
+details.card-fold > summary { cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .05em; list-style: none; user-select: none; }
+details.card-fold > summary::-webkit-details-marker { display: none; }
+details.card-fold > summary::before { content: "▸ "; color: var(--faint); font-family: system-ui, sans-serif; }
+details.card-fold[open] > summary::before { content: "▾ "; }
+details.card-fold[open] > summary { margin-bottom: 10px; }
+details.card-fold > summary small { font-family: system-ui, sans-serif; font-weight: 400; font-size: 12px; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+.yj-tools-lib { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+.yj-moved { margin-top: 10px; }

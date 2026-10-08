@@ -456,8 +456,8 @@ const views = {
     return `<div class="card ascend-card"><h3>🌈 ${esc(W("ascend"))}（国考） <small>真正的那一场：出分后在这里留下记录</small></h3>
         <div class="ascend-row">
           <div class="ascend-list">${d.ascend.length ? d.ascend.map((b) => `<div><b>${esc(b.name)}</b> ${b.score} 分 <span class="faint small">${b.d}</span></div>`).join("") : '<p class="muted small">还没有飞升记录。</p>'}</div>
-          <div class="row"><input id="asName" placeholder="如 2026 国考" style="flex:2"><input id="asScore" placeholder="行测分数" style="flex:1">
-          <select id="asResult" style="width:auto"><option>进面</option><option>上岸</option><option>未进面</option></select><button class="primary" id="asBtn">记录</button></div></div></div>
+          <details class="fold form-fold"><summary>✍ 记录${esc(W("ascend"))}</summary><div class="row"><input id="asName" placeholder="如 2026 国考" style="flex:2"><input id="asScore" placeholder="行测分数" style="flex:1">
+          <select id="asResult" style="width:auto"><option>进面</option><option>上岸</option><option>未进面</option></select><button class="primary" id="asBtn">记录</button></div></details></div></div>
     <div class="log-cols">
       <div class="log-col">
         <div class="card"><h3>📜 ${esc(W("tasks"))} <small>${P.doneN}/${P.tasks.length} · 约 ${P.totalMin} 分钟</small></h3>
@@ -465,8 +465,9 @@ const views = {
           <div class="row" style="margin-top:8px"><button class="ghost small" id="regen">重新生成${esc(W("tasks"))}</button>
           <button class="small" id="chatBtn">💬 ${esc(W("chat_btn"))}</button></div></div>
         <div class="card"><h3>⚔ 记录${esc(W("boss"))}（模考成绩）</h3>
+          <details class="fold form-fold"><summary>✍ 记一次成绩</summary>
           <div class="row"><input id="bossName" placeholder="名称，如 第37季" style="flex:2"><input id="bossScore" placeholder="分数" style="flex:1"><button class="primary" id="bossBtn">记录</button></div>
-          <div class="small muted" style="margin-top:6px">最近两次的较低分若高于当前${esc(W("score"))}，${esc(W("xp"))}直接补上；达到下一道${esc(W("tribulation"))}线得突破丹</div></div>
+          <div class="small muted" style="margin-top:6px">最近两次的较低分若高于当前${esc(W("score"))}，${esc(W("xp"))}直接补上；达到下一道${esc(W("tribulation"))}线得突破丹</div></details></div>
         <div class="card"><h3>📜 ${esc(W("leave"))} <small>本月已用 ${d.leave.used}/${d.leave.total}</small></h3>
           <p class="muted small">生病、家里有事、加班……用一份${esc(W("leave"))}：今天${esc(W("streak"))}不断，也不计入${esc(W("ideal"))}。</p>
           <button id="leaveBtn" ${d.leave.today ? "disabled" : ""}>${d.leave.today ? "今天已告假" : "使用" + esc(W("leave"))}</button></div>
@@ -576,6 +577,7 @@ function lectureCard(d) {
   return `<div class="card lecture-card tone-lecture" style="margin-top:14px">
     <h3>📿 ${esc(W("lecture_title"))} <small>今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟 · 近 7 天 ${lec7} 分钟</small></h3>
     <div title="今日${esc(W("lecture"))} ${m.lecture ?? 0} 分钟（占每日目标 ${goal} 分钟）">${sancaiBar({ lecture: m.lecture ?? 0 }, goal, ["lecture"])}</div>
+    <details class="fold form-fold"><summary>✍ 记一笔${esc(W("lecture"))}</summary>
     <p class="small muted">${esc(W("lecture_hint"))}</p>
     <div class="row lec-form">
       <label>${esc(W("lecture"))}几分钟 <input type="number" id="lecMin" min="1" max="600" placeholder="如 90"></label>
@@ -583,7 +585,7 @@ function lectureCard(d) {
       <label>模块（可不选） <select id="lecBoard"><option value="">不分模块</option>${boardOptions(d.tree.map((t) => t.board).concat(d.side.map((s) => s.board)))}</select></label>
       <label style="flex:2">讲的什么（可不填） <input id="lecNote" maxlength="40" placeholder="如：粉笔 判断推理 第3讲"></label>
       <label>哪天 <select id="lecDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
-      <button class="primary" id="lecGo">📿 记入</button></div>
+      <button class="primary" id="lecGo">📿 记入</button></div></details>
     <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("lecture"))}记录 <span class="muted small">· ${(d.lectures || []).length} 次 · ${lec7} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("lecture"))}记录</div>`}</details>
   </div>`;
 }
@@ -706,6 +708,7 @@ function practiceCard(d) {
   return `<div class="card lecture-card tone-practice" style="margin-top:14px">
     <h3>⚔ ${esc(W("practice_title"))} <small>今日做题 ${t.practice} 分钟 · 其中自练 ${t.self} 分钟${n ? ` · ${ok}/${n} 题 · 正确率 ${rate(ok, n)}` : ""}</small></h3>
     ${sancaiBar({ practice: t.self, drill: t.practice - t.self }, goal, ["practice", "drill"])}
+    <details class="fold form-fold"><summary>✍ 记一笔${esc(W("practice"))}</summary>
     <p class="small muted">纸质资料、其他 App 上自己刷题，也是演武。练完来此记一笔：分钟算进「做题」，心得写进 训练/演武录/${esc((d.today || "").slice(0, 7))}.md。</p>
     <div class="row lec-form">
       <label>板块 <select id="prBoard">${boardOptions(boards)}<option>其他</option></select></label>
@@ -715,7 +718,7 @@ function practiceCard(d) {
       <label style="flex:1">资料（可不填） <input id="prSrc" maxlength="60" placeholder="如：粉笔980 P120"></label>
       <label style="flex:2">心得（可不填） <input id="prNote" maxlength="500" placeholder="错在哪、悟到了什么；只写心得题数留空"></label>
       <label>哪天 <select id="prDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
-      <button class="primary" id="prBtn">⚔ 记入</button></div>
+      <button class="primary" id="prBtn">⚔ 记入</button></div></details>
     <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("practice"))}记录 <span class="muted small">· ${list.length} 次 · ${wn} 题 · 正确率 ${rate(wok, wn)} · ${wmin} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("practice"))}记录：记一笔就会出现在这里</div>`}</details>
   </div>`;
 }
@@ -733,6 +736,7 @@ function selfstudyCard(d) {
   return `<div class="card lecture-card tone-review" style="margin-top:14px">
     <h3>🪷 ${esc(W("selfstudy_title"))} <small>今日${esc(W("selfstudy"))} ${t.self_review || 0} 分钟 · 今日复习共 ${t.review} 分钟 · 近 7 天${esc(W("selfstudy"))} ${w7} 分钟</small></h3>
     ${sancaiBar({ review: t.self_review || 0, rdrill: Math.max(0, t.review - (t.self_review || 0)) }, goal, ["review", "rdrill"])}
+    <details class="fold form-fold"><summary>✍ 记一笔${esc(W("selfstudy"))}</summary>
     <p class="small muted">不在程序里、自己闭门复习（背口诀、看笔记、整理错题本、回看网课笔记……）也是温养。复习完来此记一笔：分钟算进「复习」，写进 训练/静修录/${esc((d.today || "").slice(0, 7))}.md。</p>
     <div class="row lec-form">
       <label>${esc(W("selfstudy"))}几分钟 <input type="number" id="ssMin" min="1" max="600" placeholder="如 60"></label>
@@ -741,7 +745,7 @@ function selfstudyCard(d) {
       <label style="flex:1.2">复习了什么（可不填） <input id="ssTopic" maxlength="60" placeholder="如：削弱题口诀、错题本"></label>
       <label style="flex:1.6">心得（可不填） <input id="ssNote" maxlength="500" placeholder="哪里还不熟、下次怎么练"></label>
       <label>哪天 <select id="ssDay">${days.map((ds, k) => `<option value="${ds}">${dayName(ds, k)}</option>`).join("")}</select></label>
-      <button class="primary" id="ssBtn">🪷 记入</button></div>
+      <button class="primary" id="ssBtn">🪷 记入</button></div></details>
     <details class="fold" style="margin-top:8px"><summary>近 7 天${esc(W("selfstudy"))}记录 <span class="muted small">· ${list.length} 次 · ${w7} 分钟</span></summary>${rows || `<div class="muted small">近 7 天还没有${esc(W("selfstudy"))}记录：记一笔就会出现在这里</div>`}</details>
   </div>`;
 }
@@ -960,7 +964,7 @@ async function hubHtml() {
   const tower = d.tower;
   const gates = `<div class="hall-gates">
     <div class="gate ${HALL === 'xiulian' ? 'on' : ''}" data-hall="xiulian"><div class="gate-cloud"></div><div class="gate-icon">🧘</div>
-      <div class="gate-name">修 炼</div><div class="gate-sub">${esc(W('yj'))}温习 · 斩心魔</div><div class="gate-stat">${esc(W('yj_add'))} · ${esc(W('yj_review'))} · ${esc(W('yj_browse'))} · ${esc(W('yj_stats'))}</div></div>
+      <div class="gate-name">修 炼</div><div class="gate-sub">${esc(W('yj'))}温习 · 灵脉图</div><div class="gate-stat">${esc(W('yj_review'))} · 简匣规矩 · 灵脉图</div></div>
     <div class="gate ${HALL === 'shizhan' ? 'on' : ''}" data-hall="shizhan"><div class="gate-cloud"></div><div class="gate-icon">⚔</div>
       <div class="gate-name">实 战</div><div class="gate-sub">试炼塔 · 真题成套</div><div class="gate-stat">${tower ? (tower.summit ? '百层已登顶' : `正在攀登第 ${tower.current} 层`) : '真题试炼'}</div></div></div>`;
   const body = HALL === 'shizhan' ? await shizhanHtml() : await xiulianHtml();
@@ -969,16 +973,8 @@ async function hubHtml() {
 
 // 修炼：上面是玉简（照 Anki 的记忆卡片，web/cards.js），下面斩心魔（模考错题）
 async function xiulianHtml() {
-  const [yj, ln, wr] = await Promise.all([window.CARDS ? CARDS.hubHtml() : '', window.MINDMAP ? MINDMAP.hubHtml() : '', api('/api/wrong')]);
-  const tasks = DASH?.plan?.tasks || [];
-  const left = tasks.filter(t => !t.done).length;
-  const rec = `<details class="card rec-card"><summary><b>📜 师尊荐课</b> <span class="small muted">程序按进度排的建议（温简、心魔回炉、真题试炼），做不做由你 · 还剩 ${left} 项</span></summary>
-    ${tasks.map(taskRow).join('') || '<div class="muted small">今天没有推荐</div>'}</details>`;
-  const boards = (wr.boards || []).filter(b => b.total);
-  const kill = `<div class="card kill-card"><div class="row"><h3 style="margin:0">👹 ${esc(W('kill'))}</h3><span class="small muted">模考板块复盘里做错的题，一只只斩掉</span></div>
-    <div class="kill-grid">${boards.map(b => `<button data-xlwrong="${esc(b.board)}" title="${b.redo ? `回炉 ${b.redo}` : ''}${b.new ? ` 未交手 ${b.new}` : ''}">${esc(b.board)}
-      <small>${b.redo ? `回炉 ${b.redo}` : b.new ? `未交手 ${b.new}` : '已斩尽'}</small></button>`).join('') || '<p class="small muted">还没有模考错题：模考后到宗门大比导入成绩，错题会出现在这里。</p>'}</div></div>`;
-  return rec + yj + ln + kill;
+  const [yj, ln] = await Promise.all([window.CARDS ? CARDS.hubHtml() : '', window.MINDMAP ? MINDMAP.hubHtml() : '']);
+  return yj + ln;
 }
 
 let KP_BOARD = '';               // 知识点试炼里选中的板块
@@ -1277,7 +1273,7 @@ async function cardsLibHtml() {
   try { ov = await api('/api/cards'); } catch (e) { return `<div class="card muted">${esc(e.message)}</div>`; }
   const tops = ov.decks.filter((d) => d.depth === 0);
   const subs = (name) => ov.decks.filter((d) => d.depth > 0 && d.name.startsWith(name + '::') && d.total);
-  return `<p class="small muted lib-tip">共 ${ov.cards} 枚${esc(W('yj'))}。每个简匣是一枚玉简，点开像温简一样一枚枚翻看（只是看，不记温习进度）；想按记忆曲线背，点里面的「🌙 ${esc(W('yj_review'))}这一匣」。</p>
+  return `${CARDS.toolsHtml()}<p class="small muted lib-tip">共 ${ov.cards} 枚${esc(W('yj'))}。点一枚玉简先看这一匣的目录（像${esc(W('yj_browse'))}），点哪一张就从哪一张翻起（只是看，不记温习进度）；想按记忆曲线背，到修炼殿温简。</p>
     <div class="tome-grid">${tops.map((d, i) => `<div class="tome-slot"><div class="slip" data-deck="${esc(d.name)}" style="--d:${(i % 6) * 0.7}s">
       <div class="slip-label">${vlabel(d.label)}</div><div class="slip-count">${d.total}</div></div>
       <div class="tome-cap">${d.total ? `${d.total} 枚 · 待温 ${d.review + d.learn} · 新 ${d.new}` : '空匣'}</div>
@@ -1361,7 +1357,8 @@ async function yjOpen(row) {
 }
 function bindLibrary() {
   document.querySelectorAll('[data-libtab]').forEach(b => b.onclick = () => { LIB.tab = b.dataset.libtab; render(); });
-  document.querySelectorAll('[data-deck]').forEach(t => t.onclick = () => CARDS.flipDeck(t.dataset.deck));
+  document.querySelectorAll('[data-deck]').forEach(t => t.onclick = () => CARDS.browseDeck(t.dataset.deck));
+  if (LIB.tab === 'cards' && window.CARDS) CARDS.bindTools($('#view'));
   document.querySelectorAll('[data-pdfbook]').forEach(t => t.onclick = () => { NOTES.openPdfLater(t.dataset.pdfbook); go('notes'); });
   const y = LIB.yj;
   const search = () => { Object.assign(y, { q: $('#yjQ').value.trim(), board: $('#yjBoard').value, status: $('#yjStatus').value, topic: '', page: 0 }); render(); };
@@ -1392,7 +1389,24 @@ function bindLog() {
     try { const r = await api("/api/boss", { kind: "飞升", name: $("#asName").value || "国考", score: $("#asScore").value, result: $("#asResult").value }); handleEvents(r.events); render(); } catch (e) { showError(e); }
   };
 }
+// 设置页：有输入框 / 下拉框的卡片都收成可展开的（默认收起，点标题展开）
+function foldCards(root) {
+  root.querySelectorAll(":scope > .card, :scope > div > .card").forEach((c) => {
+    const h = c.firstElementChild;
+    if (!h || h.tagName !== "H3" || !c.querySelector("input, select, textarea") || c.closest("details")) return;
+    const d = document.createElement("details");
+    d.className = c.className + " card-fold";
+    if (c.id) d.id = c.id;
+    const s = document.createElement("summary");
+    s.innerHTML = h.innerHTML;
+    d.appendChild(s);
+    h.remove();
+    while (c.firstChild) d.appendChild(c.firstChild);
+    c.replaceWith(d);
+  });
+}
 function bindSettings() {
+  foldCards($("#view"));
   DEVICE.bind();
   const saveChat = (p) => { try { localStorage.setItem("chatLayout", JSON.stringify(p)); } catch {} };
   const readChat = () => ({ w: Number($("#cwR").value), h: Number($("#chR").value), side: $("#csideR").checked, fs: Number($("#cfR").value) });
