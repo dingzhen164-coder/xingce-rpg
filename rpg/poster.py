@@ -10,7 +10,6 @@ import base64
 import datetime as dt
 import re
 
-from . import cards
 
 DIR = "战报"
 SPANS = {"day": "今日", "week": "近七日"}
@@ -51,14 +50,14 @@ def stats(g, span="day"):
             q_total += int(x["total"])
             q_ok += int(x.get("correct") or 0)
 
-    # 温简：玉简的复习记录（按凌晨 4 点换日）
+    # 温简：玉简的复习记录。按日历日期算（和功行、做题一样），不用玉简自己“凌晨 4 点换日”的算法，免得半夜温的简对不上今天
     c_total = c_ok = 0
     for row in (g.state.get("cards") or {}).get("log") or []:
         try:
             ts, _, r, _, _ = row.split("|")
         except ValueError:
             continue
-        if cards.logical_today(float(ts)).isoformat() in keep:
+        if dt.date.fromtimestamp(float(ts)).isoformat() in keep:
             c_total += 1
             c_ok += int(r) > 1
 
