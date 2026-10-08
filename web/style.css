@@ -1668,3 +1668,16 @@ html.no-cmix .tj-b.no, html.no-cmix .tj-forgot span { background: rgba(200, 60, 
   .tj-read.asking .tj-toc { height: 62vh; max-height: none; overflow: hidden; }
 }
 html.no-cmix .tj-am.me { background: var(--panel2); }
+
+/* 玉简卡面：有小标题 / 列表的长内容靠左排，小标题蓝色（像 Anki 笔记）；<span style="color:…"> 的彩色字照原色显示 */
+.yj-rich { text-align: left; max-width: 46em; margin: 0 auto; }
+.yj-rich ul, .yj-rich ol { display: block; padding-left: 1.6em; }
+.yj-face h1, .yj-face h2, .yj-face h3, .yj-face h4, .yj-face h5 { color: #2f6fa8; font-size: 1.05em; margin: .6em 0 .25em; }
+html[data-theme="dark"] .yj-face h1, html[data-theme="dark"] .yj-face h2, html[data-theme="dark"] .yj-face h3,
+html[data-theme="dark"] .yj-face h4, html[data-theme="dark"] .yj-face h5 { color: #7fb2e8; }
+html[data-theme="dark"] .yj-face span[style*="color"] { filter: brightness(1.45) saturate(.9); }
+.yj-ink { width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); vertical-align: middle; }
+.yj-ink:hover { transform: scale(1.12); }
+.nt-jump { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); padding: 2px 8px; border: 1px solid var(--line); border-radius: 8px; white-space: nowrap; }
+.nt-jump input { width: 4.2em; padding: 2px 4px; text-align: center; font-size: 13px; -moz-appearance: textfield; }
+.nt-jump input::-webkit-outer-spin-button, .nt-jump input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }

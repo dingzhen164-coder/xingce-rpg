@@ -127,6 +127,25 @@ class CardsTest(unittest.TestCase):
         r = cards.import_text(self.g, {"deck": "资料分析", "text": "#separator:pipe\n" + table})
         self.assertEqual(r["added"], 1)
 
+    def test_import_colors_lists_headings_and_reimport_updates(self):
+        back = ('<h3 style="color: rgb(41, 128, 185)">6 类关键信息</h3><ol><li><b style="color:#c0392b">定义词（拆词法）</b>：拆开</li>'
+                '<li><b>主客体</b>：谁对谁做</li></ol><div>出处：第1章&nbsp;五</div>')
+        self.assertEqual(cards.html_to_md(back),
+                         '### <span style="color:rgb(41, 128, 185)">6 类关键信息</span>\n\n1. **<span style="color:#c0392b">定义词（拆词法）</span>**：拆开\n'
+                         '2. **主客体**：谁对谁做\n\n出处：第1章 五')
+        self.assertEqual(cards.html_to_md('<font color="red">红</font><span style="color:black">黑</span>'), '<span style="color:red">红</span>黑')
+        r = cards.import_text(self.g, {"deck": "定义判断", "text": "要抓哪几类关键信息？\t" + back.replace("<b style", "<b data-x style")})
+        self.assertEqual(r["added"], 1)
+        nid = cards.search(self.g, {"deck": "定义判断"})["rows"][0]["id"]
+        n = cards.note_get(self.g, nid)
+        self.assertIn("### ", n["back"])                       # 反面里的小标题不会把反面截断
+        self.assertIn("出处：第1章 五", n["back"])
+        cards._CACHE["key"] = None
+        self.assertIn("出处：第1章 五", cards.note_get(self.g, nid)["back"])   # 存盘再读也一样
+        r = cards.import_text(self.g, {"deck": "定义判断", "text": "要抓哪几类关键信息？\t<b>新内容</b>"})
+        self.assertEqual((r["added"], r["updated"]), (0, 1))   # 同一个正面：更新，不重复
+        self.assertEqual(cards.note_get(self.g, nid)["back"], "**新内容**")
+
     def test_stats_and_info(self):
         r = self.add("问")
         key = r["id"] + "#1"

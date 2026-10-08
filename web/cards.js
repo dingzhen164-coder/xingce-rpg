@@ -166,7 +166,9 @@
       });
     }
     let html = window.NOTES ? NOTES.mdRender(t, images || {}) : esc(t).replace(/\n/g, "<br>");
-    return html.replace(/\u0001(\d+)\u0002/g, (_, i) => holes[+i]);
+    html = html.replace(/\u0001(\d+)\u0002/g, (_, i) => holes[+i]);
+    // 有小标题 / 列表的长内容：整块靠左排（像笔记），短的照旧居中
+    return /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s)/m.test(t) ? `<div class="yj-rich">${html}</div>` : html;
   }
   function faces(c) {
     const im = c.images;
@@ -426,11 +428,15 @@
     document.getElementById("eFront").focus();
   }
   const val = (id) => (document.getElementById(id)?.value || "").trim();
+  // 上色：选中文字包成 <span style="color:…">…</span>（Obsidian 里也显示颜色）
+  const INK = [["#d0342c", "红色"], ["#1e63d6", "蓝色"], ["#2e9d57", "绿色"], ["#e67e22", "橙色"], ["#8e44ad", "紫色"]];
   function editorFields(n) {
+    const pens = (id) => INK.map(([c, n]) => `<button class="yj-ink" data-ink="${c}" data-for="${id}" style="--c:${c}" title="选中文字后点：标成${n}"></button>`).join("")
+      + `<button class="ghost small" data-ink="" data-for="${id}" title="选中文字后点：去掉颜色">⌫ 色</button>`;
     return `<label class="yj-field">正面<div class="yj-ed-tools"><button class="ghost small" data-cloze title="选中文字后点：挖成填空 {{c1::…}}（Ctrl+Shift+C）">⌗ 挖空</button>
-        <button class="ghost small" data-img="eFront">🖼 图片</button><button class="ghost small" data-pad="eFront">✍ 手写</button></div>
+        <button class="ghost small" data-img="eFront">🖼 图片</button><button class="ghost small" data-pad="eFront">✍ 手写</button>${pens("eFront")}</div>
         <textarea id="eFront" rows="4">${esc(n.front)}</textarea></label>
-      <label class="yj-field"><span id="eBackLbl">反面</span><div class="yj-ed-tools"><button class="ghost small" data-img="eBack">🖼 图片</button><button class="ghost small" data-pad="eBack">✍ 手写</button></div>
+      <label class="yj-field"><span id="eBackLbl">反面</span><div class="yj-ed-tools"><button class="ghost small" data-img="eBack">🖼 图片</button><button class="ghost small" data-pad="eBack">✍ 手写</button>${pens("eBack")}</div>
         <textarea id="eBack" rows="4">${esc(n.back)}</textarea></label>
       <label class="yj-field">标签 <span class="small faint">空格隔开</span><input id="eTags" value="${esc(Array.isArray(n.tags) ? n.tags.join(" ") : n.tags || "")}"></label>
       <input type="file" id="eFile" accept="image/*" hidden>`;
@@ -465,6 +471,17 @@
       if (ty && ty.value !== "填空") { ty.value = "填空"; ty.dispatchEvent(new Event("change")); }
     };
     root.querySelectorAll("[data-cloze]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); cloze(); }));
+    root.querySelectorAll("[data-ink]").forEach((b) => (b.onclick = (e) => {
+      e.preventDefault();
+      const ta = document.getElementById(b.dataset.for);
+      const a = ta.selectionStart, z = ta.selectionEnd;
+      let sel = ta.value.slice(a, z).replace(/<span style="color:[^"]*">|<\/span>/g, "");
+      if (!sel && b.dataset.ink) { toast("先选中要上色的字"); return; }
+      const t = b.dataset.ink ? `<span style="color:${b.dataset.ink}">${sel}</span>` : sel;
+      ta.value = ta.value.slice(0, a) + t + ta.value.slice(z);
+      ta.focus(); ta.selectionStart = a; ta.selectionEnd = a + t.length;
+      ta.dispatchEvent(new Event("input"));
+    }));
     root.querySelectorAll("#eFront,#eBack").forEach((ta) => {
       ta.addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "c" && e.ctrlKey && e.shiftKey && ta.id === "eFront") { e.preventDefault(); cloze(); } });
       ta.addEventListener("paste", (e) => {
@@ -665,7 +682,7 @@
       if (!text.includes("\t") && /^\s*[^|\n]+\|[^|\n]+/m.test(text) && !/^#separator/m.test(text)) text = "#separator:pipe\n" + text;
       try {
         const r = await api("/api/cards/import", { deck: document.getElementById("iDeck").value, text });
-        document.getElementById("iMsg").textContent = `导入了 ${r.added} 张${r.skipped ? `，跳过 ${r.skipped} 行（格式不对或正反面是空的）` : ""}`;
+        document.getElementById("iMsg").textContent = `导入了 ${r.added} 张${r.updated ? `，更新了 ${r.updated} 张已有的（正面一样，内容换成新的，温习进度不变）` : ""}${r.skipped ? `，跳过 ${r.skipped} 行（格式不对或正反面是空的）` : ""}`;
         OV = null;
       } catch (e) { showError(e); }
     };

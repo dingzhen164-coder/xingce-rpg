@@ -133,8 +133,12 @@ def _new_id(taken):
         i += 1
 
 
+SECTIONS = ("正", "反", "附注", "师傅讲讲")
+
+
 def _section(body, name):
-    m = re.search(r"^### %s[ \t]*\n(.*?)(?=^### |\Z)" % re.escape(name), body, re.M | re.S)
+    # 只认这四个小节名当分界：卡片内容里自己写的「### 小标题」不会把反面截断
+    m = re.search(r"^### %s[ \t]*\n(.*?)(?=^### (?:%s)[ \t]*$|\Z)" % (re.escape(name), "|".join(SECTIONS)), body, re.M | re.S)
     return m.group(1).strip("\n").rstrip() if m else ""
 
 
@@ -924,16 +928,92 @@ def stats(g, deck=""):
 
 
 # ---------------------------------------------------------------- 导入（Anki 导出的纯文本 / TSV）
+COLOR_OK = re.compile(r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|rgba?\([\d\s.,%]+\))$")
+
+
+def _color_of(attrs):
+    """标签上的颜色：style="color: …" 或 <font color=…>（背景色、黑色这类不算）"""
+    a = dict((k.lower(), v or "") for k, v in attrs)
+    m = re.search(r"(?:^|;)\s*color\s*:\s*([^;]+)", a.get("style", ""), re.I)
+    c = (m.group(1) if m else a.get("color", "")).strip().strip("'\"")
+    if not c or not COLOR_OK.match(c) or c.lower() in ("black", "#000", "#000000", "inherit", "initial", "currentcolor"):
+        return ""
+    return c
+
+
 def html_to_md(s):
-    s = re.sub(r"(?i)<br\s*/?>|</div>|</p>", "\n", s or "")
-    s = re.sub(r"(?i)<li[^>]*>", "\n- ", s)
-    s = re.sub(r"(?i)</?(b|strong)>", "**", s)
-    s = re.sub(r"(?i)</?(i|em)>", "*", s)
-    s = re.sub(r'(?i)<img[^>]*src="([^"]+)"[^>]*>', r"![[\1]]", s)
-    s = re.sub(r"<[^>]+>", "", s)
-    import html as _html
-    s = _html.unescape(s).replace("\xa0", " ")
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(x.rstrip() for x in s.splitlines())).strip()
+    """Anki / 网页复制来的 HTML → Markdown。加粗、斜体、标题、有序 / 无序列表、图片都转过来；
+    带颜色的字（style="color:…" / <font color>）保留成 <span style="color:…">…</span>（Obsidian 和温简里都显示颜色）"""
+    from html.parser import HTMLParser
+    s = s or ""
+    if "<" not in s:
+        import html as _html
+        return _html.unescape(s).replace("\xa0", " ").strip()
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.out, self.stack, self.lists = [], [], []
+
+        def handle_starttag(self, tag, attrs):
+            tag = tag.lower()
+            pre, post = "", ""
+            if tag in ("b", "strong"):
+                pre, post = "**", "**"
+            elif tag in ("i", "em"):
+                pre, post = "*", "*"
+            elif tag == "mark":
+                pre, post = "==", "=="
+            elif re.fullmatch(r"h[1-6]", tag):
+                pre, post = "\n" + "#" * max(3, int(tag[1])) + " ", "\n"
+            elif tag in ("ol", "ul"):
+                self.lists.append([tag, 0])
+                pre, post = "\n", "\n"
+            elif tag == "li":
+                if self.lists and self.lists[-1][0] == "ol":
+                    self.lists[-1][1] += 1
+                    pre = "\n" + "  " * (len(self.lists) - 1) + "%d. " % self.lists[-1][1]
+                else:
+                    pre = "\n" + "  " * max(0, len(self.lists) - 1) + "- "
+            elif tag in ("p", "div", "tr"):
+                pre, post = "\n", "\n"
+            elif tag == "br":
+                self.out.append("\n")
+                return
+            elif tag == "img":
+                src = dict(attrs).get("src")
+                if src:
+                    self.out.append("![[%s]]" % src)
+                return
+            c = _color_of(attrs)
+            if c:
+                pre, post = pre + '<span style="color:%s">' % c, "</span>" + post
+            self.out.append(pre)
+            self.stack.append((tag, post))
+
+        def handle_endtag(self, tag):
+            tag = tag.lower()
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    for t, post in reversed(self.stack[i:]):
+                        self.out.append(post)
+                        if t in ("ol", "ul") and self.lists:
+                            self.lists.pop()
+                    del self.stack[i:]
+                    return
+
+        def handle_data(self, data):
+            self.out.append(data)
+
+    p = P()
+    p.feed(s)
+    p.close()
+    for _, post in reversed(p.stack):
+        p.out.append(post)
+    md = "".join(p.out).replace("\xa0", " ")
+    md = re.sub(r"\*\*(\s*)\*\*", r"\1", md)                     # 空的加粗
+    md = re.sub(r'<span style="color:[^"]*">(\s*)</span>', r"\1", md)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(x.rstrip() for x in md.splitlines())).strip()
 
 
 def import_text(g, body):
@@ -964,13 +1044,21 @@ def import_text(g, body):
         rows = rows[1:]
     notes, headers = load(g.paths)
     taken = {x["id"] for x in notes}
-    added = []
+    same = {(x["deck"], _plain(x["front"])): x for x in notes}       # 同一个简匣里正面一样的：再导入就更新内容（温习进度不动）
+    added, updated, touched = [], 0, {_safe_file(deck)}
     for r in rows:
         front = html_to_md(r[0])
         back = html_to_md(r[1]) if len(r) > 1 else ""
         tcol = tags_col if tags_col is not None else (2 if len(r) > 2 else None)
         tags = [t for t in re.split(r"\s+", r[tcol]) if t] if tcol is not None and tcol < len(r) else []
         typ = "填空" if CLOZE.search(front) else "问答"
+        old = same.get((deck, _plain(front)))
+        if old:
+            if (old["front"], old["back"]) != (front, back):
+                old["front"], old["back"] = front, back
+                touched.add(old.get("file") or _safe_file(old["deck"]))
+                updated += 1
+            continue
         n = {"id": _new_id(taken), "deck": deck, "type": typ, "tags": tags[:20], "front": front, "back": back, "extra": ""}
         try:
             _check(n)
@@ -979,11 +1067,12 @@ def import_text(g, body):
             continue
         n["file"] = _safe_file(deck)
         added.append(n)
-    if added:
+        same[(deck, _plain(front))] = n
+    if added or updated:
         notes.extend(added)
-        save_notes(g.paths, notes, headers, {_safe_file(deck)})
+        save_notes(g.paths, notes, headers, touched)
         data(g)["decks"].setdefault(deck.split("::")[0], {})
-    return {"added": len(added), "skipped": skipped}
+    return {"added": len(added), "updated": updated, "skipped": skipped}
 
 
 # ---------------------------------------------------------------- 图片（粘贴 / 手写）

@@ -187,7 +187,8 @@
     return `<div class="nt-book">
       <div class="nt-bar">
         <input class="nt-title" id="ntTitle" value="${esc(NB.title)}" maxlength="60" title="${NB.pdf ? "批注本的名字（导出的 PDF 也用这个名字）" : "本子名字（导出的 PDF 也用这个名字）"}">
-        ${NB.pdf ? `<span class="nt-pdftag" title="${esc(NB.pdf)}">📕 PDF · ${NB.pages.length} 页</span>` : `<select id="ntPaper" title="纸">${sel("lines", "横线纸")}${sel("grid", "方格纸")}${sel("blank", "白纸")}</select>`}
+        ${NB.pdf ? "" : `<select id="ntPaper" title="纸">${sel("lines", "横线纸")}${sel("grid", "方格纸")}${sel("blank", "白纸")}</select>`}
+        <span class="nt-jump" title="${NB.pdf ? esc(NB.pdf) + " · " : ""}输入页码回车跳过去">${NB.pdf ? "📕" : "📄"} 第<input id="ntJump" type="number" min="1" max="${NB.pages.length}" value="1" inputmode="numeric">/ <span id="ntTotal">${NB.pages.length}</span> 页</span>
         <span class="nt-tools">
           ${COLORS.map((c) => `<button class="nt-dot ${tool.t === "pen" && tool.c === c ? "on" : ""}" data-col="${c}" style="--c:${c}" title="笔"></button>`).join("")}
           ${WIDTHS.map((w, i) => `<button class="nt-w ${tool.t !== "er" && tool.w === w ? "on" : ""}" data-w="${w}" title="${["细", "中", "粗"][i]}"><i style="height:${w}px"></i></button>`).join("")}
@@ -243,6 +244,10 @@
     LS.set(POS_KEY, JSON.stringify(all));
   }
   const resizeKeep = () => { const k = NB ? curPos() : null; return () => { sizePagesIf(); restorePos(k); }; };   // 改了宽度（收起左栏等）后回到同一处
+  function showPage() {             // 页码框跟着滚动显示当前页（正在输入时不改）
+    const j = document.getElementById("ntJump"), p = curPos();
+    if (j && p && document.activeElement !== j) j.value = p.pg + 1;
+  }
   function restorePos(p) {
     const box = document.getElementById("ntPages");
     const pg = p && box && box.querySelector(`.nt-page[data-pg="${p.pg}"]`);
@@ -253,7 +258,18 @@
     sizePages();
     restorePos(readPos()[NB.id]);
     let posT = 0;
-    document.getElementById("ntPages").addEventListener("scroll", () => { clearTimeout(posT); posT = setTimeout(savePos, 250); }, { passive: true });
+    document.getElementById("ntPages").addEventListener("scroll", () => { clearTimeout(posT); posT = setTimeout(() => { savePos(); showPage(); }, 150); }, { passive: true });
+    showPage();
+    const jump = document.getElementById("ntJump");
+    const goPage = () => {
+      const n = Math.max(1, Math.min(NB.pages.length, Math.round(Number(jump.value) || 1)));
+      jump.value = n;
+      restorePos({ pg: n - 1, f: 0 });
+      savePos();
+    };
+    jump.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); goPage(); jump.blur(); } };
+    jump.onchange = goPage;
+    jump.onfocus = () => jump.select();
     document.querySelectorAll(".nt-ink").forEach(bindInk);
     const $$ = (id) => document.getElementById(id);
     $$("ntTitle").oninput = () => { NB.title = $$("ntTitle").value; queueSave(); };
@@ -265,6 +281,8 @@
       const pg = add.previousElementSibling;
       sizePages(); bindInk(pg.querySelector(".nt-ink"));
       pg.scrollIntoView({ behavior: "smooth", block: "start" });
+      const tot = document.getElementById("ntTotal"); if (tot) tot.textContent = NB.pages.length;
+      const jp = document.getElementById("ntJump"); if (jp) jp.max = NB.pages.length;
       queueSave();
     };
     $$("ntClose").onclick = async () => { if (await flush()) { setFull(false); NB = null; repaintSide(); paintMain(); } };
@@ -628,7 +646,13 @@
   // 小型 Markdown 排版：标题、段落、粗斜体、行内代码、代码块、列表、引用 / Obsidian 提示块、表格、分隔线、图片、[[链接]]
   function mdRender(text, images) {
     const img = (name) => { const p = images[name] || images[name.trim()]; return p ? `<img src="/vault-file?p=${encodeURIComponent(p)}" alt="">` : `<span class="faint">［图：${esc(name)}］</span>`; };
-    const inline = (s) => esc(s)
+    // 带颜色的字：只放行 <span style="color:…">…</span> / <font color="…">…</font>（颜色值查过格式），其它 HTML 照样当文字显示
+    const COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|rgba?\([\d\s.,%]+\))$/;
+    const colors = (h) => h
+      .replace(/&lt;span style=&quot;\s*color\s*:\s*([^;&]+?)\s*;?\s*&quot;&gt;/gi, (m, c) => (COLOR.test(c) ? `<span style="color:${c}">` : m))
+      .replace(/&lt;font color=&quot;([^&]+?)&quot;&gt;/gi, (m, c) => (COLOR.test(c) ? `<span style="color:${c}">` : m))
+      .replace(/&lt;\/(span|font)&gt;/gi, "</span>");
+    const inline = (s) => colors(esc(s))
       .replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, (_, n) => img(n.replace(/&amp;/g, "&")))
       .replace(/!\[[^\]]*\]\(([^)\s]+)\)/g, (_, n) => img(n.replace(/&amp;/g, "&")))
       .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (_, a, b) => `<a data-wiki="${a}">${b}</a>`)
