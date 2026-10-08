@@ -46,7 +46,9 @@
     const el = document.getElementById("notesRoot");
     if (el) el.style.height = Math.max(420, innerHeight - el.getBoundingClientRect().top - 12) + "px";
   }
-  addEventListener("resize", () => { if (VIEW === "notes" && document.getElementById("notesRoot")) { fit(); sizePages(); } });
+  addEventListener("resize", () => {
+    if (VIEW === "notes" && document.getElementById("notesRoot")) { const keep = NB ? curPos() : null; fit(); if (NB) { sizePages(); restorePos(keep); } }
+  });
 
   function side() {
     const books = BOOKS.map((b) => `<button class="nt-item ${NB && NB.id === b.id ? "on" : ""}" data-nb="${esc(b.id)}">
@@ -103,10 +105,10 @@
       document.getElementById("ntFiles").innerHTML = filesHtml(); bindSide();
     }));
     const sm = document.getElementById("ntSideMin"), so = document.getElementById("ntSideOpen");
-    if (sm) sm.onclick = () => { SIDE_MIN = true; LS.set("xrpg-nt-side", "min"); repaintSide(); setTimeout(sizePagesIf, 0); };
-    if (so) so.onclick = () => { SIDE_MIN = false; LS.set("xrpg-nt-side", ""); repaintSide(); setTimeout(sizePagesIf, 0); };
+    if (sm) sm.onclick = () => { SIDE_MIN = true; LS.set("xrpg-nt-side", "min"); const k = resizeKeep(); repaintSide(); setTimeout(k, 0); };
+    if (so) so.onclick = () => { SIDE_MIN = false; LS.set("xrpg-nt-side", ""); const k = resizeKeep(); repaintSide(); setTimeout(k, 0); };
     if (SIDE_MIN) document.querySelectorAll(".nt-side [data-ntab]").forEach((b) => (b.onclick = async () => {
-      TAB = b.dataset.ntab; SIDE_MIN = false; LS.set("xrpg-nt-side", ""); repaintSide(); setTimeout(sizePagesIf, 0);
+      TAB = b.dataset.ntab; SIDE_MIN = false; LS.set("xrpg-nt-side", ""); const k = resizeKeep(); repaintSide(); setTimeout(k, 0);
       if (TAB === "library" && !FILES) document.querySelector('.nt-tabs [data-ntab="library"]').click();
     }));
     const nn = document.getElementById("ntNew");
@@ -216,9 +218,42 @@
       : '<canvas class="nt-bg"></canvas>';
     return `<div class="nt-page" data-pg="${i}" style="aspect-ratio:${PW} / ${ph(i)}">${bg}<canvas class="nt-ink" data-pg="${i}"></canvas><canvas class="nt-live" data-pg="${i}"></canvas><span class="nt-pno">${i + 1}</span></div>`;
   }
+  // 记住每本翻到哪一页（每台设备各记各的）：存“第几页 + 这一页往下多少”，换了屏幕宽度也能回到同一处
+  const POS_KEY = "xrpg-nt-pos";
+  const readPos = () => { try { return JSON.parse(LS.get(POS_KEY, "{}")) || {}; } catch (e) { return {}; } };
+  function pageTop(box, pg) { return pg.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop; }
+  function curPos() {
+    const box = document.getElementById("ntPages");
+    if (!box) return null;
+    for (const pg of box.querySelectorAll(".nt-page")) {
+      const t = pageTop(box, pg), h = pg.offsetHeight || 1;
+      if (t + h > box.scrollTop + 1) return { pg: Number(pg.dataset.pg), f: Math.max(0, Math.round((box.scrollTop - t) / h * 1000) / 1000) };
+    }
+    return null;
+  }
+  function savePos() {
+    if (!NB) return;
+    const p = curPos();
+    if (!p) return;
+    const all = readPos();
+    delete all[NB.id];
+    all[NB.id] = p;
+    const ids = Object.keys(all);
+    ids.slice(0, Math.max(0, ids.length - 80)).forEach((k) => delete all[k]);     // 只留最近 80 本
+    LS.set(POS_KEY, JSON.stringify(all));
+  }
+  const resizeKeep = () => { const k = NB ? curPos() : null; return () => { sizePagesIf(); restorePos(k); }; };   // 改了宽度（收起左栏等）后回到同一处
+  function restorePos(p) {
+    const box = document.getElementById("ntPages");
+    const pg = p && box && box.querySelector(`.nt-page[data-pg="${p.pg}"]`);
+    if (pg) box.scrollTop = pageTop(box, pg) + (p.f || 0) * pg.offsetHeight;
+  }
   function bindBook() {
     NEAR.clear();
     sizePages();
+    restorePos(readPos()[NB.id]);
+    let posT = 0;
+    document.getElementById("ntPages").addEventListener("scroll", () => { clearTimeout(posT); posT = setTimeout(savePos, 250); }, { passive: true });
     document.querySelectorAll(".nt-ink").forEach(bindInk);
     const $$ = (id) => document.getElementById(id);
     $$("ntTitle").oninput = () => { NB.title = $$("ntTitle").value; queueSave(); };
@@ -445,7 +480,8 @@
       if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     } catch (e) {}
     const b = document.getElementById("ntFull"); if (b) b.innerHTML = fullIcon(on);
-    setTimeout(sizePagesIf, 60);
+    const keep = curPos();
+    setTimeout(() => { sizePagesIf(); restorePos(keep); }, 60);
   }
   document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && isFull()) setFull(false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isFull()) setFull(false); });
