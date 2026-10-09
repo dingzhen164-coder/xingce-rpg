@@ -58,6 +58,52 @@ function handleEvents(events, { inChat = false } = {}) {
     else if (e.kind === "realm") realmUp(e);
     else if (e.kind === "npc" && e.msg) inChat ? T.msgs.push({ who: "npc", text: e.msg }) : npcToast(e.msg);
     else if (e.kind === "info") toast("✦ " + esc(e.msg), "info", 6000);
+    else if (e.kind === "ready") readyToast(e);
+  }
+}
+let readyShown = "";
+function readyToast(e) {         // 修为圆满：只提醒，突破要自己去洞府按
+  if (readyShown === e.next) return;
+  readyShown = e.next;
+  const el = document.createElement("div");
+  el.className = "toast ready";
+  el.innerHTML = `<div><b>✦ ${esc(W("xp"))}圆满 ✦</b><div class="small">可以突破至「${esc(e.next || "")}」了</div></div><button class="small primary">去突破</button>`;
+  $("button", el).onclick = () => { el.remove(); if (document.documentElement.classList.contains("in-chat") && !confirm("离开这次功课，回洞府突破？")) return; go("home"); };
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 12000);
+}
+// ⚡ 按住突破：按住约 1.5 秒灵气灌满按钮 → 全屏蓄力 → 大典画面。松手就散，不会误触
+function bindBreak() {
+  const b = $("#rbBtn"); if (!b) return;
+  const HOLD = 1500;
+  let t0 = 0, raf = 0, done = false;
+  const fill = $(".rb-fill", b);
+  const stop = () => { if (done) return; cancelAnimationFrame(raf); t0 = 0; b.classList.remove("holding"); fill.style.setProperty("--p", 0); };
+  const step = () => {
+    const p = Math.min(1, (performance.now() - t0) / HOLD);
+    fill.style.setProperty("--p", p);
+    if (p >= 1) { done = true; b.classList.remove("holding"); fire(); return; }
+    raf = requestAnimationFrame(step);
+  };
+  b.addEventListener("pointerdown", (ev) => { if (done) return; ev.preventDefault(); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* 不支持就算了 */ } t0 = performance.now(); b.classList.add("holding"); raf = requestAnimationFrame(step); });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((k) => b.addEventListener(k, stop));
+  b.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  b.addEventListener("keydown", (ev) => { if ((ev.key === " " || ev.key === "Enter") && !t0 && !done) { ev.preventDefault(); t0 = performance.now(); b.classList.add("holding"); raf = requestAnimationFrame(step); } });
+  b.addEventListener("keyup", (ev) => { if (ev.key === " " || ev.key === "Enter") stop(); });
+  async function fire() {
+    const ov = document.createElement("div");
+    ov.className = "rb-charge";
+    ov.innerHTML = `<div class="rb-orb"></div><div class="rb-ring"></div><div class="rb-ring r2"></div><div class="rb-say">灵气归元 · 冲击「${esc(DASH.realm.next)}」</div>`;
+    document.body.appendChild(ov);
+    let res, err;
+    await Promise.all([api("/api/realm/break", {}).then((r) => (res = r), (e) => (err = e)), new Promise((r) => setTimeout(r, 1700))]);
+    ov.classList.add("burst");
+    await new Promise((r) => setTimeout(r, 450));
+    ov.remove();
+    if (err) { showError(err); await refresh(); render(); return; }
+    readyShown = "";
+    await refresh(); render();
+    handleEvents(res.events);
   }
 }
 function realmUp(e) {
@@ -370,7 +416,9 @@ const views = {
     const diff = I.diff_days;
     const ideal = diff > 0.5 ? `<div class="v bad">落后 ${diff} 天</div><div class="d">${I.catch ? `每天多修 ${I.catch.per_day} 分钟约 ${I.catch.days} 天追平，或多做几道题` : ""}</div>`
       : diff < -0.5 ? `<div class="v good">领先 ${-diff} 天</div><div class="d">保持住</div>` : `<div class="v">恰在线上</div><div class="d">按计划修行</div>`;
-    const barLabel = R.bottleneck
+    const barLabel = R.ready
+      ? `<span class="rb-label">✦ ${esc(W("xp"))}圆满 → 可突破至「${esc(R.next)}」${R.ready_count > 1 ? `（攒够了 ${R.ready_count} 层，可一层层连破）` : ""}</span>`
+      : R.bottleneck
       ? `<span style="color:var(--gold)">⚡ ${esc(W("bottleneck"))}：积压${esc(W("xp"))} ${R.overflow}，${esc(W("tribulation"))}成功后一次涌入</span>`
       : `${esc(W("xp"))} ${R.into} / ${R.need}${R.next ? ` → ${esc(R.next)}` : ""}`;
     const trib = d.trib ? `<div class="card trib-card"><h3>⚡ ${esc(W("tribulation"))} · 冲击${esc(d.trib.realm)} <small>${d.trib.thunders} 道天雷 · ${esc(d.trib.pill)} ×${d.trib.pills}</small></h3>
@@ -388,7 +436,9 @@ const views = {
         <div class="realm-name">${esc(R.name)}${R.bottleneck ? ` <span class="tag cur">${esc(W("bottleneck"))}</span>` : ""}</div>
         <div class="hero-title">第 ${d.lap} 个${esc(W("lap"))} · ${d.batch.index ? `第 ${d.batch.index}/${d.batch.count} ${esc(W("batch"))}：${d.batch.boards.map(esc).join("、")}` : "本轮已圆满"}</div>
         <div class="row small muted" style="margin-top:8px"><span>${barLabel}</span><span class="spacer"></span><span>累计 ${d.xp}</span></div>
-        ${bar(R.frac)}
+        ${bar(R.frac, R.ready ? "full" : "")}
+        ${R.ready ? `<div class="rb-row"><button class="rb-btn" id="rbBtn" type="button"><span class="rb-fill"></span><span class="rb-txt">⚡ 按住突破 · ${esc(R.next)}</span></button>
+          <span class="small muted">按住约 1.5 秒凝聚灵气，松手则散</span></div>` : ""}
       </div>
       <div class="hero-score"><div class="small muted">${esc(W("score"))}</div><div class="big">${R.score}<span>分</span></div>
         <div class="small muted">目标 ${R.target} 分</div>
@@ -819,6 +869,7 @@ function bindHome() {
   bindTimeCard();
   bindBoardTime();
   const ph = $("#psHero"); if (ph) ph.onclick = () => POSTER.open("day");
+  bindBreak();
   const tb = $("#tribBtn"); if (tb) tb.onclick = () => startTask({ task: { type: "tribulation", board: "", target: String(DASH.trib.gate), title: `⚡ ${W("tribulation")} · ${DASH.trib.realm}` } });
   bindRetreatTimer();
   if (DASH?.greet_pending) {

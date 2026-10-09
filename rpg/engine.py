@@ -147,16 +147,37 @@ class Game:
         days = max(30, (r.date("目标日") - r.date("开始日期")).days)
         return r.num("每日理想经验") * days
 
+    def curve(self):
+        """成长曲线指数 p：道行 = 起始 + 跨度 ×（修为 / 理想修为）^p。p < 1 前快后慢（刚入门进步快、越往上越难），p = 1 是直线"""
+        return max(0.3, min(1.0, float(self.rules.num("成长曲线指数") or 1)))
+
     def xp_at(self, score):
         r = self.rules
         span = r.num("目标分数") - r.num("起始分数")
-        return (score - r.num("起始分数")) / span * self.ideal_total()
+        f = max(0.0, (score - r.num("起始分数")) / span)
+        return f ** (1.0 / self.curve()) * self.ideal_total()
 
     def raw_score(self, xp=None):
         r = self.rules
         xp = self.state["xp"] if xp is None else xp
         span = r.num("目标分数") - r.num("起始分数")
-        return min(r.num("最高分数"), r.num("起始分数") + span * xp / self.ideal_total())
+        return min(r.num("最高分数"), r.num("起始分数") + span * (max(0.0, xp) / self.ideal_total()) ** self.curve())
+
+    def claimed(self):
+        """玩家自己点过突破、真正踏入的小境界（起始分）。修为满了不会自动升，要在洞府点「⚡ 突破」。
+        老存档第一次读：按原来的直线算法算出当时的境界，从那里开始（新曲线多出来的几层，自己一层层点上去）"""
+        c = self.state.get("claimed")
+        if c is None:
+            r = self.rules
+            span = r.num("目标分数") - r.num("起始分数")
+            old = min(r.num("最高分数"), r.num("起始分数") + span * self.state["xp"] / self.ideal_total())
+            for g in self.gates():
+                if g not in self.state["gates"] and old >= g:
+                    old = g - 0.01
+                    break
+            c = themes.sub_stage(int(math.floor(old + 1e-9)))[2]
+            self.state["claimed"] = c
+        return c
 
     def gates(self):
         return sorted(int(x) for x in self.rules.nums("渡劫分数线"))
@@ -174,25 +195,104 @@ class Game:
         raw = self.raw_score(xp)
         gate = self.pending_gate(xp)
         eff = min(raw, gate - 0.01) if gate else raw
-        s_int = int(math.floor(eff + 1e-9))
+        avail = int(math.floor(eff + 1e-9))               # 修为够到的小境界
+        s_int = min(self.claimed(), avail)                # 真正踏入的（自己点过突破的）
         big, sub, a, b = themes.sub_stage(s_int)
         b = min(b, self.rules.num("最高分数"))
         name = themes.realm_name(self.theme, s_int)
-        if gate:
+        ready = b > s_int and avail >= b                  # 修为圆满：可以点突破进下一个小境界
+        if ready:
+            into = need = int(self.xp_at(b) - self.xp_at(a))
+            frac = 1.0
+        elif gate:
             into, need, frac = int(xp - self.xp_at(a)), int(self.xp_at(gate) - self.xp_at(a)), 1.0
         elif b > a:
             into, need = int(xp - self.xp_at(a)), int(self.xp_at(b) - self.xp_at(a))
             frac = max(0.0, min(1.0, into / need)) if need else 1.0
         else:
             into, need, frac = 0, 0, 1.0
-        nxt = themes.realm_name(self.theme, b) if b > s_int and not gate else ""
+        nxt = themes.realm_name(self.theme, b) if b > s_int and (ready or not gate) else ""
         return {"score": round(eff, 1), "raw": round(raw, 2), "big": big, "sub": sub,
                 "name": name, "big_name": self.th["realms"][big],
-                "bottleneck": bool(gate), "gate": gate,
+                "ready": ready, "ready_to": b if ready else None, "ready_count": sum(1 for _ in self._stages_between(b, avail)) if ready else 0,
+                "bottleneck": bool(gate) and not ready, "gate": gate,
                 "gate_realm": themes.realm_of_gate(self.theme, gate) if gate else "",
                 "overflow": int(xp - self.xp_at(gate)) if gate else 0,
                 "into": into, "need": need, "frac": frac, "next": nxt,
                 "target": self.rules.num("目标分数"), "max_score": self.rules.num("最高分数")}
+
+    def _stages_between(self, start, avail):
+        """从 start 起到 avail 为止，还能突破几次（每个小境界起始分）"""
+        s = start
+        while s <= avail:
+            yield s
+            nb = themes.sub_stage(s)[3]
+            if nb <= s:
+                break
+            s = nb
+
+    def ready_event(self, before):
+        """修为刚圆满（before 还没满、现在满了）：提醒去洞府点突破"""
+        after = self.realm_info()
+        if after["ready"] and not before.get("ready"):
+            return [{"kind": "ready", "name": after["name"], "next": after["next"],
+                     "msg": f"{self.T('xp')}圆满！可以突破至「{after['next']}」了——去{self.th['terms'].get('nav.home', '洞府').split()[-1]}点「⚡ 突破」"}]
+        return []
+
+    def break_through(self):
+        """⚡ 突破：修为圆满时自己点，踏入下一个小境界（大境界之间还是要渡劫）"""
+        before = self.realm_info()
+        if not before["ready"]:
+            raise ValueError("修为还没圆满，不能突破" if not before["bottleneck"] else f"大境界要先{self.T('tribulation')}")
+        self.state["claimed"] = before["ready_to"]
+        after = self.realm_info()
+        self.state["events"].append({"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "breakthrough",
+                                     "board": "", "item": "", "ok": True, "xp": 0, "note": f"突破：{before['name']} → {after['name']}"})
+        return [{"kind": "realm", "name": after["name"], "major": after["big"] != before["big"], "score": after["score"],
+                 "big_name": after["big_name"], "next": after["next"], "target": after["target"], "xp": self.state["xp"],
+                 "from": before["name"], "more": after["ready"]},
+                self._npc("小境界提升")]
+
+    def _backfill_study_xp(self):
+        """3.3.0 起修炼每分钟都给基础修为：以前在程序里修炼的时间一次补发（听道、静修、演武本来就按分钟 / 题给过，不重复）"""
+        if self.state.get("xp_backfill"):
+            return []
+        self.state["xp_backfill"] = True
+        rate = self.rules.xp("修炼每分钟")
+        mins = sum(self.study_minutes(d) for d in self.state["seconds"])            # 只算程序心跳计时的；静修、演武录入的分钟各有各的修为
+        mins -= sum(x.get("minutes", 0) for x in self.state.setdefault("selfstudy", []))
+        mins -= sum(x.get("minutes", 0) for x in self.state.get("practice", []))
+        mins = max(0, mins)
+        gain = int(mins * rate)
+        if gain <= 0:
+            return []
+        before = self.realm_info()
+        self.state["xp"] += gain
+        self.state["events"].append({"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "study",
+                                     "board": "", "item": "", "ok": True, "xp": gain,
+                                     "note": f"补发：以前的 {int(mins)} 分钟{self.T('study')}（每分钟 {rate:g} {self.T('xp')}）"})
+        return [{"kind": "xp", "v": gain, "msg": f"补发以前 {int(mins)} 分钟{self.T('study')}的{self.T('xp')}"}] + self.ready_event(before)
+
+    def study_xp(self, sec):
+        """有效修炼时间给的基础修为（经验.修炼每分钟）：零头攒着，一天记成一条“修炼 N 分钟”，修仙录不刷屏"""
+        rate = self.rules.xp("修炼每分钟")
+        if not rate or sec <= 0:
+            return []
+        before = self.realm_info()
+        carry = self.state.get("xp_carry", 0.0) + sec / 60.0 * rate
+        gain = int(carry)
+        self.state["xp_carry"] = carry - gain
+        if not gain:
+            return []
+        self.state["xp"] += gain
+        ev = next((e for e in reversed(self.state["events"][-60:]) if e.get("type") == "study" and e.get("d") == self.t), None)
+        if ev is None:
+            ev = {"t": dt.datetime.now().isoformat(timespec="seconds"), "d": self.t, "type": "study", "board": "",
+                  "item": "", "ok": True, "xp": 0, "note": ""}
+            self.state["events"].append(ev)
+        ev["xp"] += gain
+        ev["note"] = f"{self.T('study')} {int(self.study_minutes(self.t))} 分钟"
+        return self.ready_event(before)
 
     # ================================================================ 时间 / 打卡 / 道心
     def study_minutes(self, day):
@@ -686,6 +786,7 @@ class Game:
             before = self.realm_info()
             if gate not in self.state["gates"]:
                 self.state["gates"].append(gate)
+            self.state["claimed"] = max(self.claimed(), gate)          # 渡劫本身就是突破大境界的仪式
             tr.update(cooldown=None, heal=[])
             ev = self._award(self.rules.xp("渡劫成功"), "tribulation", note=f"{self.T('tribulation')}成功，踏入{realm}", bonus=False)
             after = self.realm_info()
@@ -729,7 +830,7 @@ class Game:
 
     def housekeeping(self):
         """检查通关、灵根、护心丹、周常、闭关到期，记录进度快照。每次读取面板和提交结果后调用。"""
-        ev = self._roots_housekeeping()
+        ev = self._backfill_study_xp() + self._roots_housekeeping()
         changed = True
         while changed:
             changed = False
@@ -786,12 +887,7 @@ class Game:
                     ev.append({"kind": "xp", "v": extra, "msg": f"{self.T('epiphany')}！"})
                     ev.append(self._npc("顿悟"))
         after = self.realm_info()
-        if (after["big"], after["sub"]) != (before["big"], before["sub"]) and after["score"] > before["score"]:
-            ev.append({"kind": "realm", "name": after["name"], "major": after["big"] != before["big"],
-                       "score": after["score"], "big_name": after["big_name"], "next": after["next"],
-                       "target": after["target"], "xp": self.state["xp"], "from": before["name"]})
-            if after["big"] == before["big"] or typ != "tribulation":
-                ev.append(self._npc("小境界提升"))
+        ev += self.ready_event(before)                    # 修为圆满不自动升：提醒自己去点突破
         if after["bottleneck"] and not before["bottleneck"]:
             ev.append(self._npc("瓶颈"))
         return ev
@@ -1246,9 +1342,10 @@ class Game:
         if board:
             b = self.state.setdefault("seconds_board", {}).setdefault(self.t, {}).setdefault(board, {})
             b[kind] = b.get(kind, 0) + sec
+        xp_ev = self.study_xp(sec)
         after = self.minutes(self.t)
         goal = self.rules.num("每日目标分钟")
-        ev = []
+        ev = list(xp_ev)
         if before < goal <= after:
             ev.append(self._npc("今日达标"))
         elif before < goal * 1.5 <= after:

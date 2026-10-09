@@ -109,6 +109,12 @@ def fake_chat(messages, json_mode=False, **kw):
     return "好的"
 
 
+
+def claim_all(g):
+    """修为够到哪就一层层点突破到哪（测试用）"""
+    while g.realm_info()["ready"]:
+        g.break_through()
+
 class FlowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -281,6 +287,9 @@ class FlowTest(unittest.TestCase):
         # 修为推到筑基线 → 瓶颈；两次大比 ≥ 60 → 可以渡劫
         with api.open_game() as g:
             g.state["xp"] = int(g.xp_at(61)) + 10
+            self.assertTrue(g.realm_info()["ready"])           # 修为圆满不自动升，自己点突破
+            while g.realm_info()["ready"]:
+                g.break_through()
             info = g.realm_info()
         self.assertTrue(info["bottleneck"])
         self.assertEqual(info["name"], "炼气九层")
@@ -593,7 +602,9 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(d["persona"]["tutor"], "劭神韵")
         self.assertEqual(d["theme"]["terms"]["skeleton"], "功法")
         with api.open_game() as g:                      # 里程碑台词被换成 AI 现场说的
-            ev = api.tutor.enrich(g, g._award(int(g.xp_at(52)), "bonus", note="测试", bonus=False))
+            ev = g._award(int(g.xp_at(52)), "bonus", note="测试", bonus=False)
+            self.assertTrue(any(e.get("kind") == "ready" for e in ev))   # 修为圆满：提醒去点突破
+            ev = api.tutor.enrich(g, g.break_through())
         self.assertTrue(any(e.get("kind") == "realm" for e in ev))
         self.assertIn("哎呀，学姐的现场台词。", [e.get("msg") for e in ev])
         api.theme_set({"theme": "玄幻"})
@@ -964,7 +975,11 @@ class EngineTest(unittest.TestCase):
         g.state["xp"] = total
         g.state["gates"] = [60, 65, 70, 75, 80]
         self.assertAlmostEqual(g.realm_info()["score"], 80.0, places=1)   # 目标日的理想修为 = 80 分
-        g.state["xp"] = total * 7 // 6
+        g.state["xp"] = int(g.xp_at(51)) + 1                                # 前快后慢：练气一层只要理想修为的一小部分
+        self.assertLess(g.state["xp"], total / 100)
+        g.state["xp"] = total
+        g.state["xp"] = int(g.xp_at(86))
+        claim_all(g)
         self.assertEqual(g.realm_info()["name"], "大乘后期")               # 85 分线要渡劫 → 卡在 84.99
         self.assertTrue(g.realm_info()["bottleneck"])
 
@@ -973,10 +988,14 @@ class EngineTest(unittest.TestCase):
         g.add_boss("第37季", 57)
         self.assertEqual(g.realm_info()["name"], "凡人 · 未入道")   # 只有一次，不校准
         g.add_boss("第38季", 58)
+        self.assertEqual(g.realm_info()["name"], "凡人 · 未入道")   # 修为补上了，但要自己点突破
+        self.assertEqual(g.realm_info()["ready_count"], 7)
+        claim_all(g)
         self.assertEqual(g.realm_info()["name"], "炼气七层")        # min(57, 58) = 57 → 直接跨到炼气七层
         self.assertLessEqual(g.ideal()["diff_days"], 2)              # 大比悟道的修为不算天道进度
         g.add_boss("第39季", 66)
         g.add_boss("第40季", 64)
+        claim_all(g)
         info = g.realm_info()
         self.assertEqual(info["name"], "炼气九层")                  # 修为补到 64，但筑基要渡劫
         self.assertTrue(info["bottleneck"])

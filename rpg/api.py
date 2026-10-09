@@ -152,6 +152,16 @@ def _with_housekeeping(g, resp):
     return resp
 
 
+def realm_break(body):
+    """⚡ 突破：修为圆满后由修炼者自己按住「突破」进入下一层（不自动升级，留一点仪式感）"""
+    with open_game() as g:
+        try:
+            ev = g.break_through()
+        except ValueError as e:
+            raise ApiError(str(e))
+        return {"events": tutor.enrich(g, ev), "realm": g.realm_info()}
+
+
 def session_start(body):
     with open_game() as g:
         task = _find_task(g, body["task_id"]) if body.get("task_id") else dict(body["task"], id=None)
@@ -724,6 +734,7 @@ ROUTES = {
     ("POST", "/api/retreat/start"): retreat_start,
     ("POST", "/api/retreat/end"): retreat_end,
     ("POST", "/api/tutor/greet"): tutor_greet,
+    ("POST", "/api/realm/break"): realm_break,
     ("POST", "/api/session/start"): session_start,
     ("POST", "/api/session/reply"): session_reply,
     ("POST", "/api/session/action"): session_action,

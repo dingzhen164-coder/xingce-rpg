@@ -1697,3 +1697,38 @@ details.card-fold[open] > summary { margin-bottom: 10px; }
 details.card-fold > summary small { font-family: system-ui, sans-serif; font-weight: 400; font-size: 12px; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
 .yj-tools-lib { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
 .yj-moved { margin-top: 10px; }
+
+/* ⚡ 按住突破（3.3.0）：修为圆满时洞府里出现，按住约 1.5 秒灵气灌满才突破 */
+.bar.full > div { background: linear-gradient(90deg, var(--gold), #fff3c4, var(--gold)); background-size: 200% 100%;
+  animation: rbShine 2.4s linear infinite; box-shadow: 0 0 14px color-mix(in srgb, var(--gold) 70%, transparent); }
+@keyframes rbShine { to { background-position: -200% 0; } }
+.rb-label { color: var(--gold); font-weight: 700; }
+.rb-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.rb-btn { position: relative; overflow: hidden; padding: 12px 26px; border-radius: 999px; font-size: 16px; font-weight: 800; letter-spacing: 2px;
+  color: #2a1a00; border: 1px solid color-mix(in srgb, var(--gold) 70%, #000); cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: linear-gradient(135deg, #ffe08a, var(--gold) 55%, #c98a12);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--gold) 60%, transparent), 0 4px 16px color-mix(in srgb, var(--gold) 40%, transparent);
+  animation: rbPulse 2s ease-in-out infinite; }
+@keyframes rbPulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--gold) 0%, transparent), 0 4px 22px color-mix(in srgb, var(--gold) 65%, transparent); } }
+.rb-btn .rb-txt { position: relative; z-index: 1; }
+.rb-btn .rb-fill { --p: 0; position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--p));
+  background: linear-gradient(90deg, rgba(255,255,255,.15), rgba(255,255,255,.75)); }
+.rb-btn.holding { animation: rbShake .12s linear infinite; }
+@keyframes rbShake { 25% { transform: translate(1px, -1px); } 75% { transform: translate(-1px, 1px); } }
+.rb-charge { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(circle at 50% 50%, rgba(40,25,0,.55), rgba(0,0,0,.92)); animation: rbFade .3s ease-out; }
+@keyframes rbFade { from { opacity: 0; } }
+.rb-orb { position: absolute; width: 40px; height: 40px; border-radius: 50%;
+  background: radial-gradient(circle, #fff, #ffe08a 40%, rgba(255,190,40,0) 70%); animation: rbGrow 1.7s cubic-bezier(.5,0,.8,.6) forwards; }
+@keyframes rbGrow { to { transform: scale(5); } }
+.rb-ring { position: absolute; width: 520px; height: 520px; border-radius: 50%; border: 2px solid rgba(255,214,110,.8);
+  box-shadow: 0 0 30px rgba(255,200,80,.6), inset 0 0 30px rgba(255,200,80,.4); animation: rbIn 0.85s ease-in infinite; }
+.rb-ring.r2 { animation-delay: .42s; }
+@keyframes rbIn { from { transform: scale(1.4); opacity: 0; } 30% { opacity: 1; } to { transform: scale(.05); opacity: 0; } }
+.rb-say { position: absolute; bottom: 22%; color: #ffe8a8; font-size: 20px; letter-spacing: 6px; text-shadow: 0 0 12px rgba(255,200,80,.8);
+  font-family: var(--display); animation: rbFade 1s ease-out; text-align: center; padding: 0 16px; }
+.rb-charge.burst { background: #fff8e0; transition: background .2s; }
+.rb-charge.burst > * { opacity: 0; transition: opacity .15s; }
+.toast.ready { border-color: var(--gold); display: flex; align-items: center; gap: 12px; }
+.toast.ready b { color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .rb-btn, .bar.full > div, .rb-ring { animation: none; } }

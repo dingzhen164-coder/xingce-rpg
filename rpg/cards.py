@@ -548,13 +548,7 @@ def award(g, xp, deck):
         g.state["events"].append(ev)
     ev["xp"] = max(0, ev["xp"] + xp)
     ev["note"] = "温简 %d 枚" % data(g)["today"]["n"]
-    after = g.realm_info()
-    out = []
-    if (after["big"], after["sub"]) != (before["big"], before["sub"]) and after["score"] > before["score"]:
-        out.append({"kind": "realm", "name": after["name"], "major": after["big"] != before["big"],
-                    "score": after["score"], "big_name": after["big_name"], "next": after["next"],
-                    "target": after["target"], "xp": g.state["xp"], "from": before["name"]})
-    return out
+    return g.ready_event(before)            # 修为圆满不自动升：提醒去洞府点突破
 
 
 # ================================================================ 给网页的
